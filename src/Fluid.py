@@ -150,7 +150,7 @@ k_range2, X_hansen = hansen_fft(-(n + 1), m, P_ecc, k_min, k_max, 2 ** 18)
 X_hansen = X_hansen.reshape(-1)  # 1D array
 
 
-# -------------------- FLUID TIDE K2 LOVE NUMBER --------------------
+# -------------------- FLUID TIDE K2 LOVE NUMBERS --------------------
 
 def compute_fluid_lovenumbers(
     n,
@@ -217,3 +217,59 @@ k22_fluid_high_friction, k22_total = compute_fluid_lovenumbers(
     sigmaR,
     P_radius,
 )
+
+
+# -------------------- INTERPOLATE K2 LOVE NUMBERS --------------------
+
+mu_n = n * (n + 1)
+ksi_n = 3.0 / (2.0 * n + 1.0) * rho_ratio
+sigP_n = np.sqrt(mu_n * P_grav_acc * H_magma / P_radius ** 2)
+
+for kk in range(N_sigma):
+    sigma = sigma_range[kk]
+    sigT = sigma - 1j * sigmaR
+    k22_fluid_high_friction[kk] = -ksi_n * sigP_n ** 2 / (sigma * sigT - sigP_n ** 2)
+    k22_total[kk] = k_T_22_homo[kk] + (1.0 + k_L_22_homo[kk]) * k22_fluid_high_friction[kk]
+
+k22_total = k22_total.reshape(-1)
+
+# Build symmetric full spectrum for interpolation (like MATLAB concatenation)
+full_sigma_range = np.concatenate((-sigma_range, np.flip(sigma_range)))
+full_k22_total = np.concatenate((-k22_total, np.flip(k22_total)))
+full_k22_homo = np.concatenate((-k_T_22_homo, np.flip(k_T_22_homo)))
+
+imag_full_k22 = np.imag(full_k22_total)
+imag_solid_k22 = np.imag(full_k22_homo)
+
+# interpolation functions for imaginary parts (extrapolate outside)
+imag_k22_full_spectrum = interp1d(full_sigma_range, imag_full_k22, kind="linear", fill_value="extrapolate")
+imag_k22_solid_spectrum = interp1d(full_sigma_range, imag_solid_k22, kind="linear", fill_value="extrapolate")
+
+
+# -------------------- Tidal Heating --------------------
+A_22k_e = np.zeros(len(k_range), dtype=float)
+U_22k_e = np.zeros(len(k_range), dtype=complex)
+P_T_k_total = np.zeros(len(k_range), dtype=float)
+P_T_k_solid = np.zeros(len(k_range), dtype=float)
+
+if spin_orbit_synchronized == 1:
+    Omega = P_n_orb
+else:
+    Omega = P_n_orb * 1.5
+
+for ikk, kk in enumerate(k_range):
+    sigma = 2.0 * Omega - kk * P_n_orb
+    A_22k_e[ikk] = np.sqrt(6.0 * np.pi / 5.0) * X_hansen[ikk]  # Eq.33
+    U_22k_e[ikk] = (G * S_mass / P_semimajoraxis) * (P_radius / P_semimajoraxis) ** 2 * A_22k_e[ikk]  # Eq.32
+
+    img_full_k22 = float(imag_k22_full_spectrum(sigma))
+    img_solid_k22 = float(imag_k22_solid_spectrum(sigma))
+
+    prefactor = 5.0 * P_radius * sigma / (8.0 * np.pi * G)
+    U2 = abs(U_22k_e[ikk]) ** 2
+
+    P_T_k_total[ikk] = prefactor * img_full_k22 * U2
+    P_T_k_solid[ikk] = prefactor * img_solid_k22 * U2
+
+P_tidal_total = -np.sum(P_T_k_total)
+P_tidal_solid = -np.sum(P_T_k_solid)
