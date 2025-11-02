@@ -148,3 +148,72 @@ k_range = np.arange(k_min, k_max + 1)
 
 k_range2, X_hansen = hansen_fft(-(n + 1), m, P_ecc, k_min, k_max, 2 ** 18)
 X_hansen = X_hansen.reshape(-1)  # 1D array
+
+
+# -------------------- FLUID TIDE K2 LOVE NUMBER --------------------
+
+def compute_fluid_lovenumbers(
+    n,
+    sigma_range,
+    k_T_22_homo,
+    k_L_22_homo,
+    rho_ratio,
+    P_grav_acc,
+    H_magma,
+    sigmaR,
+    P_radius,
+):
+    """
+    Compute magma-ocean fluid Love numbers for degree n=2 using Eq(7) and Eq(28).
+
+    Returns:
+        k22_fluid_high_friction (N_sigma,)
+        k22_total (N_sigma,)
+    """
+    N_sigma = len(sigma_range)
+
+    mu_n = n * (n + 1)
+    ksi_n = 3 / (2 * n + 1) * rho_ratio
+    sigP_n = np.sqrt(mu_n * P_grav_acc * H_magma / P_radius**2)
+
+    k22_fluid = np.zeros(N_sigma, dtype=complex)
+    k22_total = np.zeros(N_sigma, dtype=complex)
+
+    for i, sigma in enumerate(sigma_range):
+        sigT = sigma - 1j * sigmaR
+
+        # Eq. 7
+        k22_fluid[i] = -ksi_n * sigP_n**2 / (sigma * sigT - sigP_n**2)
+
+        # Eq. 28 (ignoring crust terms)
+        k22_total[i] = k_T_22_homo[i] + (1 + k_L_22_homo[i]) * k22_fluid[i]
+
+    return k22_fluid, k22_total
+
+    # set dissipative frequency range
+N_sigma = 301
+T_range = np.logspace(-15, 6, N_sigma)  # periods
+sigma_range = 2.0 * np.pi / (T_range * 1e3 * 365.25 * 24.0 * 3600.0)
+sigma_range = sigma_range.reshape(-1)
+
+    # preallocate (complex for viscoelastic)
+k_T_homo = np.zeros((n, N_sigma), dtype=complex)
+k_L_homo = np.zeros((n, N_sigma), dtype=complex)
+
+    # get 2,2 harmonic
+k_T_22_homo = k_T_homo[1, :].reshape(-1)
+k_L_22_homo = k_L_homo[1, :].reshape(-1)
+
+
+    # --- Fluid Love Numbers ---
+k22_fluid_high_friction, k22_total = compute_fluid_lovenumbers(
+    n,
+    sigma_range,
+    k_T_22_homo,
+    k_L_22_homo,
+    rho_ratio,
+    P_grav_acc,
+    H_magma,
+    sigmaR,
+    P_radius,
+)
