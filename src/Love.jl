@@ -250,7 +250,7 @@ module Love
         
     end
 
-    "See ['get_B!'](@ref) for definition."
+    "See 'get_B!' for definition."
     function get_B(r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k)
         B = zeros(precc, 8, 8)
         get_B!(B, r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k)
@@ -285,7 +285,7 @@ module Love
         B .= (I8 + 1.0/6.0 .* (k18 .+ 2*(k28 .+ k38) .+ k48))
     end
 
-    "See ['get_B!'](@ref) for definition."
+    "See 'get_B!' for definition."
     function get_B(r1, r2, g1, g2, ρ, μ, K)
         B = zeros(precc, 6, 6)
         get_B!(B, r1, r2, g1, g2, ρ, μ, K)

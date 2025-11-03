@@ -1,20 +1,20 @@
+```@raw html
+    <a href="https://opensource.org/license/mit">
+        <img src="https://img.shields.io/badge/License-MIT-blue.svg">
+    </a>
+    <a href="https://arxiv.org/abs/2507.11266">
+        <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
+    </a>
+```
 
-
-<a href="https://opensource.org/license/mit">
-   <img src="https://img.shields.io/badge/License-MIT-blue.svg">
-</a>
-<a href="https://arxiv.org/abs/2507.11266">
-  <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
-</a>
-
-## Love.jl (Tidal heating model)
+# Love.jl (Tidal heating model)
 
 A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid and partially-solid planetary bodies.
 
 Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
 
 ### Documentation
-https://proteus-framework.org/Love.jl
+https://fwl-proteus.readthedocs.io
 
 ## Contributors
 
@@ -24,6 +24,7 @@ https://proteus-framework.org/Love.jl
 | Marijn van Dijk | m.r.van.dijk.3[at]student.rug.nl  |
 | Tim Lichtenberg         | tim.lichtenberg[at]rug.nl |
 | Harrison Nicholls       | harrison.nicholls[at]physics.ox.ac.uk |
+
 
 
 ### Repository structure
@@ -48,3 +49,7 @@ https://proteus-framework.org/Love.jl
    julia> ]
    pkg> add https://github.com/FormingWorlds/Love.jl.git#julia
 
+
+GitHub: [https://github.com/FormingWorlds/Love.jl](https://github.com/FormingWorlds/Love.jl)
+
+This software is available under the MIT license

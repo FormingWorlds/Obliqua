@@ -1,0 +1,48 @@
+# This job updates the documentation and pushes it to GitHub pages
+
+name: Docs
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - docs/src/**
+      - docs/make.jl
+      - docs/Project.toml
+      - .github/workflows/documentation.yml
+  push:
+    branches: [main]
+    paths:
+      - docs/src/**
+      - docs/make.jl
+      - docs/Project.toml
+      - .github/workflows/documentation.yml
+
+
+jobs:
+  build:
+    permissions:
+      contents: write
+      pull-requests: read
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+      - uses: julia-actions/cache@v1
+
+      - name: Install Documenter
+        run: julia -e 'using Pkg; Pkg.add("Documenter"); Pkg.instantiate()'
+
+      - name: Build Love.jl
+        run: |
+          export LD_LIBRARY_PATH=""
+          julia --project="./" -e 'using Pkg; Pkg.build()'
+
+      - name: Build docs and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If authenticating with GitHub Actions token
+        run: julia --project="./" docs/make.jl
