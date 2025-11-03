@@ -1,5 +1,5 @@
 [deps]
-AGNI = "ede838c1-9ec3-4ebe-8ae8-da4091b3f21c"
+Love = "d20dd887-f725-4eb7-b908-6e59cfabf5fb"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 
 [compat]
