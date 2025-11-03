@@ -14,7 +14,7 @@ A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of
 Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
 
 ### Documentation
-https://fwl-proteus.readthedocs.io
+https://proteus-framework.org/Love.jl
 
 ## Contributors
 
