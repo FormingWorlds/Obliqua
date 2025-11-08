@@ -77,14 +77,104 @@ module Love
     Amid = zeros(precc, 6, 6)
     Atop = zeros(precc, 6, 6)
 
-    clats = 0.0
-    lons = 0.0
+    lons  = deg2rad.(collect(0:res:360-0.001))
+    clats = deg2rad.(collect(0:res:180))
     Y = 0.0
     dYdθ = 0.0
     dYdϕ = 0.0
     Z = 0.0
     X = 0.0
-    res = 0.0
+    res = 20.0
+
+    # Calculate heating from interior properties
+    function calc_lovepy_tides( omega::prec,
+                                    ecc::prec,
+                                    rho::Array{prec,1},
+                                    radius::Array{prec,1},
+                                    visc::Array{prec,1},
+                                    shear::Array{prec,1},
+                                    bulk::Array{prec,1};
+                                    ncalc::Int=2000
+                                    )::Tuple{Array{Float64,1},Float64,Float64}
+
+        # Internal structure arrays.
+        # First element is the innermost layer, last element is the outermost layer
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+        η = convert(Vector{prec}, visc)
+        μ = convert(Vector{precc},shear)
+        κ = convert(Vector{prec}, bulk)
+
+        # Complex shear modulus for a Maxwell material. 
+        μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
+
+        # Complex shear modulus (=(modulus of) rigidity) for a Andrade material.
+        μc = andrade_mu_complex(omega, μ, η)
+
+        # See Efroimsky, M. 2012, Eqs. 3, 64 
+        # To find k2 corresponding to andrade solid rheology insert relevant eqs here
+        # Identical implementation exists in Farhat 2025 (Eqs not listed there)
+
+        # Outer radius
+        R = r[end]
+
+        # Subdivide input layers such that we have ~ncalc in total
+        rr = expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # Get gravity at each layer
+        g = get_g(rr, ρ);
+
+        # Get y-functions
+        tidal_solution = compute_y(rr, ρ, g, μc, κ)
+
+        # Get k2 tidal Love Number (complex-valued)
+        k2 = tidal_solution[5, end, end] - 1
+
+        # Get bulk power output in watts
+        power_blk = get_total_heating(tidal_solution, omega, R, ecc)
+
+        # Get profile power output (W m-3), converted to W/kg
+        (Eμ, Eκ) = get_heating_profile(tidal_solution,
+                               rr, ρ, g, μc, κ,
+                               omega, ecc)
+
+        Eμ_tot, Eμ_vol = Eμ   # shear       (W), (W/m3)
+        Eκ_tot, Eκ_vol = Eκ   # compaction  (W), (W/m3)
+
+        power_prf = Eμ_vol .+ Eκ_vol # Compute total volumetric heating (W/m3)
+
+        power_prf = power_prf ./ ρ # Convert to mass heating rate (W/kg)
+
+        # Call Fluid script here
+        # ...
+
+        # Sum k2 love numberes
+        # ...
+
+        # Sum heating: bulk and profile
+        # ...
+
+        return power_prf, power_blk, imag(k2)
+    end
+
+    """
+        andrade_mu_complex(ω, μ, η, α)
+
+    Return the complex shear modulus μ̃(ω) for Andrade rheology, using Eq 82b from Efroimsky, M. 2012.
+    μ, η, τA can be scalar or arrays.
+
+    Note: see Efroimsky, M. 2012, Section 5.3 for detailed description. 
+    Note: J is the unrelaxed compliance which is inverse to the unrelaxed rigidity μ,
+        The same is through in the frequency domain (i.e. with \bar{J} = 1/\bar{μ}) Appendix B1.
+    """
+    function andrade_mu_complex(ω, μ, η; α=0.3)
+        τM = η ./ μ # Maxwell time
+        τA = τM     # Andrade time 
+        term_andrade = gamma(1 + α) .* (1im .* ω .* τA).^(-α)
+        term_maxwell = (1im .* ω .* τM).^(-1)
+
+        return μ ./ (1 .+ term_andrade .- term_maxwell) # Not sure if + or -
+    end
 
     """
         set_G(new_G)
