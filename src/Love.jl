@@ -77,8 +77,8 @@ module Love
     Amid = zeros(precc, 6, 6)
     Atop = zeros(precc, 6, 6)
 
-    lons  = deg2rad.(collect(0:res:360-0.001))
-    clats = deg2rad.(collect(0:res:180))
+    clats = 0.0
+    lons = 0.0
     Y = 0.0
     dYdθ = 0.0
     dYdϕ = 0.0
@@ -106,7 +106,7 @@ module Love
         κ = convert(Vector{prec}, bulk)
 
         # Complex shear modulus for a Maxwell material. 
-        μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
+        # μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
 
         # Complex shear modulus (=(modulus of) rigidity) for a Andrade material.
         μc = andrade_mu_complex(omega, μ, η)
@@ -124,6 +124,9 @@ module Love
         # Get gravity at each layer
         g = get_g(rr, ρ);
 
+        # Create grid
+        define_spherical_grid(res; n=2)
+
         # Get y-functions
         tidal_solution = compute_y(rr, ρ, g, μc, κ)
 
@@ -138,10 +141,10 @@ module Love
                                rr, ρ, g, μc, κ,
                                omega, ecc)
 
-        Eμ_tot, Eμ_vol = Eμ   # shear       (W), (W/m3)
-        Eκ_tot, Eκ_vol = Eκ   # compaction  (W), (W/m3)
+        Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
+        Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
 
-        power_prf = Eμ_vol .+ Eκ_vol # Compute total volumetric heating (W/m3)
+        power_prf = Eμ_tot .+ Eκ_tot # Compute total volumetric heating (W/m3)
 
         power_prf = power_prf ./ ρ # Convert to mass heating rate (W/kg)
 
@@ -154,6 +157,7 @@ module Love
         # Sum heating: bulk and profile
         # ...
 
+        #return power_prf[11,:], power_blk, imag(k2)
         return power_prf, power_blk, imag(k2)
     end
 
@@ -173,7 +177,7 @@ module Love
         term_andrade = gamma(1 + α) .* (1im .* ω .* τA).^(-α)
         term_maxwell = (1im .* ω .* τM).^(-1)
 
-        return μ ./ (1 .+ term_andrade .- term_maxwell) # Not sure if + or -
+        return μ ./ (1 .+ term_andrade .- term_maxwell) # Not sure if + or -, effect on result is negligible
     end
 
     """
