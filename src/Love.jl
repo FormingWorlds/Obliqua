@@ -94,7 +94,8 @@ module Love
                                     visc::Array{prec,1},
                                     shear::Array{prec,1},
                                     bulk::Array{prec,1};
-                                    ncalc::Int=2000
+                                    ncalc::Int=2000,
+                                    material::String="andrade"
                                     )::Tuple{Array{Float64,1},Float64,Float64}
 
         # Internal structure arrays.
@@ -105,12 +106,17 @@ module Love
         μ = convert(Vector{precc},shear)
         κ = convert(Vector{prec}, bulk)
 
-        # Complex shear modulus for a Maxwell material. 
-        # μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
-
-        # Complex shear modulus (=(modulus of) rigidity) for a Andrade material.
-        μc = andrade_mu_complex(omega, μ, η)
-
+        # Complex shear modulus (=(modulus of) rigidity)
+        if material == "maxwell"
+            # Maxwell material. 
+            μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
+        elseif material == "andrade"
+            # Andrade material.
+            μc = andrade_mu_complex(omega, μ, η)
+        else
+            throw("Material type for complex shear modulus not defined, options: 'maxwell', 'andrade'.")
+        end
+        
         # See Efroimsky, M. 2012, Eqs. 3, 64 
         # To find k2 corresponding to andrade solid rheology insert relevant eqs here
         # Identical implementation exists in Farhat 2025 (Eqs not listed there)
