@@ -12,6 +12,8 @@ module load
 
     export load_interior
 
+    prec = BigFloat
+
     """
         load_interior(fname::String)
 
@@ -33,7 +35,7 @@ module load
     Returns:
         (omega, ecc, rho, radius, visc, shear, bulk, ncalc)
     """
-    function load_interior(fname::String)
+    function load_interior(fname::String)::Tuple{prec,prec,Array{prec,1},Array{prec,1},Array{prec,1},Array{prec,1},Array{prec,1},Int}
 
         # Convert to absolute path
         fname = abspath(fname)
