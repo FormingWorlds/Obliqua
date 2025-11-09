@@ -35,41 +35,65 @@ module load
     Returns:
         (omega, ecc, rho, radius, visc, shear, bulk, ncalc)
     """
-    function load_interior(fname::String)::Tuple{prec,prec,Array{prec,1},Array{prec,1},Array{prec,1},Array{prec,1},Array{prec,1},Int}
+    function load_interior(fname::String, verify::Bool=false
+        )::Union{
+            Bool,
+            Tuple{
+                prec, prec,
+                Array{prec,1}, Array{prec,1}, Array{prec,1},
+                Array{prec,1}, Array{prec,1}, Int
+            }
+        }
 
         # Convert to absolute path
         fname = abspath(fname)
         @info "Loading interior from JSON file: $fname"
 
         # Suppress debug spam
+        omega = ecc = ncalc = nothing
+        rho = radius = visc = shear = bulk = nothing
+
         with_logger(MinLevelLogger(current_logger(), Logging.Info)) do
 
-            # Parse JSON
+            # --- Parse JSON ---
             params = JSON.parsefile(fname)
 
-            # ----------------------
-            # Load vector quantities
-            rho    = BigFloat.(params["density"])
-            radius = BigFloat.(params["radius"])
-            visc   = BigFloat.(params["visc"])
-            shear  = BigFloat.(params["shear"])
-            bulk   = BigFloat.(params["bulk"])
+            # --- Load vector quantities ---
+            rho    = prec.(params["density"])
+            radius = prec.(params["radius"])
+            visc   = prec.(params["visc"])
+            shear  = prec.(params["shear"])
+            bulk   = prec.(params["bulk"])
 
-            # Basic consistency
-            N = length(rho)
-            if !(length(radius) == N == length(visc) == length(shear) == length(bulk))
-                error("JSON input arrays must all have the same length. Got sizes: " *
-                      "rho=$(length(rho)), radius=$(length(radius)), visc=$(length(visc)), " *
-                      "shear=$(length(shear)), bulk=$(length(bulk))")
-            end
-
-            # ----------------------
-            # Load scalar quantities
-            omega = BigFloat(params["omega"])
-            ecc   = BigFloat(params["ecc"])
+            # --- Load scalar quantities ---
+            omega = prec(params["omega"])
+            ecc   = prec(params["ecc"])
             ncalc = Int(params["ncalc"])
 
-        end # logger suppressed
+        end
+
+        if verify
+            ok = true
+
+            # internal consistency
+            N = length(rho)
+            ok &= (length(radius) == N+1)
+            ok &= (length(visc)   == N)
+            ok &= (length(shear)  == N)
+            ok &= (length(bulk)   == N)
+
+            # # simple physical checks 
+            ok &= all(rho .> 0)
+            ok &= all(radius .> 0)
+            ok &= all(visc .>= 0)
+            ok &= all(shear .>= 0)
+            ok &= all(bulk .>= 0)
+
+            ok &= (omega ≥ 0)
+            ok &= (ecc ≥ 0 && ecc < 1)
+
+            return ok
+        end
 
         return omega, ecc, rho, radius, visc, shear, bulk, ncalc
     end
