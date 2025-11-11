@@ -1,0 +1,101 @@
+# Not for direct execution
+if (abspath(PROGRAM_FILE) == @__FILE__)
+    thisfile = @__FILE__
+    error("The file '$thisfile' is not for direct execution")
+end
+
+module load
+
+    using JSON
+    using LoggingExtras
+    using Printf
+
+    export load_interior
+
+    prec = BigFloat
+
+    """
+        load_interior(fname::String)
+
+    Load interior structure + tidal parameters from a JSON file.
+
+    The JSON file must contain:
+
+    {
+        "density": [...],
+        "radius": [...],
+        "visc": [...],
+        "shear": [...],
+        "bulk": [...],
+        "omega": value,
+        "ecc": value,
+        "ncalc": value
+    }
+
+    Returns:
+        (omega, ecc, rho, radius, visc, shear, bulk, ncalc)
+    """
+    function load_interior(fname::String, verify::Bool=false
+        )::Union{
+            Bool,
+            Tuple{
+                prec, prec,
+                Array{prec,1}, Array{prec,1}, Array{prec,1},
+                Array{prec,1}, Array{prec,1}, Int
+            }
+        }
+
+        # Convert to absolute path
+        fname = abspath(fname)
+        @info "Loading interior from JSON file: $fname"
+
+        # Suppress debug spam
+        omega = ecc = ncalc = nothing
+        rho = radius = visc = shear = bulk = nothing
+
+        with_logger(MinLevelLogger(current_logger(), Logging.Info)) do
+
+            # --- Parse JSON ---
+            params = JSON.parsefile(fname)
+
+            # --- Load vector quantities ---
+            rho    = prec.(params["density"])
+            radius = prec.(params["radius"])
+            visc   = prec.(params["visc"])
+            shear  = prec.(params["shear"])
+            bulk   = prec.(params["bulk"])
+
+            # --- Load scalar quantities ---
+            omega = prec(params["omega"])
+            ecc   = prec(params["ecc"])
+            ncalc = Int(params["ncalc"])
+
+        end
+
+        if verify
+            ok = true
+
+            # internal consistency
+            N = length(rho)
+            ok &= (length(radius) == N+1)
+            ok &= (length(visc)   == N)
+            ok &= (length(shear)  == N)
+            ok &= (length(bulk)   == N)
+
+            # # simple physical checks 
+            ok &= all(rho .> 0)
+            ok &= all(radius .> 0)
+            ok &= all(visc .>= 0)
+            ok &= all(shear .>= 0)
+            ok &= all(bulk .>= 0)
+
+            ok &= (omega ≥ 0)
+            ok &= (ecc ≥ 0 && ecc < 1)
+
+            return ok
+        end
+
+        return omega, ecc, rho, radius, visc, shear, bulk, ncalc
+    end
+
+end # module
