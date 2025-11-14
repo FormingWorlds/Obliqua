@@ -119,7 +119,7 @@ if suite > 2
     @info "--------------------------"
 
     # -------------
-    # Test Love.jl method (andrade)
+    # Test Love.jl method (maxwell)
     # -------------
     @info " "
     @info "Testing Love.jl method (Maxwell)"
@@ -130,6 +130,56 @@ if suite > 2
     imag_k2_expt    = -2.4217564986232166e-6
 
     power_prf, power_blk, imag_k2 = Love.calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=ncalc, material="maxwell")
+    test_pass = true
+
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
+
+    @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+end
+
+if suite > 4
+    # -------------
+    # Test mush interior data validity
+    # -------------
+    @info " "
+    @info "Testing mush interior data validity"
+    ok = load.load_interior("$RES_DIR/interior_data/test_mantle_mush.json", true)
+    if ok
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    # -------------
+    # Test Love.jl method (andrade)
+    # -------------
+    @info " "
+    @info "Testing Love.jl method (Andrade)"
+    omega, ecc, rho, radius, visc, shear, bulk, phi, ncalc = load.load_interior_mush("$RES_DIR/interior_data/test_mantle_mush.json", false)
+
+    power_prf_expt  = [0.0, 3.777310932533753e-12, 3.650761379774313e-12, 3.5304847221781085e-12, 3.421375892547284e-12, 3.314966022202826e-12, 3.2185792279633594e-12, 3.1227775210056437e-12, 3.0387623792987696e-12, 2.9503173602715362e-12, 2.8854427562467733e-12, 2.840183803388453e-12, 2.766937542627038e-12, 2.6614024308196217e-12, 2.5882592611305263e-12, 2.5270407684882074e-12, 2.4696571292730092e-12, 2.414940623392922e-12, 2.3625490809018268e-12, 2.312188588780301e-12, 2.263588422530672e-12, 2.2165597967690805e-12, 2.170959666893054e-12, 2.1266604153692343e-12, 2.0835487124355886e-12, 2.0415233385939996e-12, 2.0004922650117834e-12, 1.9603731740913513e-12, 1.921091050223868e-12, 1.8825812613342155e-12, 1.8447801687955216e-12, 1.8076327139644142e-12, 1.771090343999002e-12, 1.73510794435057e-12, 1.6996475025775436e-12, 1.6646747616218843e-12, 1.6301609527692688e-12, 1.5960809957264244e-12, 1.562410030784291e-12, 1.529128970618847e-12, 1.4962208528868597e-12, 1.4636715624790206e-12, 1.4314699344379267e-12, 1.399606576523371e-12, 1.3680752968065698e-12, 1.3368713097274294e-12, 1.3059922477773532e-12, 1.2754390640359429e-12, 1.245212794684355e-12, 1.215315597304841e-12, 1.1857521079276538e-12, 1.1565282363027113e-12, 1.1276510872890982e-12, 1.09912987419273e-12, 1.0709751376920464e-12, 1.0431972650446318e-12, 1.0158101431173686e-12, 9.888284234763632e-13, 9.622670614333102e-13, 9.361420239769226e-13, 9.104710233397912e-13, 8.85273996222416e-13, 8.605702022528852e-13, 8.363799038147769e-13, 8.127249183563586e-13, 7.896303606558283e-13, 7.671229357856957e-13, 7.452278144406235e-13, 7.239703594971455e-13, 7.033797797374361e-13, 6.83485154464037e-13, 6.6431570746088e-13, 6.459045785582216e-13, 6.282835604446689e-13, 6.114879986487898e-13, 5.955527886842414e-13, 5.805150639198377e-13, 5.664147311104618e-13, 5.532905562807219e-13, 5.411779498624159e-13, 5.301191570564058e-13, 5.201543628263393e-13, 5.113322254080463e-13, 5.036997676692369e-13, 4.973082269350431e-13, 4.922088792777169e-13, 4.884482322090376e-13, 4.860823905034184e-13, 4.851463181940493e-13, 4.856425352418459e-13, 4.875534348367834e-13, 4.909133845741023e-13, 4.957926420786741e-13, 5.022726796825203e-13, 5.104530461657479e-13, 5.204340134922985e-13, 5.322983847200073e-13, 5.461978547218397e-13]
+    power_blk_expt  = 4.66556078444765e12
+    imag_k2_expt    = -0.00464899461127863
+
+    power_prf, power_blk, imag_k2 = Love.calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=ncalc, material="andrade")
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
