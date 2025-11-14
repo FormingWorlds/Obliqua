@@ -1488,7 +1488,7 @@ module Love
 
         if isnothing(lay)
             rstart = 2
-            rend = 4
+            rend = nlay
         else
             rstart = lay
             rend = lay
@@ -1532,7 +1532,7 @@ module Love
 
         return (Eμ_tot, Eμ_vol), (Eκ_tot, Eκ_vol), (El_tot, El_vol)
     end
-#
+
     """
         define_spherical_grid(res)
 
