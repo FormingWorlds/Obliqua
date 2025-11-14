@@ -194,7 +194,7 @@ module Love
         Φ  = convert(Vector{prec}, phi)      # melt fraction
         κd = 0.01.*κs                        # drained bulk modulus
 
-        α = 1.0-κd./κs                       # Biot's modulus
+        α = 1.0.-(κd./κs)                    # Biot's modulus
 
         # allocate zero arrays with same length and precision as r
         κl = zeros(prec, length(r))
@@ -206,17 +206,20 @@ module Love
         target = prec(1e9)
         inds = findall(x -> isapprox(x, target; rtol=1e-6, atol=zero(prec)), η)
 
-        # update only the largest index that matches
-        if !isempty(inds)
-            ii = maximum(inds)
-            κl[ii] = prec(1e9)      # liquid bulk modulus
-            ηl[ii] = prec(1.0)      # liquid viscosity
-            ϕ[ii]  = prec(0.1)      # porosity
-            k[ii]  = prec(1e-7)     # permeability
+        # If no matches, fallback to the last index
+        if isempty(inds)
+            inds = [length(η)-1]
         end
 
-        ρs = ρ.*(1.0-Φ)/100         # solid density 
-        ρl = ρ.*Φ/100               # liquid density
+        # update only the largest index that matches
+        ii = maximum(inds)
+        κl[ii] = prec(1e9)      # liquid bulk modulus
+        ηl[ii] = prec(1.0)      # liquid viscosity
+        ϕ[ii]  = prec(0.1)      # porosity
+        k[ii]  = prec(1e-7)     # permeability
+
+        ρs = ρ.*(1.0.-Φ)        # solid density 
+        ρl = ρ.*Φ               # liquid density
 
         porous = true
 
@@ -257,15 +260,16 @@ module Love
         power_blk = get_total_heating(tidal_solution, omega, R, ecc)
 
         # Get profile power output (W m-3), converted to W/kg
-        (Eμ, Eκ) = get_heating_profile(tidal_solution,
+        Eμ, Eκ, El = get_heating_profile(tidal_solution,
                                rr, ρs, g, μc, κs,
                                omega, ρl, κl, κd, 
                                α, ηl, ϕ, k, ecc)
 
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
+        El_tot, _ = El   # fluid       (W), (W/m3)
 
-        power_prf = Eμ_tot .+ Eκ_tot # Compute total volumetric heating (W/m3)
+        power_prf = Eμ_tot .+ Eκ_tot .+ El_tot# Compute total volumetric heating (W/m3)
 
         power_prf = power_prf ./ ρ # Convert to mass heating rate (W/kg)
 
@@ -822,8 +826,6 @@ module Love
     y6 = potential stress \\
     y7 = pore pressure \\
     y8 = radial Darcy displacement \\
-
-    
 
     # Example
         # Define four layer body
@@ -1520,6 +1522,12 @@ module Love
                 end
 
             end
+            
+            # Average over sublayers to get layer volumetric heating (W/m³)
+            Eμ_tot[j] = sum(Eμ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+            Eκ_tot[j] = sum(Eκ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+            El_tot[j] = sum(El_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+
         end
 
         return (Eμ_tot, Eμ_vol), (Eκ_tot, Eκ_vol), (El_tot, El_vol)
