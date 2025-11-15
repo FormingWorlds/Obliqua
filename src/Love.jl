@@ -33,6 +33,7 @@ module Love
     export define_spherical_grid
     export get_radial_isotropic_coeffs
     export get_ke_power
+    export calc_lovepy_tides, calc_lovepy_tides_mush
 
     # Depending on the stability of the system, different precision can be 
     # chosen here. Low mobility is a challenge, so by default I have set 
@@ -208,7 +209,7 @@ module Love
 
         # If no matches, fallback to the last index
         if isempty(inds)
-            inds = [length(η)-1]
+            inds = [length(η)]
         end
 
         # update only the largest index that matches
