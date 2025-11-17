@@ -216,7 +216,7 @@ module Love
         ii = maximum(inds)
         κl[ii] = prec(1e9)      # liquid bulk modulus
         ηl[ii] = prec(1.0)      # liquid viscosity
-        ϕ[ii]  = prec(0.1)      # porosity
+        ϕ[ii]  = prec(0.1)      # porosity --> melt fraction
         k[ii]  = prec(1e-7)     # permeability
 
         ρs = ρ.*(1.0.-Φ)        # solid density 
