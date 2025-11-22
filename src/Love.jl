@@ -173,7 +173,7 @@ module Love
     end
 
     # Calculate heating from interior properties with mush
-    function calc_lovepy_tides_mush( omega::prec,
+    function calc_lovepy_tides_mush(omega::prec,
                                     ecc::prec,
                                     rho::Array{prec,1},
                                     radius::Array{prec,1},
@@ -192,7 +192,7 @@ module Love
         η  = convert(Vector{prec}, visc)     # shear viscosity
         μ  = convert(Vector{precc},shear)    # shear modulus
         κs = convert(Vector{prec}, bulk)     # solid bulk modulus
-        Φ  = convert(Vector{prec}, phi)      # melt fraction
+        ϕ  = convert(Vector{prec}, phi)      # melt fraction
         κd = 0.01.*κs                        # drained bulk modulus
 
         α = 1.0.-(κd./κs)                    # Biot's modulus
@@ -200,7 +200,6 @@ module Love
         # allocate zero arrays with same length and precision as r
         κl = zeros(prec, length(r))
         ηl = zeros(prec, length(r))
-        ϕ  = zeros(prec, length(r))
         k  = zeros(prec, length(r))
 
         # find indices where solid viscosity η is approximately 1e9
@@ -215,12 +214,11 @@ module Love
         # update only the largest index that matches
         ii = maximum(inds)
         κl[ii] = prec(1e9)      # liquid bulk modulus
-        ηl[ii] = prec(1.0)      # liquid viscosity
-        ϕ[ii]  = prec(0.1)      # porosity --> melt fraction
+        ηl[ii] = prec(1e2)      # liquid viscosity
         k[ii]  = prec(1e-7)     # permeability
 
-        ρs = ρ.*(1.0.-Φ)        # solid density 
-        ρl = ρ.*Φ               # liquid density
+        ρs = ρ.*(1.0.-ϕ)        # solid density 
+        ρl = ρ.*ϕ               # liquid density
 
         porous = true
 
@@ -303,7 +301,7 @@ module Love
         term_andrade = gamma(1 + α) .* (1im .* ω .* τA).^(-α)
         term_maxwell = (1im .* ω .* τM).^(-1)
 
-        return μ ./ (1 .+ term_andrade .- term_maxwell) # Not sure if + or -, effect on result is negligible
+        return μ ./ (1 .+ term_andrade .+ term_maxwell) # Not sure if + or -, effect on result is negligible
     end
 
     """
