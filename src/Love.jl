@@ -202,23 +202,24 @@ module Love
         ηl = zeros(prec, length(r))
         k  = zeros(prec, length(r))
 
-        # find indices where solid viscosity η is approximately 1e9
-        target = prec(1e9)
-        inds = findall(x -> isapprox(x, target; rtol=1e-6, atol=zero(prec)), η)
-
-        # If no matches, fallback to the last index
-        if isempty(inds)
-            inds = [length(η)]
+        # Find mush index
+        ii = find_mush_index(ϕ)
+        # If no matches, throw error (because the matrix cannot be resolved, instead use 1 phase model)
+        if ii === nothing
+            throw("No mush region identified in viscosity profile.")
         end
 
         # update only the largest index that matches
-        ii = maximum(inds)
         κl[ii] = prec(1e9)      # liquid bulk modulus
         ηl[ii] = prec(1e2)      # liquid viscosity
         k[ii]  = prec(1e-7)     # permeability
 
         ρs = ρ.*(1.0.-ϕ)        # solid density 
         ρl = ρ.*ϕ               # liquid density
+
+        # set porosity to zero outside mush region (otherwise code cannot solve system)
+        ϕ[1:ii-1]   .= 0.0      # zero below ii
+        ϕ[ii+1:end] .= 0.0      # zero above ii
 
         porous = true
 
@@ -286,6 +287,49 @@ module Love
     end
 
     """
+        find_mush_index(ϕ)
+
+    Find the mush region using ϕ (melt fraction) profile.:
+
+    1. Identify all indices where ϕ ≠ 0.
+    2. Partition these into connected segments.
+    3. Pick the connected segment with the smallest starting index
+    (the shallowest mush layer).
+    4. Return the *largest* index in that segment (bottom of mush).
+
+    Returns `nothing` if ϕ is zero everywhere.
+    """
+    function find_mush_index(ϕ)
+
+        # Indices where phi is not zero
+        nz = findall(!=(0.0), ϕ)
+
+        isempty(nz) && return nothing   # no mush region present
+
+        # -------- Group into connected segments --------
+        segments = Vector{Vector{Int}}()
+        current = [nz[1]]
+
+        for i in 2:length(nz)
+            if nz[i] == nz[i-1] + 1
+                push!(current, nz[i])        # continue segment
+            else
+                push!(segments, current)     # close segment
+                current = [nz[i]]            # start new one
+            end
+        end
+        push!(segments, current)             # add final segment
+
+        # -------- Choose segment with smallest starting index --------
+        first_idxs = map(seg -> seg[1], segments)
+        seg_idx = argmin(first_idxs)
+        chosen_seg = segments[seg_idx]
+
+        # Return largest index in that segment (bottom of mush)
+        return maximum(chosen_seg)
+    end
+
+    """
         andrade_mu_complex(ω, μ, η, α)
 
     Return the complex shear modulus μ̃(ω) for Andrade rheology, using Eq 82b from Efroimsky, M. 2012.
@@ -301,7 +345,7 @@ module Love
         term_andrade = gamma(1 + α) .* (1im .* ω .* τA).^(-α)
         term_maxwell = (1im .* ω .* τM).^(-1)
 
-        return μ ./ (1 .+ term_andrade .+ term_maxwell) # Not sure if + or -, effect on result is negligible
+        return μ ./ (1 .+ term_andrade .+ term_maxwell)
     end
 
     """
