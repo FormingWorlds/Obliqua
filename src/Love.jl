@@ -301,12 +301,12 @@ module Love
     """
     function find_mush_index(ϕ)
 
-        # Indices where phi is not zero
-        nz = findall(!=(0.0), ϕ)
+        # Indices where ϕ is not zero
+        nz = findall(ϕ .> 1e-5) # tolerance for non-zero
 
         isempty(nz) && return nothing   # no mush region present
 
-        # -------- Group into connected segments --------
+        # Group into connected segments
         segments = Vector{Vector{Int}}()
         current = [nz[1]]
 
@@ -320,7 +320,7 @@ module Love
         end
         push!(segments, current)             # add final segment
 
-        # -------- Choose segment with smallest starting index --------
+        # Choose segment with smallest starting index
         first_idxs = map(seg -> seg[1], segments)
         seg_idx = argmin(first_idxs)
         chosen_seg = segments[seg_idx]
