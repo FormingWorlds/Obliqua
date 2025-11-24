@@ -33,6 +33,7 @@ module Love
     export define_spherical_grid
     export get_radial_isotropic_coeffs
     export get_ke_power
+    export calc_lovepy_tides, calc_lovepy_tides_mush
 
     # Depending on the stability of the system, different precision can be 
     # chosen here. Low mobility is a challenge, so by default I have set 
@@ -109,7 +110,7 @@ module Love
         # Complex shear modulus (=(modulus of) rigidity)
         if material == "maxwell"
             # Maxwell material. 
-            μc = 1im * μ*omega ./ (1im*omega .+ μ./η)
+            μc = 1im*μ*omega./(1im*omega.+μ./η)
         elseif material == "andrade"
             # Andrade material.
             μc = andrade_mu_complex(omega, μ, η)
@@ -135,6 +136,10 @@ module Love
 
         # Get y-functions
         tidal_solution = compute_y(rr, ρ, g, μc, κ)
+
+        # Get y-functions (with mush)
+        # ρl, κl, κd, α, ηl, ϕ, k = 
+        # tidal_solution = compute_y(rr, ρ, g, μc, κ, omega, ρl, κl, κd, α, ηl, ϕ, k)
 
         # Get k2 tidal Love Number (complex-valued)
         k2 = tidal_solution[5, end, end] - 1
@@ -167,6 +172,163 @@ module Love
         return power_prf, power_blk, imag(k2)
     end
 
+    # Calculate heating from interior properties with mush
+    function calc_lovepy_tides_mush(omega::prec,
+                                    ecc::prec,
+                                    rho::Array{prec,1},
+                                    radius::Array{prec,1},
+                                    visc::Array{prec,1},
+                                    shear::Array{prec,1},
+                                    bulk::Array{prec,1},
+                                    phi::Array{prec,1};
+                                    ncalc::Int=2000,
+                                    material::String="andrade"
+                                    )::Tuple{Array{Float64,1},Float64,Float64}
+
+        # Internal structure arrays.
+        # First element is the innermost layer, last element is the outermost layer
+        ρ  = convert(Vector{prec}, rho)      # density --> solid + liquid density
+        r  = convert(Vector{prec}, radius)   # radius
+        η  = convert(Vector{prec}, visc)     # shear viscosity
+        μ  = convert(Vector{precc},shear)    # shear modulus
+        κs = convert(Vector{prec}, bulk)     # solid bulk modulus
+        ϕ  = convert(Vector{prec}, phi)      # melt fraction
+        κd = 0.01.*κs                        # drained bulk modulus
+
+        α = 1.0.-(κd./κs)                    # Biot's modulus
+
+        # allocate zero arrays with same length and precision as r
+        κl = zeros(prec, length(r))
+        ηl = zeros(prec, length(r))
+        k  = zeros(prec, length(r))
+
+        # Find mush index
+        ii = find_mush_index(ϕ)
+        # If no matches, throw error (because the matrix cannot be resolved, instead use 1 phase model)
+        if ii === nothing
+            throw("No mush region identified in viscosity profile.")
+        end
+
+        # update only the largest index that matches
+        κl[ii] = prec(1e9)      # liquid bulk modulus
+        ηl[ii] = prec(1e2)      # liquid viscosity
+        k[ii]  = prec(1e-7)     # permeability
+
+        ρs = ρ.*(1.0.-ϕ)        # solid density 
+        ρl = ρ.*ϕ               # liquid density
+
+        # set porosity to zero outside mush region (otherwise code cannot solve system)
+        ϕ[1:ii-1]   .= 0.0      # zero below ii
+        ϕ[ii+1:end] .= 0.0      # zero above ii
+
+        porous = true
+
+        # Complex shear modulus (=(modulus of) rigidity)
+        if material == "maxwell"
+            # Maxwell material. 
+            μc = 1im*μ.*omega./(1im*omega.+μ./η)
+        elseif material == "andrade"
+            # Andrade material.
+            μc = andrade_mu_complex(omega, μ, η)
+        else
+            throw("Material type for complex shear modulus not defined, options: 'maxwell', 'andrade'.")
+        end
+        
+        # See Efroimsky, M. 2012, Eqs. 3, 64 
+        # To find k2 corresponding to andrade solid rheology insert relevant eqs here
+        # Identical implementation exists in Farhat 2025 (Eqs not listed there)
+
+        # Outer radius
+        R = r[end]
+
+        # Subdivide input layers such that we have ~ncalc in total
+        rr = expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # Get gravity at each layer
+        g = get_g(rr, ρ);
+
+        # Create grid
+        define_spherical_grid(res; n=2)
+
+        # Get y-functions        
+        tidal_solution = compute_y(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k)
+
+        # Get k2 tidal Love Number (complex-valued)
+        k2 = tidal_solution[5, end, end] - 1
+
+        # Get bulk power output in watts
+        power_blk = get_total_heating(tidal_solution, omega, R, ecc)
+
+        # Get profile power output (W m-3), converted to W/kg
+        Eμ, Eκ, El = get_heating_profile(tidal_solution,
+                               rr, ρs, g, μc, κs,
+                               omega, ρl, κl, κd, 
+                               α, ηl, ϕ, k, ecc)
+
+        Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
+        Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
+        El_tot, _ = El   # fluid       (W), (W/m3)
+
+        power_prf = Eμ_tot .+ Eκ_tot .+ El_tot# Compute total volumetric heating (W/m3)
+
+        power_prf = power_prf ./ ρ # Convert to mass heating rate (W/kg)
+
+        # Call Fluid script here
+        # ...
+
+        # Sum k2 love numberes
+        # ...
+
+        # Sum heating: bulk and profile
+        # ...
+
+        #return power_prf[11,:], power_blk, imag(k2)
+        return power_prf, power_blk, imag(k2)
+    end
+
+    """
+        find_mush_index(ϕ)
+
+    Find the mush region using ϕ (melt fraction) profile.:
+
+    1. Identify all indices where ϕ ≠ 0.
+    2. Partition these into connected segments.
+    3. Pick the connected segment with the smallest starting index
+    (the shallowest mush layer).
+    4. Return the *largest* index in that segment (bottom of mush).
+
+    Returns `nothing` if ϕ is zero everywhere.
+    """
+    function find_mush_index(ϕ)
+
+        # Indices where ϕ is not zero
+        nz = findall(ϕ .> 1e-5) # tolerance for non-zero
+
+        isempty(nz) && return nothing   # no mush region present
+
+        # Group into connected segments
+        segments = Vector{Vector{Int}}()
+        current = [nz[1]]
+
+        for i in 2:length(nz)
+            if nz[i] == nz[i-1] + 1
+                push!(current, nz[i])        # continue segment
+            else
+                push!(segments, current)     # close segment
+                current = [nz[i]]            # start new one
+            end
+        end
+        push!(segments, current)             # add final segment
+
+        # Choose segment with smallest starting index
+        first_idxs = map(seg -> seg[1], segments)
+        seg_idx = argmin(first_idxs)
+        chosen_seg = segments[seg_idx]
+
+        # Return largest index in that segment (bottom of mush)
+        return maximum(chosen_seg)
+    end
+
     """
         andrade_mu_complex(ω, μ, η, α)
 
@@ -183,7 +345,7 @@ module Love
         term_andrade = gamma(1 + α) .* (1im .* ω .* τA).^(-α)
         term_maxwell = (1im .* ω .* τM).^(-1)
 
-        return μ ./ (1 .+ term_andrade .- term_maxwell) # Not sure if + or -, effect on result is negligible
+        return μ ./ (1 .+ term_andrade .+ term_maxwell)
     end
 
     """
@@ -1369,7 +1531,7 @@ module Love
 
         if isnothing(lay)
             rstart = 2
-            rend = 4
+            rend = nlay
         else
             rstart = lay
             rend = lay
@@ -1403,11 +1565,17 @@ module Love
                 end
 
             end
+            
+            # Average over sublayers to get layer volumetric heating (W/m³)
+            Eμ_tot[j] = sum(Eμ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+            Eκ_tot[j] = sum(Eκ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+            El_tot[j] = sum(El_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
+
         end
 
         return (Eμ_tot, Eμ_vol), (Eκ_tot, Eκ_vol), (El_tot, El_vol)
     end
-#
+
     """
         define_spherical_grid(res)
 
