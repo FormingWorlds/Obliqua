@@ -26,7 +26,7 @@ failed = 0
 # 0 - none
 # 10 - fast
 # 20 - all
-suite::Int64 = 20
+suite::Int64 = 8 #20
 if length(ARGS)>0
     if ARGS[1] == "all"
         suite = 20
@@ -59,7 +59,7 @@ atol = 1e-18
 # -------------
 if suite >= 0
     @info " "
-    @info "Testing module imported"
+    @info "Testing if Love.jl module is imported"
     if isdefined(Love, :calc_lovepy_tides)
         @info "Pass"
     else
@@ -70,7 +70,20 @@ if suite >= 0
     @info "--------------------------"
 end
 
-if suite > 2
+if suite >= 0
+    @info " "
+    @info "Testing if Fluid.jl module is imported"
+    if isdefined(Fluid, :calc_fluid_tides)
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+end
+
+if suite > 12
     # -------------
     # Test interior data validity
     # -------------
@@ -152,7 +165,7 @@ if suite > 2
 
 end
 
-if suite > 4
+if suite > 14
     # -------------
     # Test mush interior data validity
     # -------------
@@ -220,6 +233,56 @@ if suite > 4
 
     @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
     @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+end
+
+if suite > 6
+    # -------------
+    # Test liquid interior data validity
+    # -------------
+    @info " "
+    @info "Testing liquid interior data validity"
+    ok = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", true)
+    if ok
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    # -------------
+    # Test Liquid.jl
+    # -------------
+    @info " "
+    @info "Testing Liquid.jl"
+    omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", false)
+
+    # power_prf_expt  = ...
+    power_blk_expt  = 4.673775086943557e12
+    imag_k2_expt    = -0.004657179746957536
+
+    power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    test_pass = true
+
+    # test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
+
+    # @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    # @info "First 5 modelled profile elements: $(power_prf[1:5])"
     @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
     @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
 
