@@ -8,6 +8,10 @@ module Hansen
 
     export get_hansen
 
+    # Precision types
+    prec = BigFloat
+    precc = Complex{BigFloat}
+
     """
         get_hansen(ecc)
 
@@ -15,7 +19,7 @@ module Hansen
     computes Hansen coefficients for given eccentricity.
     Relies on global n, m, k_min, k_max.
     """
-    function get_hansen(ecc, n::Int, m::Int, k_min::Int, k_max::Int)::Tuple{Array{Int,1}, Array{prec,2}}
+    function get_hansen(ecc, n::Int, m::Int, k_min::Int, k_max::Int)::Tuple{Array{Float64,1}, Array{Float64,1}}
         k_range2, X = hansen_fft(-(n+1), m, ecc, k_min, k_max; N=2^18)
         return k_range2, X
     end
@@ -97,7 +101,7 @@ module Hansen
         f = (r_over_a .^ n) .* exp.(im * m .* v)
 
         # FFT, normalized like Python’s `fft(f)/N`
-        F = fftshift(fft(f)) ./ N
+        F = fftshift(fft(ComplexF64.(f))) ./ N
 
         k_all = collect(-N÷2 : N÷2-1)
         mask = (k_all .>= kmin) .& (k_all .<= kmax)
