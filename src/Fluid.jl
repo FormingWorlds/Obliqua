@@ -2,6 +2,8 @@
 
 module Fluid
 
+    using Interpolations
+    using LinearAlgebra
     include("Hansen.jl")
     using .Hansen
 
@@ -23,8 +25,10 @@ module Fluid
 
     # Get fluid tidal heating
     calc_fluid_tides( omega::prec,
+                        axial::prec,
                         ecc::prec,
                         sma::prec,
+                        S_mass::prec,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
@@ -118,10 +122,75 @@ module Fluid
             R
         )
 
+        # interpolate k2 love number arrays
+        μ_n  = n * (n + 1)
+        ξ_n = 3.0 / (2.0*n + 1.0) * ρ_ratio
+        σ_n = sqrt(μ_n * g * H_magma / R^2) # characterestic frequency
 
+        k22_fluid_high_friction = zeros(precc, N_sigma)
+        k22_total               = zeros(precc, N_sigma)
+
+        for kk in 1:N_sigma
+            σ = σ_range[kk]
+            σ_T = σ - im*σ_R
+
+            k22_fluid_high_friction[kk] =
+                -ξ_n * σ_n^2 / (σ*σ_T - σ_n^2)
+
+            k22_total[kk] =
+                k_T_22_homo[kk] + (1 + k_L_22_homo[kk])*k22_fluid_high_friction[kk]
+        end
+
+        k22_total = vec(k22_total)    # reshape(-1)
+
+        # Build symmetric full spectrum for interpolation
+        full_σ_range   = vcat(-σ_range,     reverse(σ_range))
+        full_k22_total = vcat(-k22_total,   reverse(k22_total))
+        full_k22_homo  = vcat(-k_T_22_homo, reverse(k_T_22_homo))
+
+        imag_full_k22  = imag.(full_k22_total)
+        imag_solid_k22 = imag.(full_k22_homo)
+
+        # interpolation functions for imaginary parts (extrapolate outside)
+        interp_full  = extrapolate(interpolate((full_sigma_range,), imag_full_k22,
+                                            Gridded(Linear())), Flat())
+        interp_solid = extrapolate(interpolate((full_sigma_range,), imag_solid_k22,
+                                            Gridded(Linear())), Flat())
+
+        # calculate tidal heating
+        A_22k_e      = zeros(prec,  length(k_range))
+        U_22k_e      = zeros(precc, length(k_range))
+        P_T_k_total  = zeros(prec,  length(k_range))
+        P_T_k_solid  = zeros(prec,  length(k_range))
+
+        for (ikk, kk) in pairs(k_range)
+            σ = 2*axial - kk*omega
+
+            # Eq. 33
+            A_22k_e[ikk] = sqrt(6π/5) * X_hansen[ikk]
+
+            # Eq. 32
+            U_22k_e[ikk] = (G*S_mass/sma) * (R/sma)^2 * A_22k_e[ikk]
+
+            img_full_k22  = interp_full(σ)
+            img_solid_k22 = interp_solid(σ)
+
+            prefactor = 5 * R * σ / (8π*G)
+            U2 = abs2(U_22k_e[ikk])
+
+            P_T_k_total[ikk] = prefactor * img_full_k22  * U2
+            P_T_k_solid[ikk] = prefactor * img_solid_k22 * U2
+        end
+
+        # Total tidal heating (negative sum)
+        P_tidal_total = -sum(P_T_k_total)
+        P_tidal_solid = -sum(P_T_k_solid)
+
+        return P_T_k_total, P_tidal_total, imag_full_k22
+
+    end
 
     # Identiy liquid region
-
     function mean_rho( ρ::Array{prec,1},
                         r::Array{prec,1}
                         )::prec
@@ -137,7 +206,9 @@ module Fluid
         V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3)  # Volume of each layer (m^3)
         M = sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end-1])  # Total mass (kg)
         mean_density = M / V[end]  # Mean density (kg/m^3)
+
         return mean_density
+
     end
 
     function compute_fluid_lovenumbers(
@@ -173,12 +244,5 @@ module Fluid
 
         return k22_fluid, k22_total
     end
-
-
-    # Calculate eccentric anomaly
-
-    # Hansen coefficients
-
-    # Calculate Love number
 
 end
