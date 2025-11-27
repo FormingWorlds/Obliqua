@@ -26,7 +26,7 @@ failed = 0
 # 0 - none
 # 10 - fast
 # 20 - all
-suite::Int64 = 8 #20
+suite::Int64 = 20
 if length(ARGS)>0
     if ARGS[1] == "all"
         suite = 20
@@ -83,7 +83,7 @@ if suite >= 0
     @info "--------------------------"
 end
 
-if suite > 12
+if suite > 2
     # -------------
     # Test interior data validity
     # -------------
@@ -165,7 +165,7 @@ if suite > 12
 
 end
 
-if suite > 14
+if suite > 4
     # -------------
     # Test mush interior data validity
     # -------------
