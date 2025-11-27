@@ -85,20 +85,39 @@ module Fluid
         # get hansen coefficients
         k_range2, X_hansen = get_hansen(ecc, n, m, k_min, k_max)
 
+        # orbital and axial frequencies
+        t_range = 10 .^ range(-15, 6, length=N_sigma)   # periods
+        σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)
+        σ_range = reshape(σ_range, :)
 
+        # preallocate (complex for viscoelastic)
+        k_T_homo = zeros(precc, n, N_sigma)
+        k_L_homo = zeros(precc, n, N_sigma)
 
+        # could include Andrade solid tides here, instead of propagator method
+        # ...
 
+        # get 2,2 harmonic
+        k_T_22_homo = vec(k_T_homo[2, :])
+        k_L_22_homo = vec(k_L_homo[2, :])
 
+        # get friction at interface, needs to be changed
+        # employ correlation with mixing length
+        σ_R = 10 ^ (-3)
 
+        # fluid Love Numbers
+        k22_fluid_high_friction, k22_total = compute_fluid_lovenumbers(
+            n,
+            σ_range,
+            k_T_22_homo,
+            k_L_22_homo,
+            ρ_ratio,
+            g,
+            H_magma,
+            σ_R,
+            R
+        )
 
-
-        r_l, r_s, rho_l, rho_s = find_liquid_region_and_densities(density, radius, visc, visc_thresh)
-        H_magma = P_radius - np.max(r_s)
-        
-        rho_ratio = rho_l / rho_s
-
-        P_n_orb = omega # orbital freq (s^-1)
-        Omega   = axial # axial freq (s^-1)
 
 
     # Identiy liquid region
@@ -121,49 +140,40 @@ module Fluid
         return mean_density
     end
 
-    function get_hansen( ecc::prec
-                        )::Tuple{Array{Int,1}, Array{prec,2}}
-        """Calculate Hansen coefficients for given eccentricity.
+    function compute_fluid_lovenumbers(
+        n,
+        sigma_range,
+        k_T_22_homo,
+        k_L_22_homo,
+        rho_ratio,
+        P_grav_acc,
+        H_magma,
+        sigmaR,
+        P_radius
+    )
+        N_sigma = length(sigma_range)
 
-        Args:
-            ecc (prec): Eccentricity.
+        mu_n  = n * (n + 1)
+        ksi_n = 3 / (2n + 1) * rho_ratio
+        sigP_n = sqrt(mu_n * P_grav_acc * H_magma / P_radius^2)
 
-        Returns:
-            Tuple{Array{Int,1}, Array{prec,2}}: k_range and X_hansen matrix.
-        """
-        k_range = collect(k_min:k_max)
-        N_k = length(k_range)
-        X_hansen = zeros(prec, N_k, N_k)
+        k22_fluid = zeros(ComplexF64, N_sigma)
+        k22_total = zeros(ComplexF64, N_sigma)
 
-        for (i, k) in enumerate(k_range)
-            for (j, q) in enumerate(k_range)
-                X_hansen[i, j] = hansen_fft(n, k, q, ecc)
-            end
+        for i in 1:N_sigma
+            sigma = sigma_range[i]
+            sigT = sigma - im * sigmaR
+
+            # Eq. (7)
+            k22_fluid[i] = -ksi_n * sigP_n^2 / (sigma * sigT - sigP_n^2)
+
+            # Eq. (28), ignoring crust
+            k22_total[i] = k_T_22_homo[i] + (1 + k_L_22_homo[i]) * k22_fluid[i]
         end
 
-        return k_range, X_hansen
+        return k22_fluid, k22_total
     end
 
-    function hansen_fft( n::Int,
-                                k::Int,
-                                q::Int,
-                                ecc::prec
-                                )::prec
-        """Calculate Hansen coefficient X_n^{k,q}(e).
-
-        Args:
-            n (Int): Degree.
-            k (Int): Order.
-            q (Int): Index.
-            ecc (prec): Eccentricity.
-
-        Returns:
-            prec: Hansen coefficient.
-        """
-        # Placeholder implementation
-        # Actual implementation would involve series expansion or numerical integration
-        return ecc^(abs(k) + abs(q))  # Simplified example
-    end
 
     # Calculate eccentric anomaly
 
