@@ -7,6 +7,8 @@ module Fluid
     include("Hansen.jl")
     using .Hansen
 
+    export calc_fluid_tides
+
     # Precision types
     prec = BigFloat
     precc = Complex{BigFloat}
@@ -21,35 +23,31 @@ module Fluid
     m = 2
     k_min = -30
     k_max = 40
-    k_range = np.arange(k_min, k_max + 1)
+    k_range = collect(k_min:k_max)
 
     # Get fluid tidal heating
-    calc_fluid_tides( omega::prec,
+    function calc_fluid_tides( omega::prec,
                         axial::prec,
                         ecc::prec,
                         sma::prec,
                         S_mass::prec,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
-                        visc::Array{prec,1},
-                        shear::Array{prec,1},
-                        bulk::Array{prec,1};
-                        ncalc::Int=2000,
-                        material::String="andrade",
+                        visc::Array{prec,1};
                         N_sigma::Int=301,
-                        visc_l::prec=1e2
-                        )::Tuple{Array{Float64,1},Float64,Float64}
+                        visc_l::Float64=2e2,
+                        visc_s::Float64=5e21
+                        )::Tuple{prec,prec}
 
         # Internal structure arrays.
         # First element is the innermost layer, last element is the outermost layer
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
-        μ = convert(Vector{precc},shear)
-        κ = convert(Vector{prec}, bulk)
 
+        # Convert profiles to scalar quantities (1 dimensional)
         
-        R = findmax(r)  # Planet radius (m)
+        R = maximum(r)  # Planet radius (m)
         g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end-1]) / R^2  # Surface gravity (m/s^2)
 
         # g = Love.get_g(r, ρ)
@@ -59,11 +57,8 @@ module Fluid
         # The follwoing code should be 
         # moved to a separate function
 
-        visc_l = 1e2
-        visc_s = 5e21
-
-        mask_l = η <= visc_l
-        mask_s = η > visc_s
+        mask_l = η .< visc_l
+        mask_s = η .> visc_s
 
         r_l = r[mask_l]
         r_s = r[mask_s]
@@ -76,8 +71,22 @@ module Fluid
         #######
         #######
 
-        ρ_l_mean = mean_rho(ρ_l, r_l)
-        ρ_s_mean = mean_rho(ρ_s, r_s)
+        # mean densities
+        if length(ρ_l) == 0
+            error("No liquid layers found in the interior structure. Adjust visc_l parameter.")
+        elseif length(ρ_l) == 1
+            ρ_l_mean = ρ_l[1]
+        else
+            ρ_l_mean = mean_rho(ρ_l, r_l)
+        end
+        
+        if length(ρ_s) == 0
+            ρ_s_mean = 5000.0  # arbitrary high density
+        elseif length(ρ_s) == 1
+            ρ_s_mean = ρ_s[1]
+        else
+            ρ_s_mean = mean_rho(ρ_s, r_s)
+        end
         
         # magma ocean height
         H_magma = r_l[1] - r_s[end] # might be other way around ??
@@ -90,7 +99,7 @@ module Fluid
         k_range2, X_hansen = get_hansen(ecc, n, m, k_min, k_max)
 
         # orbital and axial frequencies
-        t_range = 10 .^ range(-15, 6, length=N_sigma)   # periods
+        t_range = 10 .^ range(-15, stop=6, length=N_sigma)   # periods        
         σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)
         σ_range = reshape(σ_range, :)
 
@@ -127,9 +136,6 @@ module Fluid
         ξ_n = 3.0 / (2.0*n + 1.0) * ρ_ratio
         σ_n = sqrt(μ_n * g * H_magma / R^2) # characterestic frequency
 
-        k22_fluid_high_friction = zeros(precc, N_sigma)
-        k22_total               = zeros(precc, N_sigma)
-
         for kk in 1:N_sigma
             σ = σ_range[kk]
             σ_T = σ - im*σ_R
@@ -152,9 +158,9 @@ module Fluid
         imag_solid_k22 = imag.(full_k22_homo)
 
         # interpolation functions for imaginary parts (extrapolate outside)
-        interp_full  = extrapolate(interpolate((full_sigma_range,), imag_full_k22,
+        interp_full  = extrapolate(interpolate((full_σ_range,), imag_full_k22,
                                             Gridded(Linear())), Flat())
-        interp_solid = extrapolate(interpolate((full_sigma_range,), imag_solid_k22,
+        interp_solid = extrapolate(interpolate((full_σ_range,), imag_solid_k22,
                                             Gridded(Linear())), Flat())
 
         # calculate tidal heating
@@ -186,7 +192,9 @@ module Fluid
         P_tidal_total = -sum(P_T_k_total)
         P_tidal_solid = -sum(P_T_k_solid)
 
-        return P_T_k_total, P_tidal_total, imag_full_k22
+        print(typeof(P_tidal_total), typeof(imag_full_k22))
+
+        return P_tidal_total, sum(imag_full_k22[301:end])
 
     end
 
@@ -212,20 +220,25 @@ module Fluid
     end
 
     function compute_fluid_lovenumbers(
-        n,
-        sigma_range,
-        k_T_22_homo,
-        k_L_22_homo,
-        rho_ratio,
-        P_grav_acc,
-        H_magma,
-        sigmaR,
-        P_radius
-    )
+            n::Int,
+            sigma_range::Array{Float64,1},
+            k_T_22_homo::Array{precc,1},
+            k_L_22_homo::Array{precc,1},
+            rho_ratio::prec,
+            P_grav_acc::prec,
+            H_magma::prec,
+            sigmaR::Float64,
+            P_radius::prec
+        )::Tuple{Array{precc,1},Array{precc,1}}
+        """Calculate k2 lovenumber in liquid.
+
+        Args
+
+        """
         N_sigma = length(sigma_range)
 
         mu_n  = n * (n + 1)
-        ksi_n = 3 / (2n + 1) * rho_ratio
+        ksi_n = 3 / (2*n + 1) * rho_ratio
         sigP_n = sqrt(mu_n * P_grav_acc * H_magma / P_radius^2)
 
         k22_fluid = zeros(ComplexF64, N_sigma)
