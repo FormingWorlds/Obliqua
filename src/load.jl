@@ -165,4 +165,65 @@ module load
         return omega, ecc, rho, radius, visc, shear, bulk, phi, ncalc
     end
 
+    function load_interior_liquid(fname::String, verify::Bool=false
+        )::Union{
+            Bool,
+            Tuple{
+                prec, prec,
+                prec, prec, prec,
+                Array{prec,1}, Array{prec,1}, Array{prec,1}
+            }
+        }
+
+        # Convert to absolute path
+        fname = abspath(fname)
+        @info "Loading interior from JSON file: $fname"
+
+        # Suppress debug spam
+        omega = axial = ecc = sma = S_mass = nothing
+        rho = radius = visc = nothing
+
+        with_logger(MinLevelLogger(current_logger(), Logging.Info)) do
+
+            # --- Parse JSON ---
+            params = JSON.parsefile(fname)
+
+            # --- Load vector quantities ---
+            rho    = prec.(params["density"])
+            radius = prec.(params["radius"])
+            visc   = prec.(params["visc"])
+
+            # --- Load scalar quantities ---
+            omega  = prec(params["omega"])
+            axial  = prec(params["axial"])
+            ecc    = prec(params["ecc"])
+            sma    = prec(params["sma"])
+            S_mass = prec(params["S_mass"])
+
+        end
+
+        if verify
+            ok = true
+
+            # internal consistency
+            N = length(rho)
+            ok &= (length(radius) == N)
+            ok &= (length(visc)   == N)
+
+            # # simple physical checks 
+            ok &= all(rho .> 0)
+            ok &= all(radius .> 0)
+            ok &= all(visc .>= 0)
+
+            ok &= (omega ≥ 0)
+            ok &= (ecc ≥ 0 && ecc < 1)
+            ok &= (sma > 0)
+            ok &= (S_mass > 0)
+
+            return ok
+        end
+
+        return omega, axial, ecc, sma, S_mass, rho, radius, visc
+    end
+
 end # module
