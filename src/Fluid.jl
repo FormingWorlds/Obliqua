@@ -37,7 +37,7 @@ module Fluid
                         N_sigma::Int=301,
                         visc_l::Float64=2e2,
                         visc_s::Float64=5e21
-                        )::Tuple{prec,prec}
+                        )::Tuple{Float64,Float64}
 
         # Internal structure arrays.
         # First element is the innermost layer, last element is the outermost layer
@@ -48,7 +48,7 @@ module Fluid
         # Convert profiles to scalar quantities (1 dimensional)
         
         R = maximum(r)  # Planet radius (m)
-        g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end-1]) / R^2  # Surface gravity (m/s^2)
+        g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end]) / R^2  # Surface gravity (m/s^2)
 
         # g = Love.get_g(r, ρ)
         # g_s = g[end] # Surface gravity (m/s^2)
@@ -60,9 +60,17 @@ module Fluid
         mask_l = η .< visc_l
         mask_s = η .> visc_s
 
-        r_l = r[mask_l]
-        r_s = r[mask_s]
-        r_m = r[.!mask_l .& .!mask_s] # mush region
+        r_c = r[1]                           # core radius
+        r_s = r[2:end][mask_s]               # solid region
+        r_m = r[2:end][.!mask_l .& .!mask_s] # mush region
+        r_l = r[2:end][mask_l]               # liquid region
+
+        # bottom of liquid region
+        r_b = maximum([
+            r_c,
+            isempty(r_s) ? -Inf : r_s[end],
+            isempty(r_m) ? -Inf : r_m[end]
+        ])
 
         ρ_l = ρ[mask_l]
         ρ_s = ρ[mask_s]
@@ -77,7 +85,7 @@ module Fluid
         elseif length(ρ_l) == 1
             ρ_l_mean = ρ_l[1]
         else
-            ρ_l_mean = mean_rho(ρ_l, r_l)
+            ρ_l_mean = mean_rho(ρ_l, r_l, r_b)
         end
         
         if length(ρ_s) == 0
@@ -85,11 +93,15 @@ module Fluid
         elseif length(ρ_s) == 1
             ρ_s_mean = ρ_s[1]
         else
-            ρ_s_mean = mean_rho(ρ_s, r_s)
+            ρ_s_mean = mean_rho(ρ_s, r_s, r_c)
         end
         
         # magma ocean height
-        H_magma = r_l[1] - r_s[end] # might be other way around ??
+        if length(r_l) == 0
+            error("No liquid layers found in the interior structure.")
+        else
+            H_magma = r_l[end] - r_b
+        end
 
         # density ratio
         ρ_ratio = ρ_l_mean / ρ_s_mean
@@ -189,18 +201,20 @@ module Fluid
         end
 
         # Total tidal heating (negative sum)
-        P_tidal_total = -sum(P_T_k_total)
-        P_tidal_solid = -sum(P_T_k_solid)
+        P_tidal_total = -sum(P_T_k_total) # W
+        P_tidal_solid = -sum(P_T_k_solid) # W
 
-        print(typeof(P_tidal_total), typeof(imag_full_k22))
-
-        return P_tidal_total, sum(imag_full_k22[301:end])
+        # Get k2 lovenumber at forcing frequency used by Love.jl
+        k2_total = interp_full(2*axial - omega)
+        
+        return convert(Float64, P_tidal_total), convert(Float64, k2_total)
 
     end
 
     # Identiy liquid region
     function mean_rho( ρ::Array{prec,1},
-                        r::Array{prec,1}
+                        r::Array{prec,1},
+                        b::prec
                         )::prec
         """Calculate mean density of a sphere given density profile and radius profile.
 
@@ -211,9 +225,13 @@ module Fluid
         Returns:
             prec: Mean density (kg/m^3).
         """
-        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3)  # Volume of each layer (m^3)
-        M = sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end-1])  # Total mass (kg)
-        mean_density = M / V[end]  # Mean density (kg/m^3)
+        # concatenate bottom radius and region radii
+        r = vcat(b, r)
+
+        # calculate mean density of region
+        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
+        M = sum(V .* ρ[1:end])                       # Total mass (kg)
+        mean_density = M / sum(V)                    # Mean density (kg/m^3)
 
         return mean_density
 
@@ -241,8 +259,8 @@ module Fluid
         ksi_n = 3 / (2*n + 1) * rho_ratio
         sigP_n = sqrt(mu_n * P_grav_acc * H_magma / P_radius^2)
 
-        k22_fluid = zeros(ComplexF64, N_sigma)
-        k22_total = zeros(ComplexF64, N_sigma)
+        k22_fluid = zeros(precc, N_sigma)
+        k22_total = zeros(precc, N_sigma)
 
         for i in 1:N_sigma
             sigma = sigma_range[i]
