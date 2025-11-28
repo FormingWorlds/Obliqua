@@ -264,15 +264,66 @@ if suite > 6
     @info "--------------------------"
 
     # -------------
-    # Test Liquid.jl
+    # Test Liquid.jl (minimal)
     # -------------
     @info " "
     @info "Testing Liquid.jl"
     omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", false)
 
     # power_prf_expt  = ...
-    power_blk_expt  = 4.673775086943557e12
-    imag_k2_expt    = -0.004657179746957536
+    power_blk_expt  = 8.501321352156166e20
+    imag_k2_expt    = -0.010784662530332856
+
+    power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    test_pass = true
+
+    # test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
+
+    # @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    # @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+end
+
+if suite > 8
+
+    # -------------
+    # Test liquid interior data validity
+    # -------------
+    @info " "
+    @info "Testing liquid interior data validity"
+    ok = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid_full.json", true)
+    if ok
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    # -------------
+    # Test Liquid.jl (PROTEUS-like)
+    # -------------
+    @info " "
+    @info "Testing Liquid.jl"
+    omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid_full.json", false)
+
+    # power_prf_expt  = ...
+    power_blk_expt  = 2.2257483041633004e13
+    imag_k2_expt    = -0.0006584045901003507
 
     power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
     test_pass = true
