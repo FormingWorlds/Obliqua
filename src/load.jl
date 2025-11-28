@@ -207,7 +207,7 @@ module load
 
             # internal consistency
             N = length(rho)
-            ok &= (length(radius) == N)
+            ok &= (length(radius) == N+1)
             ok &= (length(visc)   == N)
 
             # # simple physical checks 
