@@ -37,7 +37,7 @@ module Fluid
                         N_sigma::Int=301,
                         visc_l::Float64=2e2,
                         visc_s::Float64=5e21
-                        )::Tuple{Float64,Float64}
+                        )::Tuple{Array{Float64,1},Float64,Float64}
 
         # Internal structure arrays.
         # First element is the innermost layer, last element is the outermost layer
@@ -204,10 +204,35 @@ module Fluid
         P_tidal_total = -sum(P_T_k_total) # W
         P_tidal_solid = -sum(P_T_k_solid) # W
 
+        # Get power profile
+        power_prf = zeros(prec, length(ρ))
+        power_prf[mask_l] .= heat_profile(P_tidal_total, ρ_l, r_l, r_b)
+        
         # Get k2 lovenumber at forcing frequency used by Love.jl
         k2_total = interp_full(2*axial - omega)
         
-        return convert(Float64, P_tidal_total), convert(Float64, k2_total)
+        return convert(Vector{Float64}, power_prf), convert(Float64, P_tidal_total), convert(Float64, k2_total)
+
+    end
+
+    function heat_profile( power::prec, 
+                            ρ::Array{prec,1},
+                            r::Array{prec,1},
+                            b::prec
+                            )::Array{prec,1}
+        # concatenate bottom radius and region radii
+        r = vcat(b, r)
+
+        # calculate mean density of region
+        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
+        
+        # calculate power density
+        power_ρ = power / sum(V) # W/m3
+
+        # calculate power profile
+        power_prf = power_ρ ./ ρ # W/kg
+
+        return power_prf
 
     end
 
