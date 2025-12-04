@@ -270,19 +270,19 @@ if suite > 6
     @info "Testing Liquid.jl"
     omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", false)
 
-    # power_prf_expt  = ...
+    power_prf_expt  = [0.0, 4.8070888926231234e-5]
     power_blk_expt  = 8.501321352156166e20
     imag_k2_expt    = -0.010784662530332856
 
-    power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    power_prf, power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
     test_pass = true
 
-    # test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
     test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
     test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
 
-    # @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
-    # @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected profile elements: $(power_prf_expt)"
+    @info "Modelled profile elements: $(power_prf)"
     @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
     @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
 
@@ -321,19 +321,19 @@ if suite > 8
     @info "Testing Liquid.jl"
     omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid_full.json", false)
 
-    # power_prf_expt  = ...
+    power_prf_expt  = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.2425507160886101e-11, 1.247057869117265e-11, 1.2516453810781429e-11, 1.2563135220101134e-11, 1.2610676478283761e-11, 1.2659083790612889e-11, 1.2708409541623968e-11, 1.2758673237938062e-11, 1.2809914760255097e-11, 1.2862209173471728e-11, 1.2915579079219025e-11, 1.2969931827930746e-11, 1.302529416461838e-11, 1.3081604494621154e-11, 1.3138973237950605e-11, 1.3197436524617666e-11, 1.3257102950688364e-11, 1.3318044915122327e-11, 1.3380159375468342e-11, 1.3443554451719328e-11, 1.3507697369285256e-11, 1.357106154494241e-11, 1.3631454664018605e-11, 1.3688086768040071e-11, 1.3741180885641205e-11, 1.379128953020106e-11, 1.3839469103782372e-11, 1.3886772628443755e-11, 1.3933736994598853e-11, 1.3982642765511493e-11]
     power_blk_expt  = 2.2257483041633004e13
     imag_k2_expt    = -0.0006584045901003507
 
-    power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    power_prf, power_blk, imag_k2 = Fluid.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
     test_pass = true
 
-    # test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
     test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
     test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
 
-    # @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
-    # @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    @info "First 5 modelled profile elements: $(power_prf[1:5])"
     @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
     @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
 
@@ -347,3 +347,55 @@ if suite > 8
     @info "--------------------------"
 
 end
+
+if suite > 10
+
+    # -------------
+    # Test complete interior data validity
+    # -------------
+    @info " "
+    @info "Testing liquid interior data validity"
+    ok = load.load_interior_full("$RES_DIR/interior_data/test_mantle_full.json", true)
+    if ok
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    # -------------
+    # Test complete model
+    # -------------
+    @info " "
+    @info "Testing all components simultaneously"
+    omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, ncalc = load.load_interior_full("$RES_DIR/interior_data/test_mantle_full.json", false)
+
+    power_prf_expt  = [0.0, 0.0, 2.8033799298475632e-12, 2.700114751919502e-12, 2.605636523930286e-12, 2.513442950451002e-12, 2.429103751513237e-12, 2.3454179045922886e-12, 2.2708686884862453e-12, 2.1931704645497486e-12, 2.133436662428884e-12, 2.0886873690410504e-12, 2.0234915325296086e-12, 1.934649668491489e-12, 1.869858168156207e-12, 1.8139949517206397e-12, 1.7611470940711942e-12, 1.7104615517358218e-12, 1.661687393009474e-12, 1.6146125795362114e-12, 1.5690456675379e-12, 1.5248559613732808e-12, 1.4819469398232008e-12, 1.4402347281373098e-12, 1.3996471044397178e-12, 1.3601218298705464e-12, 1.3216045418359406e-12, 1.284048982735129e-12, 1.2474152951977533e-12, 1.2116719205688538e-12, 1.1767894265282186e-12, 1.1427453800228377e-12, 1.1095228982080751e-12, 1.0771086473720642e-12, 1.0454950800408212e-12, 1.0146782688794704e-12, 9.846589171404709e-13, 9.554411932658012e-13, 9.270306350849263e-13, 8.994374635242746e-13, 8.726743554183461e-13, 8.467568552340155e-13, 8.217034080310174e-13, 7.975346611943445e-13, 7.742742695283504e-13, 7.519478562602372e-13, 7.305835838675943e-13, 7.102126427158658e-13, 6.908674395295397e-13, 6.725821984325284e-13, 6.553937180800747e-13, 6.393407091012786e-13, 6.244637636547715e-13, 6.108058732815114e-13, 5.984120147130504e-13, 5.873283432586877e-13, 5.776042528365747e-13, 5.692908825563549e-13, 5.624408728121283e-13, 5.571087821722777e-13, 5.533515466306069e-13, 5.512288348696375e-13, 5.508013228426204e-13, 5.521316963988688e-13, 5.55285033426832e-13, 5.603300913467833e-13, 5.673383691366566e-13, 0.0, 1.2425507160886101e-11, 1.247057869117265e-11, 1.2516453810781429e-11, 1.2563135220101134e-11, 1.2610676478283761e-11, 1.2659083790612889e-11, 1.2708409541623968e-11, 1.2758673237938062e-11, 1.2809914760255097e-11, 1.2862209173471728e-11, 1.2915579079219025e-11, 1.2969931827930746e-11, 1.302529416461838e-11, 1.3081604494621154e-11, 1.3138973237950605e-11, 1.3197436524617666e-11, 1.3257102950688364e-11, 1.3318044915122327e-11, 1.3380159375468342e-11, 1.3443554451719328e-11, 1.3507697369285256e-11, 1.357106154494241e-11, 1.3631454664018605e-11, 1.3688086768040071e-11, 1.3741180885641205e-11, 1.379128953020106e-11, 1.3839469103782372e-11, 1.3886772628443755e-11, 1.3933736994598853e-11, 1.3982642765511493e-11]
+    power_blk_expt  = 2.4626857272395777e13
+    imag_k2_expt    = -0.006150523648967025
+
+    power_prf, power_blk, imag_k2 = MAIN.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc)
+    test_pass = true
+
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= isapprox(imag_k2, imag_k2_expt; rtol=rtol)
+
+    @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W, Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2) = $(imag_k2_expt), Modelled imag(k2) = $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+end
+
