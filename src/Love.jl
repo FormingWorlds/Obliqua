@@ -137,10 +137,6 @@ module Love
         # Get y-functions
         tidal_solution = compute_y(rr, ρ, g, μc, κ)
 
-        # Get y-functions (with mush)
-        # ρl, κl, κd, α, ηl, ϕ, k = 
-        # tidal_solution = compute_y(rr, ρ, g, μc, κ, omega, ρl, κl, κd, α, ηl, ϕ, k)
-
         # Get k2 tidal Love Number (complex-valued)
         k2 = tidal_solution[5, end, end] - 1
 
