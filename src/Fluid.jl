@@ -35,8 +35,9 @@ module Fluid
                         radius::Array{prec,1},
                         visc::Array{prec,1};
                         N_sigma::Int=301,
-                        visc_l::Float64=2e2,
-                        visc_s::Float64=5e21
+                        visc_l::Float64=5e2,
+                        visc_s::Float64=5e21,
+                        sigma_R::Float64=1e-3
                         )::Tuple{Array{Float64,1},Float64,Float64}
 
         # Internal structure arrays.
@@ -126,9 +127,9 @@ module Fluid
         k_T_22_homo = vec(k_T_homo[2, :])
         k_L_22_homo = vec(k_L_homo[2, :])
 
-        # get friction at interface, needs to be changed
+        # get Rayleigh drag at interface, needs to be changed
         # employ correlation with mixing length
-        σ_R = 10 ^ (-3)
+        σ_R = sigma_R 
 
         # fluid Love Numbers
         k22_fluid_high_friction, k22_total = compute_fluid_lovenumbers(
