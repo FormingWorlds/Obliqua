@@ -137,10 +137,6 @@ module Love
         # Get y-functions
         tidal_solution = compute_y(rr, ρ, g, μc, κ)
 
-        # Get y-functions (with mush)
-        # ρl, κl, κd, α, ηl, ϕ, k = 
-        # tidal_solution = compute_y(rr, ρ, g, μc, κ, omega, ρl, κl, κd, α, ηl, ϕ, k)
-
         # Get k2 tidal Love Number (complex-valued)
         k2 = tidal_solution[5, end, end] - 1
 
@@ -182,7 +178,10 @@ module Love
                                     bulk::Array{prec,1},
                                     phi::Array{prec,1};
                                     ncalc::Int=2000,
-                                    material::String="andrade"
+                                    material::String="andrade",
+                                    visc_l::Float64=1e2,
+                                    bulk_l::Float64=1e9,
+                                    permea::Float64=1e-7
                                     )::Tuple{Array{Float64,1},Float64,Float64}
 
         # Internal structure arrays.
@@ -210,9 +209,9 @@ module Love
         end
 
         # update only the largest index that matches
-        κl[ii] = prec(1e9)      # liquid bulk modulus
-        ηl[ii] = prec(1e2)      # liquid viscosity
-        k[ii]  = prec(1e-7)     # permeability
+        κl[ii] = prec(bulk_l)   # liquid bulk modulus
+        ηl[ii] = prec(visc_l)   # liquid viscosity
+        k[ii]  = prec(permea)   # permeability
 
         ρs = ρ.*(1.0.-ϕ)        # solid density 
         ρl = ρ.*ϕ               # liquid density
