@@ -10,7 +10,7 @@ ENV["GKSwstype"] = "100"
 
 # Include libraries
 using LoggingExtras
-using main
+using fwlLove
 
 @info "Begin Love tests"
 
@@ -376,7 +376,7 @@ if suite > 10
     power_blk_expt  = 2.4626857272395777e13
     imag_k2_expt    = -0.006150523648967025
 
-    power_prf, power_blk, imag_k2 = main.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc)
+    power_prf, power_blk, imag_k2 = fwlLove.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc)
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
