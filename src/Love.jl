@@ -1075,16 +1075,17 @@ module Love
 
     # Example 
     ```jldoctest
-    julia> r = [0, 100., 200.] # two layer body, 100km core and 100km mantle;
+    julia> r = [0, 100., 200.] # two layer body, 100km core and 100km mantle
     julia> expand_layers(r; nr=5)
     6×2 Matrix{Float64}:
-       0.0  100.0
-      20.0  120.0
-      40.0  140.0
-      60.0  160.0
-      80.0  180.0
-     100.0  200.0
-    ```
+    0.0   100.0
+    20.0  120.0
+    40.0  140.0
+    60.0  160.0
+    80.0  180.0
+    100.0 200.0
+    ````
+    
     """
     function expand_layers(r; nr::Int=80)
         set_nr(nr) # Update nr globally 
