@@ -1,6 +1,6 @@
 name = "main"
-uuid = "d20dd887-f725-4eb7-b908-6e59cfabf5fb"
-authors = ["Hamish Hay <hamish@tides.rocks>"]
+uuid = "70fbf7c6-2f8c-431c-b73b-6bd747db0edf"
+authors = ["Hamish Hay <hamish@tides.rocks>", "Marijn van Dijk <m.r.van.dijk.3@student.rug.nl>", "Tim Lichtenberg <tim.lichtenberg@rug.nl>", "Harrison Nicholls <harrison.nicholls@physics.ox.ac.uk>"]
 version = "0.1.0"
 
 [deps]
