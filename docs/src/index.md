@@ -9,22 +9,21 @@
 
 # Love.jl (Tidal heating model)
 
-A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid and partially-solid planetary bodies.
+A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles.
 
 Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
 
 ### Documentation
 https://fwl-proteus.readthedocs.io
 
-## Contributors
+### Contributors
 
-| Name  | Email address |
-| -     | -             |
-| Hamish Hay              | hamish[at]tides.rocks |
-| Marijn van Dijk | m.r.van.dijk.3[at]student.rug.nl  |
-| Tim Lichtenberg         | tim.lichtenberg[at]rug.nl |
-| Harrison Nicholls       | harrison.nicholls[at]physics.ox.ac.uk |
-
+| Name                  | Email address                          |
+|:----------------------|:---------------------------------------|
+| Hamish Hay            | hamish[at]tides.rocks                  |
+| Marijn van Dijk       | m.r.van.dijk.3[at]student.rug.nl       |
+| Tim Lichtenberg       | tim.lichtenberg[at]rug.nl              |
+| Harrison Nicholls     | harrison.nicholls[at]physics.ox.ac.uk  |
 
 
 ### Repository structure
@@ -48,7 +47,7 @@ https://fwl-proteus.readthedocs.io
    ```sh
    julia> ]
    pkg> add https://github.com/FormingWorlds/Love.jl.git#julia
-
+   ```
 
 GitHub: [https://github.com/FormingWorlds/Love.jl](https://github.com/FormingWorlds/Love.jl)
 
