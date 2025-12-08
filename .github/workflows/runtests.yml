@@ -1,0 +1,37 @@
+# This job installs Love.jl and Fluid.jl, and runs tests 
+# This occurs when a PR to main is created
+
+name: Tests
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    branches:
+        - master 
+        - main
+  push:
+      branches:
+        - master 
+        - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Setup Julia
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+
+      # Run tests
+      - name: Run test suite
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
