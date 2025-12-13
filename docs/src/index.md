@@ -32,22 +32,7 @@ https://fwl-proteus.readthedocs.io
 * `src/`                - Source files
 * `examples/`           - Tools and notebooks showing how to use the code
 
-### Installation
-
-1. Clone the repo
-   ```sh
-   git clone https://github.com/FormingWorlds/Love.jl.git
-   ```
-2. Move to the repository directory and start Julia
-   ```sh
-   cd Love.jl
-   julia
-   ```
-3. Install `Love.jl`
-   ```sh
-   julia> ]
-   pkg> add https://github.com/FormingWorlds/Love.jl.git#julia
-   ```
+### Source code
 
 GitHub: [https://github.com/FormingWorlds/Love.jl](https://github.com/FormingWorlds/Love.jl)
 
