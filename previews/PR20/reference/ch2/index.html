@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>chapter 2 - Solid-phase · fwlLove</title><meta name="title" content="chapter 2 - Solid-phase · fwlLove"/><meta property="og:title" content="chapter 2 - Solid-phase · fwlLove"/><meta property="twitter:title" content="chapter 2 - Solid-phase · fwlLove"/><meta name="description" content="Documentation for fwlLove."/><meta property="og:description" content="Documentation for fwlLove."/><meta property="twitter:description" content="Documentation for fwlLove."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">fwlLove</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../install/">Installation</a></li><li><a class="tocitem" href="../../compass/">Compass</a></li><li><a class="tocitem" href="../../tutorials/">Tutorials</a><ul><li><a class="tocitem" href="../../tutorials/ch1/">chapter 1 - Loading Data</a></li><li><a class="tocitem" href="../../tutorials/ch2/">chapter 2 - Running Model</a></li><li><a class="tocitem" href="../../tutorials/ch3/">chapter 3 - Plotting</a></li></ul></li><li><a class="tocitem" href="../../how-to-guides/">How-to guides</a></li><li><a class="tocitem" href="../">Reference</a><ul><li><a class="tocitem" href="../ch1/">chapter 1 - Rheology</a></li><li class="is-active"><a class="tocitem" href>chapter 2 - Solid-phase</a></li><li><a class="tocitem" href="../ch3/">chapter 3 - Mush layer</a></li><li><a class="tocitem" href="../ch4/">chapter 4 - Liquid-phase</a></li><li><a class="tocitem" href="../ch5/">chapter 5 - Forcing Frequency</a></li><li><a class="tocitem" href="../ch6/">chapter 6 - Surface Loading</a></li><li><a class="tocitem" href="../ch7/">chapter 7 - Tidal Potentials</a></li></ul></li><li><a class="tocitem" href="../../explanation/">Explanation</a></li><li><a class="tocitem" href="../../troubleshooting/">Troubleshooting</a></li><li><a class="tocitem" href="../../development/">Development</a></li><li><a class="tocitem" href="../../ecosystem/">Related codes</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a href="../">Reference</a></li><li class="is-active"><a href>chapter 2 - Solid-phase</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>chapter 2 - Solid-phase</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/FormingWorlds/Love.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/FormingWorlds/Love.jl/blob/main/docs/src/reference/ch2.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h3 id="Reference-(2)"><a class="docs-heading-anchor" href="#Reference-(2)">Reference (2)</a><a id="Reference-(2)-1"></a><a class="docs-heading-anchor-permalink" href="#Reference-(2)" title="Permalink"></a></h3><h1 id="Chapter-2-Solid-Phase"><a class="docs-heading-anchor" href="#Chapter-2-Solid-Phase">Chapter 2 - Solid-Phase</a><a id="Chapter-2-Solid-Phase-1"></a><a class="docs-heading-anchor-permalink" href="#Chapter-2-Solid-Phase" title="Permalink"></a></h1><p>To describe tidal and rotational deformations of a spherically symmetric body, <code>fwlLove</code> considers the spheroidal displacement–stress–gravity system. For each harmonic degree (<span>$\ell$</span>) and order (<span>$m$</span>), the spheroidal perturbed state is represented by the 6-vector</p><p class="math-container">\[    \mathbf{y}_{\ell m} =
+    \begin{pmatrix}
+    U_{\ell m} \
+    V_{\ell m} \
+    R_{\ell m} \
+    S_{\ell m} \
+    \Phi_{\ell m} \
+    Q_{\ell m}
+    \end{pmatrix},\]</p><p>where</p><ul><li><span>$U_{\ell m}$</span>: radial displacement</li><li><span>$V_{\ell m}$</span>: tangential displacement</li><li><span>$R_{\ell m}$</span>: radial stress</li><li><span>$S_{\ell m}$</span>: tangential stress</li><li><span>$\Phi_{\ell m}$</span>: gravitational potential perturbation</li><li><span>$Q_{\ell m}$</span>: “potential stress,” defined as</li></ul><p class="math-container">\[Q_{\ell m}
+= \frac{\partial \Phi_{\ell m}}{\partial r}
+  + \frac{\ell+1}{r}\Phi_{\ell m}
+  + 4\pi G \rho_0 U_{\ell m}.\]</p><p>The spheroidal vector satisfies the first-order ODE system</p><p class="math-container">\[\frac{d\mathbf{y}_{\ell m}}{dr}
+= \mathbf{A}_{\ell}(r)\,\mathbf{y}_{\ell m}(r).\]</p><p>Here, the coefficient matrix <span>$\mathbf{A}_{\ell}(r)$</span> represents the responds of the mantle to deformations, and is given by </p><p class="math-container">\[A(r) =
+\begin{pmatrix}
+-\frac{2\lambda}{r\beta} &amp;
+\frac{\ell(\ell+1)\lambda}{r\beta} &amp;
+\frac{1}{\beta} &amp; 0 &amp; 0 &amp; 0 \\[1.2em]
+
+-\frac{1}{r} &amp;
+\frac{1}{r} &amp;
+0 &amp;
+\frac{1}{\mu} &amp;
+0 &amp; 0 \\[1.2em]
+
+\frac{4}{r}\!\left( \frac{3\kappa\mu}{r\beta} - \rho_{0}g \right) - \rho_{0}\omega^{2} &amp;
+\frac{\ell(\ell+1)}{r}\!\left(\rho_{0}g - \frac{6\kappa\mu}{r\beta}\right) &amp;
+-\frac{4\mu}{r\beta} &amp;
+\frac{\ell(\ell+1)}{r} &amp;
+-\frac{\rho_{0}(\ell+1)}{r} &amp;
+\rho_{0} \\[1.2em]
+
+\frac{1}{r}\!\left(\rho_{0}g - \frac{6\mu\kappa}{r\beta}\right) &amp;
+\frac{2\mu}{r^{2}}\!\left[\ell(\ell+1)\!\left(1+\frac{\lambda}{\beta}\right)-1\right] - \rho_{0}\omega^{2} &amp;
+-\frac{\lambda}{r\beta} &amp;
+-\frac{3}{r} &amp;
+\frac{\rho_{0}}{r} &amp;
+0 \\[1.2em]
+
+-4\pi G \rho_{0} &amp;
+0 &amp; 0 &amp; 0 &amp;
+-\frac{\ell+1}{r} &amp;
+1 \\[1.2em]
+
+-\frac{4\pi G \rho_{0} (\ell+1)}{r} &amp;
+\frac{4\pi G \rho_{0} \ell(\ell+1)}{r} &amp;
+0 &amp; 0 &amp; 0 &amp;
+\frac{\ell-1}{r}
+\end{pmatrix}.\]</p><p>The material parameters satisfy</p><p class="math-container">\[\beta = \lambda + 2\mu\]</p><p>and</p><p class="math-container">\[\lambda = \kappa - \frac{2}{3}\mu.\]</p><hr/><h3 id="Core–Mantle-Boundary"><a class="docs-heading-anchor" href="#Core–Mantle-Boundary">Core–Mantle Boundary</a><a id="Core–Mantle-Boundary-1"></a><a class="docs-heading-anchor-permalink" href="#Core–Mantle-Boundary" title="Permalink"></a></h3><p>In order to solve the system a general solution is constructed through propagation from the core-mantle boundary outwards. At the CMB radius <span>$r_C$</span>, the spheroidal solution satisfies</p><p class="math-container">\[\mathbf{y}_\ell(r_C^+)
+  = \mathbf{I}_C \mathbf{C},\]</p><p>where <span>$\mathbf{C} = (C_1, C_2, C_3)^T$</span> is a vector of integration constants determined by surface boundary conditions. The CMB Interface Matrix is given as </p><p class="math-container">\[\mathbf{I}_C =
+\begin{pmatrix}
+-\psi_\ell(r_C)/g(r_C) &amp; 0 &amp; 1 \\[1.2em]
+0 &amp; 1 &amp; 0 \\[1.2em]
+0 &amp; 0 &amp; g(r_C)/\rho_0(r_C^-) \\[1.2em]
+0 &amp; 0 &amp; 0 \\[1.2em]
+\psi_\ell(r_C) &amp; 0 &amp; 0 \\[1.2em]
+q_\ell(r_C) &amp; 0 &amp; 4\pi G \rho_0(r_C^-)
+\end{pmatrix}.\]</p><p>Once the constants <span>$\mathbf{C}$</span> are determined, the full perturbed state of the solid mantle is known.</p><hr/><h3 id="(Visco)elastic-Solution"><a class="docs-heading-anchor" href="#(Visco)elastic-Solution">(Visco)elastic Solution</a><a id="(Visco)elastic-Solution-1"></a><a class="docs-heading-anchor-permalink" href="#(Visco)elastic-Solution" title="Permalink"></a></h3><p>We propagate the solution using the so-called propagator matrix (<span>$\pmb{\Pi}_\ell$</span>). The propagator matrix solves the homogeneous differential system</p><p class="math-container">\[\frac{d\pmb{\Pi}_\ell(r, r&#39;)}{dr} = \pmb{A}_\ell(r)\,\pmb{\Pi}_\ell(r, r&#39;),\]</p><p>at radius <span>$r$</span> w.r.t. the solution at the previous layer <span>$r&#39;$</span>, this is also know as the Cauchy data at radius (<span>$r&#39;$</span>). If <span>$r = r&#39;$</span> we have</p><p class="math-container">\[\pmb{\Pi}_\ell(r&#39;, r&#39;) = \pmb{1}.\]</p><p>Each column of the propagator matrix is one of the six linearly independent solutions of</p><p class="math-container">\[\frac{d\pmb{y}_{\ell m}}{dr} = \pmb{A}_\ell(r)\,\pmb{y}_{\ell m}.\]</p><p>We impose continuity:</p><p class="math-container">\[\pmb{\Pi}_\ell(r_j^+, r&#39;) = \pmb{\Pi}_\ell(r_j^-, r&#39;),\]</p><p>and apply CMB boundary conditions:</p><p class="math-container">\[\pmb{y}_{\ell m}(r_C^+) = \pmb{y}_0 = \pmb{I}_C\,\pmb{C}.\]</p><p>Therefore,</p><p class="math-container">\[\pmb{y}_{\ell m}(r) =
+\pmb{\Pi}_\ell(r, r_C^+)\,\pmb{I}_C\,\pmb{C}.\]</p><p>This equation can be solved iteratively, up till the surface to yield the general responds of the interior to any form of tidal- or load induced deformation.</p><hr/><h3 id="Surface-Boundary-Conditions"><a class="docs-heading-anchor" href="#Surface-Boundary-Conditions">Surface Boundary Conditions</a><a id="Surface-Boundary-Conditions-1"></a><a class="docs-heading-anchor-permalink" href="#Surface-Boundary-Conditions" title="Permalink"></a></h3><p>Finally, to find the specific solution for the case where a planet is orbiting around a star-like object, we can specify the surface (<span>$r=a^-$</span>) boundary condition. In particular we need to constrain the 3rd, 4th, and 6th <span>$y$</span>-values. To do this employ the projector on the 3rd, 4th, and 6th components given by </p><p class="math-container">\[\pmb{P}_1\,\pmb{y}(a^-) =
+\pmb{P}_1 \left[
+\pmb{\Pi}_\ell(a^-, r_C^+)\,\pmb{I}_C\,\pmb{C}
+\right]
+= \pmb{b},\]</p><p>where</p><p class="math-container">\[\pmb{b} = \sigma_{\ell m}^L\,\pmb{b}^L +
+\left(\Phi_{\ell m}^T(a) + \Phi_{\ell m}^C(a)\right)\pmb{b}^T,\]</p><p>with</p><p class="math-container">\[\pmb{b}^L =
+\begin{pmatrix}
+-\dfrac{(2\ell+1)g(a)}{4\pi a^2} \\[1em]
+0 \\[1em]
+-\dfrac{(2\ell+1)G}{a^2}
+\end{pmatrix}
+\qquad\text{(Load)},\]</p><p class="math-container">\[\pmb{b}^T =
+\begin{pmatrix}
+0 \\[1em]
+0 \\[1em]
+\dfrac{2\ell+1}{a}
+\end{pmatrix}
+\qquad\text{(Tidal)}.\]</p><p>Incase the solid part of the mantle extends up to the surface of the planet, then the surface is stress-free and the toroidal part has <span>$\sigma_{\ell m}^L = \pmb{0}$</span>, and the solution no longer depends on <span>$\pmb{b}^L$</span>. However, as in our formalism the solid is often loaded by a liquid magma ocean, we cannot ignore this term.</p><p>The integration constants follow from</p><p class="math-container">\[\pmb{C} =
+\left(\pmb{P}_1 \pmb{\Pi}_\ell(a, r_C)\,\pmb{I}_C\right)^{-1}\pmb{b}.\]</p><p>Thus,</p><p class="math-container">\[\pmb{y}_{\ell m}(r)
+=
+\pmb{\Pi}_\ell(r, r_C)\,
+\pmb{I}_C\,
+\left(\pmb{P}_1 \pmb{\Pi}_\ell(a, r_C)\,\pmb{I}_C\right)^{-1}
+\pmb{b}.\]</p><p>To solve this system we thus need only provide <span>$\pmb{P}_1\,\pmb{y}(a^-)$</span>, we will provide some examples in Chapter 7 at the end of this component.</p><hr/></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ch1/">« chapter 1 - Rheology</a><a class="docs-footer-nextpage" href="../ch3/">chapter 3 - Mush layer »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Sunday 14 December 2025 20:45">Sunday 14 December 2025</span>. Using Julia version 1.11.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
