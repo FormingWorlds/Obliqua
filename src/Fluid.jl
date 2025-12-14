@@ -26,6 +26,52 @@ module Fluid
     k_range = collect(k_min:k_max)
 
     # Get fluid tidal heating
+    """
+        calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; 
+                        N_sigma=301, visc_l=5e2, visc_s=5e21, sigma_R=1e-3)
+
+    Calculate the tidal heating in the fluid layers of a planetary interior.
+
+    This function computes the tidal dissipation power profile and the total tidal heating 
+    for liquid layers using Love numbers, Hansen coefficients, and a viscoelastic 
+    approximation for the solid interior. It also returns the k2 Love number at the 
+    forcing frequency used by the calculation.
+
+    # Arguments
+    - `omega::prec` : Orbital frequency of the planet [rad/s].
+    - `axial::prec` : Axial rotation frequency of the planet [rad/s].
+    - `ecc::prec`   : Orbital eccentricity.
+    - `sma::prec`   : Semi-major axis of the orbit [m].
+    - `S_mass::prec` : Stellar mass [kg].
+    - `rho::Array{prec,1}` : Layered density profile [kg/m³].
+    - `radius::Array{prec,1}` : Layer boundaries [m], length = number of layers + 1.
+    - `visc::Array{prec,1}` : Layer viscosities [Pa·s].
+
+    # Keyword Arguments
+    - `N_sigma::Int=301` : Number of frequency bins for spectral calculations.
+    - `visc_l::Float64=5e2` : Threshold viscosity below which a layer is considered liquid [Pa·s].
+    - `visc_s::Float64=5e21` : Threshold viscosity above which a layer is considered solid [Pa·s].
+    - `sigma_R::Float64=1e-3` : Rayleigh drag coefficient for the fluid interface [1/s].
+
+    # Returns
+    A tuple with three elements:
+
+    1. `power_prf::Vector{Float64}` : Tidal heating power profile for each layer [W].
+    2. `P_tidal_total::Float64` : Total tidal dissipation power in the fluid layers [W].
+    3. `k2_total::Float64` : Complex k2 Love number at the forcing frequency.
+
+    # Errors
+    Throws an error if:
+    - No liquid layers are found in the interior (`ρ_l` empty), suggesting that `visc_l` needs adjustment.
+    - The interior structure is incompatible with computing mean densities.
+
+    # Notes
+    - Layers are categorized into liquid, mush, and solid based on `visc_l` and `visc_s`.
+    - `r_b` denotes the bottom of the liquid region.
+    - Hansen coefficients and Love numbers are computed over a frequency spectrum and interpolated.
+    - The total tidal dissipation is computed using both the fluid and solid contributions.
+
+    """
     function calc_fluid_tides( omega::prec,
                         axial::prec,
                         ecc::prec,
