@@ -33,8 +33,6 @@ Q_{\ell m}
   + 4\pi G \rho_0 U_{\ell m}.
 ```
 
-### Governing System
-
 The spheroidal vector satisfies the first-order ODE system
 
 ```math
@@ -42,7 +40,7 @@ The spheroidal vector satisfies the first-order ODE system
 = \mathbf{A}_{\ell}(r)\,\mathbf{y}_{\ell m}(r).
 ```
 
-The coefficient matrix ``\mathbf{A}_{\ell}(r)`` is
+Here, the coefficient matrix ``\mathbf{A}_{\ell}(r)`` represents the responds of the mantle to deformations, and is given by 
 
 ```math
 A(r) =
@@ -95,22 +93,18 @@ and
 \lambda = \kappa - \frac{2}{3}\mu.
 ```
 
-The background fields ``\rho_0``, ``g`` and ``\kappa`` are obtained from SPIDER/ARAGOG.
-
 ---
 
-### Core–Mantle Boundary (CMB)
+### Core–Mantle Boundary
 
-At the CMB radius ``r_C``, the spheroidal solution satisfies
+In order to solve the system a general solution is constructed through propagation from the core-mantle boundary outwards. At the CMB radius ``r_C``, the spheroidal solution satisfies
 
 ```math
 \mathbf{y}_\ell(r_C^+)
   = \mathbf{I}_C \mathbf{C},
 ```
 
-where ``\mathbf{C} = (C_1, C_2, C_3)^T`` is a vector of integration constants determined by surface boundary conditions.
-
-### CMB Interface Matrix
+where ``\mathbf{C} = (C_1, C_2, C_3)^T`` is a vector of integration constants determined by surface boundary conditions. The CMB Interface Matrix is given as 
 
 ```math
 \mathbf{I}_C =
@@ -130,13 +124,12 @@ Once the constants ``\mathbf{C}`` are determined, the full perturbed state of th
 
 ### (Visco)elastic Solution
 
-The propagator matrix (``\pmb{\Pi}_\ell``) (a ``6\times 6`` matrix for the spheroidal case) solves the homogeneous differential system
+We propagate the solution using the so-called propagator matrix (``\pmb{\Pi}_\ell``). The propagator matrix solves the homogeneous differential system
 
 ```math
 \frac{d\pmb{\Pi}_\ell(r, r')}{dr} = \pmb{A}_\ell(r)\,\pmb{\Pi}_\ell(r, r'),
 ```
-
-with Cauchy data at radius (``r'``):
+at radius ``r`` w.r.t. the solution at the previous layer ``r'``, this is also know as the Cauchy data at radius (``r'``). If ``r = r'`` we have
 
 ```math
 \pmb{\Pi}_\ell(r', r') = \pmb{1}.
@@ -167,11 +160,13 @@ Therefore,
 \pmb{\Pi}_\ell(r, r_C^+)\,\pmb{I}_C\,\pmb{C}.
 ```
 
+This equation can be solved iteratively, up till the surface to yield the general responds of the interior to any form of tidal- or load induced deformation.
+
 ---
 
 ### Surface Boundary Conditions
 
-The projector on the 3rd, 4th, and 6th components is
+Finally, to find the specific solution for the case where a planet is orbiting around a star-like object, we can specify the surface (``r=a^-``) boundary condition. In particular we need to constrain the 3rd, 4th, and 6th ``y``-values. To do this employ the projector on the 3rd, 4th, and 6th components given by 
 
 ```math
 \pmb{P}_1\,\pmb{y}(a^-) =
@@ -210,7 +205,7 @@ with
 \qquad\text{(Tidal)}.
 ```
 
-The toroidal part has (``\pmb{b} = \pmb{0}``) for a stress-free surface.
+Incase the solid part of the mantle extends up to the surface of the planet, then the surface is stress-free and the toroidal part has ``\sigma_{\ell m}^L = \pmb{0}``, and the solution no longer depends on ``\pmb{b}^L``. However, as in our formalism the solid is often loaded by a liquid magma ocean, we cannot ignore this term.
 
 The integration constants follow from
 
@@ -230,37 +225,6 @@ Thus,
 \pmb{b}.
 ```
 
+To solve this system we thus need only provide ``\pmb{P}_1\,\pmb{y}(a^-)``, we will provide some examples in Chapter 7 at the end of this component.
+
 ---
-
-### Semidiurnal Lunar Tide
-
-For (``\ell = 2``), the semidiurnal case:
-
-* The boundary conditions at the surface are
-  (``y_3 = y_4 = 0``)
-  (see *Takeuchi et al. 1972*).
-
-The final condition is
-
-```math
-y_6 =
-- \frac{(2\ell + 1) g_s}{4}
-\frac{M_M}{M_E}
-\left(\frac{R_E}{a}\right)^3.
-```
-
-Thus,
-
-```math
-\pmb{P}_1\,\pmb{y}(a^-) =
-\begin{pmatrix}
-0 \\[1em]
-0 \\[1em]
--\dfrac{(2\ell+1) g_s}{4}
-\dfrac{M_M}{M_E}
-\left(\dfrac{R_E}{a}\right)^3
-\end{pmatrix}.
-```
----
-
-

@@ -9,7 +9,7 @@ format = Documenter.HTML(
 
 # Build the docs
 makedocs(
-    sitename="Love.jl",
+    sitename="fwlLove",
     format=format,
     modules = [fwlLove],
     pages = [
@@ -29,7 +29,8 @@ makedocs(
             "chapter 3 - Mush layer" => "reference/ch3.md", 
             "chapter 4 - Liquid-phase" => "reference/ch4.md",
             "chapter 5 - Forcing Frequency" => "reference/ch5.md",
-            "chapter 6 - Surface Loading" => "reference/ch6.md"
+            "chapter 6 - Surface Loading" => "reference/ch6.md",
+            "chapter 7 - Tidal Potentials" => "reference/ch7.md"
             ]
         ),
         "Explanation" => "explanation/index.md",

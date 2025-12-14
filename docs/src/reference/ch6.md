@@ -3,20 +3,19 @@
 
 # Chapter 6 - Surface Loading
 
-## Total ``k_{2}`` 
+### Total ``k_{2}``
 
-### Tilt Factors
-
-The tilt factors quantify the deviation of the surface from hydrostatic equilibrium:
+To include a surface magma ocean, the full Love number is
 
 ```math
-\mathcal{T}_{n}^{T} = 1 + k_{T,n} - h_{T,n}, \qquad
-\mathcal{T}_{n}^{L} = 1 + k_{L,n} - h_{L,n}.
-```
-
-To include a surface magma ocean, the full Love number (*Farhat et al. 2025, Eq. 28*) is
-
-```math
-k_n(\sigma) = k_{T,n}(\sigma)
+k_n(\sigma) = k_{T,n}^{(\mathrm{solid})}(\sigma)
 + \bigl[1 + k_{L,n}(\sigma)\bigr]\,k_{n}^{(\mathrm{fluid})}(\sigma).
 ```
+
+To include a sub-surface magma ocean, the full Love number is
+
+```math
+???
+```
+
+---

@@ -3,43 +3,23 @@
 
 # Chapter 5 - Forcing Frequency
 
-The tidal power dissipation follows *Farhat et al. (2025, Eq. 30)*. The imaginary part (``\Im[k_{22}(\sigma)]``) describes the phase lag and is interpolated across positive and negative frequencies.
-
-Each Fourier mode has frequency
+Given the fact that the tidal forcing magnitude decreases exponentially with harmonnic order, we limit the calculation to only the lowest harmonnic frequency ``n = 2``. Generally, in the limit of ``R_p = a``, it suffices to only consider the quadrupolar harmonic (``n = 2``). Moreover, as we are considering a coplanar geometry, terms with ``\ell = 1`` associated with obliquity tides vanish. The Fourier modes of the second harmonnic have frequencies given by
 
 ```math
 \sigma = 2\Omega - k n_{\mathrm{orb}},
 ```
 
-where ``\Omega`` is spin rate and ``n_{\mathrm{orb}}`` orbital mean motion. The mode amplitude of the external tidal potential is
+where ``\Omega`` is spin rate and ``n_{\mathrm{orb}}`` orbital mean motion, and for integer values of ``k``. In our formalism tides are occuring over a large time interval, a time step ``\Delta t``. As such, we must account for tidal excitations that occur over a wide range of frequencies. We calculate the imaginary part of the second harmonnic degree (``k_2``) Love number (``\Im[k_{2}(\sigma)]``) for a handful of frequencies. The resulting descrete profile can subsequently be interpolated across positive and negative frequencies to yield a continous profile. 
 
-```math
-U_{22k} =
-\frac{G M_\star}{a}
-\left(\frac{R}{a}\right)^2
-\sqrt{\frac{6\pi}{5}}\,X_{22k}(e),
-```
-
-where ``X_{22k}(e)`` is the Hansen coefficient:
+Note, since we are only interested in the the Fourier modes of the second harmonnic, we don't actually use the entire spectrum. We can determine which frequencies are relevant using the Hansen Coefficients. 
 
 ```math
 X_{22k}(e) =
 \frac{1}{2\pi} \int_0^{2\pi}
 \left(\frac{r}{a}\right)^2
-e^{2\mathrm{i}v - \mathrm{i}kM}\,dM.
+e^{2i v - ikM}\,dM,
 ```
 
-Tidal power per mode:
+where ``v`` is the true anomoly. 
 
-```math
-P_{T,k} =
-\frac{5 R \sigma}{8\pi G}
-\,\Im\!\bigl[k_{22}(\sigma)\bigr]
-\,|U_{22k}|^2.
-```
-
-Total tidal dissipation:
-
-```math
-P_{\mathrm{tidal}} = -\sum_k P_{T,k}.
-```
+---

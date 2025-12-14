@@ -8,6 +8,7 @@ In this component you will be guided through the employed formalism and theoreti
 - [Chapter 4 - Liquid-Phase](@ref)
 - [Chapter 5 - Forcing Frequency](@ref)
 - [Chapter 6 - Surface Loading](@ref)
+- [Chapter 7 - Tidal potentials](@ref)
 
 
 
