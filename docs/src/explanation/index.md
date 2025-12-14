@@ -1,17 +1,3 @@
 ### Explanation
 
-# Example outputs
-
-## Solid mantle
-
-
-## Solid-mush mantle
-
-
-## Liquid mantle
-
-
-## Solid-liquid mantle
-
-
-## Solid-mush-liquid mantle
+In this component you will build the conceptional understanding required for the `fwlLove` package.

@@ -16,7 +16,7 @@ Feel free to get started with any of these components.
 
 - [How-to-Guides](@ref) - familiarize yourself with applications of `fwlLove`.
 
-- [Reference](@ref) - inform yourself with the technical discription of the model.
+- [Reference](@ref) - inform yourself with the theoretical discription of the model.
 
 - [Explanation](@ref) - build conceptual understanding of model.
 
