@@ -1,4 +1,5 @@
 using Documenter
+using DocumenterPages
 using fwlLove
 
 # HTML format configuration
