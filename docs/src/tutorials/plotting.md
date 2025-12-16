@@ -4,7 +4,7 @@ CollapsedDocStrings = true
 
 ### Tutorials (3)
 
-# Chapter 3 - Plotting 
+# Plotting 
 
 Currently, there are two plotting scripts included with `fwlLove`. More will be added. 
 

@@ -1,7 +1,7 @@
 
 ### Reference (4)
 
-# Chapter 4 - Liquid-Phase
+# Liquid-Phase
 
 When the melt fraction of a magma layer exceeds a critical value ``F_m \gtrsim F_{m,c}``, its response to tidal forcing becomes fluid-like rather than solid-like. In this regime, tidal deformation is governed by the linearized Laplace tidal equations (LTEs), which describe the dynamics of a thin, global fluid shell of uniform thickness ``H`` on a planet of radius ``R_p``.
 

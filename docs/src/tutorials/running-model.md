@@ -4,12 +4,11 @@ CollapsedDocStrings = true
 
 ### Tutorials (2)
 
-# Chapter 2 - Running Model
+# Running Model
 
-Now that you are able to validate and load data files using the `fwlLove.load` module, we can start using the tidal models `fwlLove.Love` and `fwlLove.Fluid`. In principle, this is rather simple, since you only have to call one function depending on your use case. For example, let us proceed with the data file from [Chapter 1 - Loading data](@ref). In this case, following the [Table of inputs](@ref), we are interested in the solid-phase tides, so we should use `fwlLove.Love.calc_lovepy_tides`.
+Now that you are able to validate and load data files using the `fwlLove.load` module, we can start using the tidal models `fwlLove.Love` and `fwlLove.Fluid`. In principle, this is rather simple, since you only have to call one function depending on your use case. For example, let us proceed with the data file from [Loading data](@ref). In this case, following the [Table of inputs](@ref), we are interested in the solid-phase tides, so we should use `fwlLove.Love.calc_lovepy_tides`.
 
 ```julia
-
 using fwlLove
 
 # location of data files

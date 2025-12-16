@@ -1,7 +1,7 @@
 
 ### Reference (1)
 
-# Chapter 1 - Rheology
+# Rheology
 
 The frequency response of the mantle is computed assuming a homogeneous viscoelastic mantle. `fwlLove` implements two rheological models: Maxwell and Andrade. Unlike the Maxwell model, which captures only elastic–viscous behavior through a single Maxwell timescale, the Andrade rheology includes a transient anelastic component. This yields an elastic response at high forcing frequencies, a viscous response at low frequencies governed by the Maxwell timescale ``\tau_M = \eta / \mu``, and a smooth anelastic transition in between characterized by the Andrade timescale ``\tau_A`` and creep exponent ``\alpha``. As a result, the Andrade rheology reproduces the observed attenuation behavior of planetary mantles more accurately, particularly at high tidal forcing frequencies. The rheologies are incorporated via their definitions of the complex shear modulus. For the Andrade rheology, the complex shear modulus is
 

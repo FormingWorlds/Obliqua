@@ -1,7 +1,7 @@
 
 ### Reference (6)
 
-# Chapter 6 - Surface Loading
+# Surface Loading
 
 ### Total ``k_{2}``
 

@@ -1,7 +1,7 @@
 
 ### Reference (7)
 
-# Chapter 7 - Tidal potentials
+# Tidal potentials
 
 Different sources can provide different tidal potentials, first we need to complete the solid-phase by providng the relevant surface boundary condition. Here we list some examples.
 

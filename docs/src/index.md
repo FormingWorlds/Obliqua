@@ -24,6 +24,7 @@ https://fwl-proteus.readthedocs.io
 | Marijn van Dijk       | m.r.van.dijk.3[at]student.rug.nl       |
 | Tim Lichtenberg       | tim.lichtenberg[at]rug.nl              |
 | Harrison Nicholls     | harrison.nicholls[at]physics.ox.ac.uk  |
+| Mohammad Farhat       | farhat[at]berkeley.edu                 |
 
 
 ### Repository structure
