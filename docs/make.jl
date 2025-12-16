@@ -18,20 +18,20 @@ makedocs(
         "Installation" => "install.md",
         "Compass" => "compass.md",
         PageNode("Tutorials" => "tutorials/index.md", [
-            "chapter 1 - Loading Data" => "tutorials/ch1.md", 
-            "chapter 2 - Running Model" => "tutorials/ch2.md", 
-            "chapter 3 - Plotting" => "tutorials/ch3.md"
+            "1 - Loading Data" => "tutorials/loading-data.md", 
+            "2 - Running Model" => "tutorials/running-model.md", 
+            "3 - Plotting" => "tutorials/plotting.md"
             ]
         ),
         "How-to guides" => "how-to-guides/index.md",
         PageNode("Reference" => "reference/index.md", [
-            "chapter 1 - Rheology" => "reference/ch1.md", 
-            "chapter 2 - Solid-phase" => "reference/ch2.md", 
-            "chapter 3 - Mush layer" => "reference/ch3.md", 
-            "chapter 4 - Liquid-phase" => "reference/ch4.md",
-            "chapter 5 - Forcing Frequency" => "reference/ch5.md",
-            "chapter 6 - Surface Loading" => "reference/ch6.md",
-            "chapter 7 - Tidal Potentials" => "reference/ch7.md"
+            "1 - Rheology" => "reference/rheology.md", 
+            "2 - Solid-phase" => "reference/solid-phase.md", 
+            "3 - Mush layer" => "reference/mush-layer.md", 
+            "4 - Liquid-phase" => "reference/liquid-phase.md",
+            "5 - Forcing Frequency" => "reference/forcing-frequency.md",
+            "6 - Surface Loading" => "reference/surface-loading.md",
+            "7 - Tidal Potentials" => "reference/tidal-potentials.md"
             ]
         ),
         "Explanation" => "explanation/index.md",
