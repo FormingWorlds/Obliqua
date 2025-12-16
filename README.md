@@ -18,12 +18,13 @@ https://proteus-framework.org/Love.jl
 
 ## Contributors
 
-| Name  | Email address |
-| -     | -             |
-| Hamish Hay              | hamish[at]tides.rocks |
-| Marijn van Dijk | m.r.van.dijk.3[at]student.rug.nl  |
-| Tim Lichtenberg         | tim.lichtenberg[at]rug.nl |
+| Name                    | Email address                         |
+| -                       | -                                     |
+| Hamish Hay              | hamish[at]tides.rocks                 |
+| Marijn van Dijk         | m.r.van.dijk.3[at]student.rug.nl      |
+| Tim Lichtenberg         | tim.lichtenberg[at]rug.nl             |
 | Harrison Nicholls       | harrison.nicholls[at]physics.ox.ac.uk |
+| Mohammad Farhat         | farhat[at]berkeley.edu                |
 
 
 ### Repository structure
