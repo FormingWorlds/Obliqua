@@ -1,4 +1,6 @@
+
 # Getting started
+
 This page outlines requirements and installation steps for the code. Currently,
 GNU/Linux and MacOS (including ARM) are supported.
 
@@ -17,14 +19,8 @@ Follow the steps below in order to setup the code.
 6. Install: `add https://github.com/FormingWorlds/Love.jl.git#julia`
 
 ## Testing
-If you want to run the tests manually, simply use the script in the `test/` folder...
+If you want to run the tests manually, simply use the script in the `test/` folder.
 ```bash
 julia test/runtests.jl
 ```
 This will print information on whether tests passed or failed.
-
-## Using the code
-See [Using the model](@ref) for information on using the code.
-See [Troubleshooting](@ref) for troubleshooting advice.
-
-

@@ -21,6 +21,7 @@ module load
 
     The JSON file must contain:
 
+    ```json
     {
         "density": [...],
         "radius": [...],
@@ -31,9 +32,14 @@ module load
         "ecc": value,
         "ncalc": value
     }
+    ```
 
-    Returns:
-        (omega, ecc, rho, radius, visc, shear, bulk, ncalc)
+    Returns (if `verify=false`):
+
+    ```
+    (omega, ecc, rho, radius, visc, shear, bulk, ncalc)
+    ```
+
     """
     function load_interior(fname::String, verify::Bool=false
         )::Union{
@@ -98,6 +104,38 @@ module load
         return omega, ecc, rho, radius, visc, shear, bulk, ncalc
     end
 
+    """
+        load_interior_mush(fname::String; verify::Bool=false)
+
+    Load interior structure + tidal parameters for a **solid body with a mush layer**
+    from a JSON file.
+
+    The JSON file must contain:
+
+    ```json
+    {
+        "density": [...],
+        "radius": [...],
+        "visc": [...],
+        "shear": [...],
+        "bulk": [...],
+        "phi": [...],
+        "omega": value,
+        "ecc": value,
+        "ncalc": value
+    }
+    ```
+
+    If `verify=true`, the function performs basic consistency and physical checks
+    and returns a `Bool`.
+
+    Returns (if `verify=false`):
+
+    ```
+    (omega, ecc, rho, radius, visc, shear, bulk, phi, ncalc)
+    ```
+
+    """
     function load_interior_mush(fname::String, verify::Bool=false
         )::Union{
             Bool,
@@ -165,6 +203,37 @@ module load
         return omega, ecc, rho, radius, visc, shear, bulk, phi, ncalc
     end
 
+    """
+        load_interior_liquid(fname::String; verify::Bool=false)
+
+    Load interior structure + orbital parameters for a **fully liquid body**
+    from a JSON file.
+
+    The JSON file must contain:
+
+    ```json
+    {
+        "density": [...],
+        "radius": [...],
+        "visc": [...],
+        "omega": value,
+        "axial": value,
+        "ecc": value,
+        "sma": value,
+        "S_mass": value
+    }
+    ```
+
+    If `verify=true`, the function performs basic consistency and physical checks
+    and returns a `Bool`.
+
+    Returns (if `verify=false`):
+
+    ```
+    (omega, axial, ecc, sma, S_mass, rho, radius, visc)
+    ```
+
+    """
     function load_interior_liquid(fname::String, verify::Bool=false
         )::Union{
             Bool,
@@ -226,6 +295,46 @@ module load
         return omega, axial, ecc, sma, S_mass, rho, radius, visc
     end
 
+    """
+        load_interior_full(fname::String; verify::Bool=false)
+
+    Load the **full interior structure and orbital configuration** for a body
+    including solid rheology and orbital parameters from a JSON file.
+
+    This is the most complete loader, intended for models that require:
+    - solid rheology,
+    - orbital forcing,
+    - stellar properties,
+    - numerical resolution control.
+
+    The JSON file must contain:
+
+    ```json
+    {
+        "density": [...],
+        "radius": [...],
+        "visc": [...],
+        "shear": [...],
+        "bulk": [...],
+        "omega": value,
+        "axial": value,
+        "ecc": value,
+        "sma": value,
+        "S_mass": value,
+        "ncalc": value
+    }
+    ```
+
+    If `verify=true`, the function performs internal consistency and basic
+    physical sanity checks and returns a `Bool`.
+
+    Returns (if `verify=false`):
+
+    ```
+    (omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, ncalc)
+    ```
+
+    """
     function load_interior_full(fname::String, verify::Bool=false
         )::Union{
             Bool,

@@ -1,7 +1,11 @@
+```@meta
+CollapsedDocStrings = true
+```
+
 # Development manual
 
 ## Contributing
-If you are interested in contributing to the model, please contact the developers using the information on the main page.
+If you are interested in contributing to the model, please contact the developers using the information on the Home page.
 
 ## Coding style
 - Indentation uses 4 spaces, no tabs.
@@ -15,5 +19,10 @@ If you are interested in contributing to the model, please contact the developer
 ## Code reference
 
 ```@autodocs
-Modules = [Love.Love]
+Modules = [
+    fwlLove.Love, 
+    fwlLove.Fluid,
+    fwlLove.Fluid.Hansen
+]
+Order   = [:function, :type]     
 ```
