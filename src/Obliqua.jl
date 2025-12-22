@@ -100,8 +100,8 @@ module Obliqua
                         material::String="andrade",
                         visc_l::Float64=1e2,
                         visc_l_tol::Float64=5e2,
-                        visc_s::Float64=1e22,
-                        visc_s_tol::Float64=5e21,
+                        visc_s::Float64=1e14,
+                        visc_s_tol::Float64=5e13,
                         sigma_R::Float64=1e-3
                         )::Tuple{Array{Float64,1},Float64,Float64}
       
