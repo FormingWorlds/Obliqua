@@ -7,7 +7,7 @@
     </a>
 ```
 
-# Love.jl (Tidal heating model)
+# Obliqua (Tidal heating model)
 
 A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles.
 
@@ -20,11 +20,11 @@ https://fwl-proteus.readthedocs.io
 
 | Name                  | Email address                          |
 |:----------------------|:---------------------------------------|
-| Hamish Hay            | hamish[at]tides.rocks                  |
 | Marijn van Dijk       | m.r.van.dijk.3[at]student.rug.nl       |
 | Tim Lichtenberg       | tim.lichtenberg[at]rug.nl              |
 | Harrison Nicholls     | harrison.nicholls[at]physics.ox.ac.uk  |
 | Mohammad Farhat       | farhat[at]berkeley.edu                 |
+| Hamish Hay            | hamish[at]tides.rocks                  |
 
 
 ### Repository structure
@@ -35,6 +35,6 @@ https://fwl-proteus.readthedocs.io
 
 ### Source code
 
-GitHub: [https://github.com/FormingWorlds/Love.jl](https://github.com/FormingWorlds/Love.jl)
+GitHub: [https://github.com/FormingWorlds/Obliqua](https://github.com/FormingWorlds/Obliqua)
 
 This software is available under the MIT license

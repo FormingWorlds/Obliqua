@@ -1,6 +1,6 @@
 ### Reference
 
-In this component you will be guided through the employed formalism and theoretical background of the `fwlLove` package.
+In this component you will be guided through the employed formalism and theoretical background of the `Obliqua` package.
 
 - [Rheology](@ref)
 - [Solid-Phase](@ref)

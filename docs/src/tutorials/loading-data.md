@@ -51,10 +51,10 @@ It is important to note that the `radius` array contains the radial values at th
 For now the user is provided with four different functions, they are given below. The most simple way to use these functions is as follows. First let's test if the provided data is compatible.
 
 ```julia
-using fwlLove
+using Obliqua
 
 # location of data files
-RES_DIR = "/path/to/fwlLove/res"
+RES_DIR = "/path/to/Obliqua/res"
 
 # test data validity using included data file
 ok = load.load_interior("$RES_DIR/interior_data/test_mantle.json", true)
@@ -79,7 +79,7 @@ omega, ecc, rho, radius, visc, shear, bulk, ncalc = load.load_interior("$RES_DIR
 ---
 
 ```@autodocs
-Modules = [fwlLove.load]
+Modules = [Obliqua.load]
 Order   = [:function, :type]     
 ```
 

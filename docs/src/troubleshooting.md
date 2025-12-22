@@ -12,11 +12,11 @@ juliaup default 1.11  # Make 1.11 your default version of Julia
 julia --version       # This should say 1.11.*
 ```
 
-After following these steps, try installing fwlLove again.
+After following these steps, try installing Obliqua again.
 
 ## Julia errors on start, potentially referencing the CURL library
 It is important that the shell environment variable `LD_LIBRARY_PATH` is
-not set when running fwlLove. This will cause Julia to use the wrong libraries, which will causes problems. You can unset this variable or reset using either of the following commands
+not set when running Obliqua. This will cause Julia to use the wrong libraries, which will causes problems. You can unset this variable or reset using either of the following commands
 ```bash
 unset LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=""

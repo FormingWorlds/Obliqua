@@ -1,6 +1,6 @@
 # The compass
 
-The documentation for `fwlLove` has been written based on the conventions prescribed in the [Diátaxis](https://diataxis.fr/) project. At the core of Diátaxis are four different kinds of documentation. The compass provides a starting point for your search through these categories within the `fwlLove` documentation. 
+The documentation for `Obliqua` has been written based on the conventions prescribed in the [Diátaxis](https://diataxis.fr/) project. At the core of Diátaxis are four different kinds of documentation. The compass provides a starting point for your search through these categories within the `Obliqua` documentation. 
 
 | If the content…   | …and serves the user’s… | …then it must belong to… |
 |:------------------|:------------------------|:-------------------------|
@@ -12,9 +12,9 @@ The documentation for `fwlLove` has been written based on the conventions prescr
 Feel free to get started with any of these components.
 
 
-- [Tutorials](@ref) - learn the basics of `fwlLove`.
+- [Tutorials](@ref) - learn the basics of `Obliqua`.
 
-- [How-to-Guides](@ref) - familiarize yourself with applications of `fwlLove`.
+- [How-to-Guides](@ref) - familiarize yourself with applications of `Obliqua`.
 
 - [Reference](@ref) - inform yourself with the theoretical discription of the model.
 

@@ -1,6 +1,6 @@
 using Documenter
 using DocumenterPages
-using fwlLove
+using Obliqua
 
 # HTML format configuration
 format = Documenter.HTML(
@@ -10,9 +10,9 @@ format = Documenter.HTML(
 
 # Build the docs
 makedocs(
-    sitename="fwlLove",
+    sitename="Obliqua",
     format=format,
-    modules = [fwlLove],
+    modules = [Obliqua],
     pages = [
         "Home" => "index.md",
         "Installation" => "install.md",
@@ -42,7 +42,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "https://github.com/FormingWorlds/Love.jl.git",
+    repo = "https://github.com/FormingWorlds/Obliqua.git",
     push_preview=true
 )
 

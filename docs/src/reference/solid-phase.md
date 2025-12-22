@@ -3,7 +3,7 @@
 
 # Solid-Phase
 
-To describe tidal and rotational deformations of a spherically symmetric body, `fwlLove` considers the spheroidal displacement–stress–gravity system. For each harmonic degree (``\ell``) and order (``m``), the spheroidal perturbed state is represented by the 6-vector
+To describe tidal and rotational deformations of a spherically symmetric body, `Obliqua` considers the spheroidal displacement–stress–gravity system. For each harmonic degree (``\ell``) and order (``m``), the spheroidal perturbed state is represented by the 6-vector
 
 ```math
     \mathbf{y}_{\ell m} =

@@ -10,7 +10,7 @@ ENV["GKSwstype"] = "100"
 
 # Include libraries
 using LoggingExtras
-using fwlLove
+using Obliqua
 
 @info "Begin Love tests"
 
@@ -110,7 +110,7 @@ if suite > 2
     power_blk_expt  = 4.670347977728458e12
     imag_k2_expt    = -0.004653764806501424
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=ncalc, material="andrade")
+    power_prf, power_blk, imag_k2 = Obliqua.calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=ncalc, material="andrade")
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -142,7 +142,7 @@ if suite > 2
     power_blk_expt  = 2.430386157481513e9
     imag_k2_expt    = -2.4217564986232166e-6
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=ncalc, material="maxwell")
+    power_prf, power_blk, imag_k2 = Obliqua.calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=ncalc, material="maxwell")
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -192,7 +192,7 @@ if suite > 4
     power_blk_expt  = 4.673775086943557e12
     imag_k2_expt    = -0.004657179746957536
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=ncalc, material="andrade")
+    power_prf, power_blk, imag_k2 = Obliqua.calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=ncalc, material="andrade")
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -224,7 +224,7 @@ if suite > 4
     power_blk_expt  = 2.4432169118834085e9
     imag_k2_expt    = -2.4345416944075893e-6
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=ncalc, material="maxwell")
+    power_prf, power_blk, imag_k2 = Obliqua.calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=ncalc, material="maxwell")
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -274,7 +274,7 @@ if suite > 6
     power_blk_expt  = 8.501321352156166e20
     imag_k2_expt    = -0.010784662530332856
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    power_prf, power_blk, imag_k2 = Obliqua.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -325,7 +325,7 @@ if suite > 8
     power_blk_expt  = 2.2257483041633004e13
     imag_k2_expt    = -0.0006584045901003507
 
-    power_prf, power_blk, imag_k2 = fwlLove.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
+    power_prf, power_blk, imag_k2 = Obliqua.calc_fluid_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc; N_sigma=301, visc_l=2e2, visc_s=5e21)
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
@@ -376,7 +376,7 @@ if suite > 10
     power_blk_expt  = 2.4626857272395777e13
     imag_k2_expt    = -0.006150523648967025
 
-    power_prf, power_blk, imag_k2 = fwlLove.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc)
+    power_prf, power_blk, imag_k2 = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc)
     test_pass = true
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
