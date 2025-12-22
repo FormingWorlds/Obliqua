@@ -114,9 +114,8 @@ module Obliqua
         η_l = visc_l + visc_l_tol
         η_s = visc_s - visc_s_tol
 
-        # Masks for liquid and solid regions
-        mask_l = η .< η_l
-        mask_s = η .> η_s
+        # Smooth out masked regions
+        mask_l, mask_s = get_layers(r, η, η_l, η_s)
 
         # Core radius and Arrays with radii that belong to solid/mush/liquid 
         r_c = r[1]                           # core radius
@@ -124,8 +123,10 @@ module Obliqua
         r_m = r[2:end][.!mask_l .& .!mask_s] # mush region
         r_l = r[2:end][mask_l]               # liquid region
 
-        # Check/Validate regions
-        # ...
+        # Check if CMB is at the bottom of the mantle
+        if any(r_c .>= r[2:end])
+            throw("CMB radius not at bottom of mantle, did you properly order the interior arrays?")
+        end
 
         # Calculate solid tides in solid region 
         power_prf_s, power_blk_s, imag_k2_s = calc_lovepy_tides(
@@ -166,6 +167,96 @@ module Obliqua
         plotting.save_heat_profile(r[2:end], power_prf)
 
         return power_prf, power_blk, imag_k2
+
+    end
+
+
+    function get_layers(η::Array{prec,1}, 
+                visc_l::Float64, 
+                visc_l_tol::Float64, 
+                visc_s::Float64, 
+                visc_s_tol::Float64
+                )::Tuple{Array{Bool,1},Array{Bool,1}}
+    
+        # Liquidus and Solidus viscosity with tolerance
+        η_l = visc_l + visc_l_tol
+        η_s = visc_s - visc_s_tol
+
+        # Masks for liquid and solid regions
+        mask_l = η .< η_l
+        mask_s = η .> η_s
+
+        return mask_l, mask_s
+    end
+
+
+    function get_layers(r::Array{prec,1}, 
+                        η::Array{prec,1},
+                        η_l::Float64,
+                        η_s::Float64;
+                        min_frac::Float64=0.02
+                        )::Tuple{Array{Bool,1},Array{Bool,1}}
+
+        # Masks for liquid and solid regions
+        mask_l = η .< η_l
+        mask_s = η .> η_s
+
+        # Total mantle thickness
+        H = r[end] - r[1]
+        N = length(r) - 1 # subtract CMB layer
+
+        # Iterate over mantle layers to generate phase profile
+        #   Phase encoding
+        #   0 = other / mush
+        #   1 = solid
+        #   2 = liquid
+        phase_prf = zeros(Int, N)
+
+        for i in 1:N
+            if mask_s[i]
+                phase_prf[i] = 1
+            elseif mask_l[i]
+                phase_prf[i] = 2
+            end
+        end
+
+        # Moving up from the CMB
+        i = 2
+        while i < N
+            # start of a segment
+            p = phase_prf[i]
+            i_start = i
+
+            while i < N && phase_prf[i] == p
+                i += 1
+            end
+            i_end = i - 1
+
+            # Check if enclosed
+            if i_start > 1 && i_end < N
+                p_below = phase_prf[i_start - 1]
+                p_above = phase_prf[i_end + 1]
+
+                # Same enclosing phase and different from this one
+                if p_below == p_above && p_below != p
+                    # radial thickness of this segment
+                    dr = r[i_end] - r[i_start]
+
+                    if dr / H < min_frac
+                        # Reassign to enclosing phase
+                        phase[i_start:i_end] .= p_below
+                    end
+                end
+            end
+
+            i += 1
+        end
+        
+        # Update masks
+        mask_s .= phase_prf .== 1
+        mask_l .= phase_prf .== 2
+
+        return mask_s, mask_l
 
     end
 
