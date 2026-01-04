@@ -1017,10 +1017,67 @@ module Love
         M[1, :] .= y1_4[3,:,end,end]  # Row 1 - Radial Stress 
         M[2, :] .= y1_4[4,:,end,end]  # Row 2 - Tangential Stress
         M[3, :] .= y1_4[6,:,end,end]  # Row 3 - Potential Stress
-         
+        
         b = zeros(precc, 3)
         b[3] = (2n+1)/r[end,end] 
+
         C = M \ b
+
+        for i in 2:nlayers
+            for j in 1:nsublayers-1
+                y[:,j,i] = @view(y1_4[:,:,j,i])*C
+            end
+        end
+
+        return y
+    end
+
+    function compute_M(r, ρ, g, μ, K; core="liquid", load=false)
+        r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
+
+        nlayers = size(r)[2]
+        nsublayers = size(r)[1]
+
+        y_start = get_Ic(r[end,1], ρ[1], g[end,1], μ[1], core; M=6, N=3)
+
+        y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
+                
+        for i in 2:nlayers
+            Bprod = zeros(precc, 6, 6, nsublayers-1)
+            @views get_B_product!(Bprod, r[:, i], ρ[i], g[:, i], μ[i], K[i])
+
+            for j in 1:nsublayers-1
+                y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
+            end
+
+            y_start[:,:] .= @view(y1_4[:,:,end,i])   # Set starting vector for next layer
+        end
+
+        M = zeros(precc, 3,3)
+
+        M[1, :] .= y1_4[3,:,end,end]  # Row 1 - Radial Stress 
+        M[2, :] .= y1_4[4,:,end,end]  # Row 2 - Tangential Stress
+        M[3, :] .= y1_4[6,:,end,end]  # Row 3 - Potential Stress
+        
+        return M, y1_4
+    end
+
+    function compute_y(r, g, M, y1_4; load=false)
+
+        nlayers = size(r)[2]
+        nsublayers = size(r)[1]
+
+        b = zeros(precc, 3)
+        if load
+            b[1] = -(2n+1)*g[end,end]/(4π*(r[end,end])^2)
+            b[3] = -(2n+1)*G/(r[end,end])^2
+        else
+            b[3] = (2n+1)/r[end,end] 
+        end
+
+        C = M \ b
+
+        y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 
         for i in 2:nlayers
             for j in 1:nsublayers-1
