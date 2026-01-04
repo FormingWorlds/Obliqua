@@ -309,6 +309,29 @@ module Fluid
 
     end
 
+    # Identiy liquid region
+    function mean_rho( ρ::Array{prec,1},
+                        r::Array{prec,1}
+                        )::prec
+        """Calculate mean density of a sphere given density profile and radius profile.
+
+        Args:
+            ρ (Array{prec,1}): Density profile (kg/m^3).
+            r (Array{prec,1}): Radius profile (m).
+
+        Returns:
+            prec: Mean density (kg/m^3).
+        """
+
+        # calculate mean density of region
+        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
+        M = sum(V .* ρ[1:end])                       # Total mass (kg)
+        mean_density = M / sum(V)                    # Mean density (kg/m^3)
+
+        return mean_density
+
+    end
+
     function compute_fluid_lovenumbers(
             n::Int,
             sigma_range::Array{Float64,1},
