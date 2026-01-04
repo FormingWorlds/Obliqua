@@ -64,12 +64,13 @@ if suite > 10
         load.load_interior_full("$RES_DIR/interior_data/test_mantle_full_test.json", false)
 
     # Run tidal calculation
-    power_prf, power_blk, σ_range, k2_complex = Obliqua.run_tides(
-        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc=ncalc, strain=false
+    power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc=ncalc, N_sigma=10, strain=true
     )
 
-    # Extract imaginary part
-    imag_k2 = .-imag.(k2_complex)
+    println(power_prf)
+    println(power_blk)
+    println(imag_k2)
 
     # Save k2 spectrum
     plotting.plot_imagk2_spectrum(σ_range, imag_k2; outpath="$OUT_DIR/k2_spectrum.png")

@@ -106,7 +106,7 @@ module Obliqua
                         visc_s_tol::Float64=5e13,
                         sigma_R::Float64=1e-3,
                         strain::Bool=true
-                        )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Complex{BigFloat}}}
+                        )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
       
         # interior profiles                        
         ρ = convert(Vector{prec}, rho)
@@ -124,11 +124,11 @@ module Obliqua
         # smooth out masked regions
         mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s)
 
-        println("\n==== SEGMENT SUMMARY ====")
-        println("segments = ", segments)
-        println("is_seg   = ", is_seg)
-        println("mask_c   = ", findall(mask_c))
-        println("==========================\n")
+        # println("\n==== SEGMENT SUMMARY ====")
+        # println("segments = ", segments)
+        # println("is_seg   = ", is_seg)
+        # println("mask_c   = ", findall(mask_c))
+        # println("==========================\n")
 
         # check if CMB is at the bottom of the mantle
         if any(r[1] .>= r[2:end])
@@ -174,9 +174,9 @@ module Obliqua
 
         # loop over segments, starting at CMB
         for (iseg, seg) in pairs(segments)
-            println("---- entering segment $iseg ----")
-            println("segment type = ", seg)
-            println("is_seg[$iseg] = ", is_seg[iseg])
+            # println("---- entering segment $iseg ----")
+            # println("segment type = ", seg)
+            # println("is_seg[$iseg] = ", is_seg[iseg])
 
             # preallocate (complex for viscoelastic)
             #  (T)idal love number
@@ -279,9 +279,9 @@ module Obliqua
             end
         end
 
-        println("--------------------------\n")
-        println("length(σ_range)   = ", length(σ_range))
-        println("length(k22_total) = ", length(k22_total))
+        # println("--------------------------\n")
+        # println("length(σ_range)   = ", length(σ_range))
+        # println("length(k22_total) = ", length(k22_total))
         
         # build symmetric full spectrum for interpolation
         full_σ_range   = vcat(-σ_range,     reverse(σ_range))
@@ -357,14 +357,17 @@ module Obliqua
         # total tidal heating
         power_blk = sum(P_T_k_total) # W
 
-        println("Total Power = $power_blk W")
-        println("--------------------------\n")
+        # println("Total Power = $power_blk W")
+        # println("--------------------------\n")
         
         # get radial heating profile W/m^3
         power_prf = [sum(P_T_k_prf[:,j]) for j in 1:size(P_T_k_prf,2)]
         power_prf ./ ρ # Convert to mass heating rate (W/kg)
 
-        return Float64.(power_prf), power_blk, σ_range, k22_total
+        # Extract imaginary part
+        imag_k2 = .-imag.(k22_total)
+
+        return Float64.(power_prf), power_blk, Float64.(σ_range), Float64.(imag_k2)
 
     end
 
