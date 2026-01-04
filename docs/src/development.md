@@ -22,7 +22,8 @@ If you are interested in contributing to the model, please contact the developer
 Modules = [
     Obliqua.Love, 
     Obliqua.Fluid,
-    Obliqua.Fluid.Hansen
+    Obliqua.Fluid.Hansen,
+    Obliqua.Hansen
 ]
 Order   = [:function, :type]     
 ```
