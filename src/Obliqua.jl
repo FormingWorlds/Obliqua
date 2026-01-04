@@ -19,19 +19,21 @@ module Obliqua
     # Include local jl files (order matters)
     include("Love.jl")
     include("Fluid.jl")
+    include("Hansen.jl")
     include("load.jl")
     include("plotting.jl")
-
 
     # Import submodules
     import .Love
     import .Fluid
+    import .Hansen
     import .load
     import .plotting
 
     # Export submodules (mostly for autodoc purposes)
     export Love
     export Fluid
+    export Hansen
     export load
     export plotting
 
@@ -96,122 +98,299 @@ module Obliqua
                         shear::Array{prec,1},
                         bulk::Array{prec,1};
                         ncalc::Int64=1000,
-                        N_sigma::Int64=301,
+                        N_sigma::Int64=50,
                         material::String="andrade",
                         visc_l::Float64=1e2,
                         visc_l_tol::Float64=5e2,
                         visc_s::Float64=1e14,
                         visc_s_tol::Float64=5e13,
-                        sigma_R::Float64=1e-3
-                        )::Tuple{Array{Float64,1},Float64,Float64}
+                        sigma_R::Float64=1e-3,
+                        strain::Bool=true
+                        )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Complex{BigFloat}}}
       
-        # Interior profiles                        
+        # interior profiles                        
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
+        μ = convert(Vector{precc},shear)
+        κ = convert(Vector{prec}, bulk)
 
-        # Liquidus and Solidus viscosity with tolerance
+        N_layers = length(r)-1
+
+        # liquidus and solidus viscosity with tolerance
         η_l = visc_l + visc_l_tol
         η_s = visc_s - visc_s_tol
 
-        # Smooth out masked regions
-        mask_l, mask_s = get_layers(r, η, η_l, η_s)
+        # smooth out masked regions
+        mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s)
 
-        # Core radius and Arrays with radii that belong to solid/mush/liquid 
-        r_c = r[1]                           # core radius
-        r_s = r[2:end][mask_s]               # solid region
-        r_m = r[2:end][.!mask_l .& .!mask_s] # mush region
-        r_l = r[2:end][mask_l]               # liquid region
+        println("\n==== SEGMENT SUMMARY ====")
+        println("segments = ", segments)
+        println("is_seg   = ", is_seg)
+        println("mask_c   = ", findall(mask_c))
+        println("==========================\n")
 
-        # Check if CMB is at the bottom of the mantle
-        if any(r_c .>= r[2:end])
+        # check if CMB is at the bottom of the mantle
+        if any(r[1] .>= r[2:end])
             throw("CMB radius not at bottom of mantle, did you properly order the interior arrays?")
         end
 
-        # Calculate solid tides in solid region 
-        power_prf_s, power_blk_s, imag_k2_s = calc_lovepy_tides(
-            omega, ecc, rho[mask_s], 
-            vcat(r_c, r_s), visc[mask_s], # assuming that the bottom of the solid region is r_c
-            shear[mask_s], bulk[mask_s]; 
-            ncalc=ncalc, 
-            material=material
-        )
+        R = maximum(r)  # Planet radius (m)
+
+        # With zero eccentricity and zero obliquity only static m=0 terms survive no time-varying tide --> no dissipation
+        # With zero eccentricity but nonzero obliquity the tidal bulge is forced to wobble because the spin axis is tilted this excites time-varying diurnal terms (mainly m=1) so dissipation occurs even when e=0
+
+        # power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
+        n = 2
+
+        # harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
+        m = 2
+
+        # number probe frequencies to evaluate k2 at
+        N_σ = N_sigma
+
+        # tidal mode range (k is the Fourier index in mean anomaly)
+        k_min = -30
+        k_max = 40
+        k_range = collect(k_min:k_max)
+
+        # get hansen coefficients
+        k_range2, X_hansen = Hansen.get_hansen(ecc, n, m, k_min, k_max)
+
+        # orbital and axial frequencies
+        t_range = 10 .^ range(-20, stop=6, length=N_σ)   # periods        
+        σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)
+        σ_range = reshape(σ_range, :)
+
+        μc = complex_mu(σ_range, μ, η; material=material)
+
+        k22_T = zeros(precc, N_σ, length(segments))
+        k22_L = zeros(precc, N_σ, length(segments))
         
-        # Calculate liquid tides in liquid region 
-        power_prf_l, power_blk_l, imag_k2_l = calc_fluid_tides(
-            omega, axial, ecc, 
-            sma, S_mass, rho, 
-            radius, visc; # pass all radii, since density ratio is derived (tbd)
-            N_sigma=N_sigma, 
-            visc_l=η_l, 
-            visc_s=η_s,
-            sigma_R=sigma_R # currently = 1e-3, in the future this may turn into an array, as a function of radii (tbd)
-        )
+        prf_total = zeros(prec, N_σ, length(shear))
 
-        # Get power profile
-        power_prf = zeros(prec, length(ρ))
+        # arbitrary high density for bottom boundary
+        ρ_mean_lower = 5000.0   # Can be replaced with core density
 
-        power_prf[mask_s] .= power_prf_s        # specify solid tidal heating in solid region
-        #power_prf[mask_l] .= power_prf_l        # specify liquid tidal heating in liquid region
+        # loop over segments, starting at CMB
+        for (iseg, seg) in pairs(segments)
+            println("---- entering segment $iseg ----")
+            println("segment type = ", seg)
+            println("is_seg[$iseg] = ", is_seg[iseg])
+
+            # preallocate (complex for viscoelastic)
+            #  (T)idal love number
+            k22_T_seg = zeros(precc, N_σ)
+
+            #  (L)oad  love number
+            k22_L_seg = zeros(precc, N_σ)
+
+            # get start and stop index for segment
+            i_start, i_end = is_seg[iseg]
+
+            # perform slices
+            r_seg  = r[i_start-1:i_end]
+            ρ_seg  = ρ[i_start:i_end]
+            η_seg  = η[i_start:i_end]                              
+            μc_seg = μc[i_start:i_end, :] 
+            κ_seg  = κ[i_start:i_end]
+
+            prf_seg = zeros(prec, N_σ, length(r_seg)-1)
+
+            # mean densities
+            if length(ρ_seg) == 1
+                ρ_mean = ρ_seg[1]
+            else
+                ρ_mean = Fluid.mean_rho(ρ_seg, r_seg)
+            end
+
+            # density ratio
+            ρ_ratio = ρ_mean / ρ_mean_lower
+
+            # get solid k2 spectrum
+            for i in 1:N_σ
+                # specific forcing frequency
+                σ = σ_range[i]
+                
+                # default values 
+                kT = zero(precc)
+                kL = zero(precc)
+
+                if seg == "solid"
+                    if strain==true
+                        # calculate tides in solid region 
+                        prf_seg[i,:], kT, kL = run_solid_strain( 
+                            σ, ecc, ρ_seg,  
+                            r_seg, η_seg,                               
+                            μc_seg[:, i], κ_seg; 
+                            ncalc=ncalc
+                        )
+
+                    else
+                        # calculate tides in solid region 
+                        kT, kL = run_solid( 
+                            ρ_seg, r_seg, η_seg,                               
+                            μc_seg[:, i], κ_seg; 
+                            ncalc=ncalc
+                        )
+
+                    end
+
+                elseif seg == "fluid"
+                    # calculate fluid tides in fluid region 
+                    kT, kL = run_fluid(
+                        σ, ρ_seg, 
+                        r_seg, ρ_ratio;
+                        n=n, 
+                        sigma_R=sigma_R
+                    ) 
+                                        
+                    # store heating
+                
+                elseif seg == "mush"
+                    # calculate mush tides in mush region 
+                    kT, kL = 0., 0. # no expression for this yet
+                                      
+                end
+
+                k22_T_seg[i] = kT
+                k22_L_seg[i] = kL
+
+            # repeat for all probe frequencies
+            end
         
-        # Until Liquid tides can be called with only liquid radii array we need to sum as:
-        power_prf .+= power_prf_l  # sum with liquid (tbd)
+            ρ_mean_lower = ρ_mean
 
-        # Get total (bulk) heating
-        power_blk = power_blk_s + power_blk_l
+            # store k2 spectra (max 1 per segment)
+            k22_T[:, iseg] .= k22_T_seg
+            k22_L[:, iseg] .= k22_L_seg
 
-        # Get total k2 Love Number
-        imag_k2   = imag_k2_s + imag_k2_l
+            prf_total[:, i_start:i_end] .= prf_seg[:, :]
+            # step to next layer
+        end
 
-        # Save heating profile as pdf (image)
-        plotting.save_heat_profile(r[2:end], power_prf)
+        # initialize total k2 with the contribution from the top layer
+        k22_total = copy(k22_T[:, end])  
 
-        return power_prf, power_blk, imag_k2
+        # loop from top (surface) to just above CMB
+        for iseg in reverse(1:length(segments)-1)
+            for i in 1:N_σ
+                k22_total[i] = k22_T[i, iseg] + (1.0 + k22_L[i, iseg]) * k22_total[i]
+            end
+        end
+
+        println("--------------------------\n")
+        println("length(σ_range)   = ", length(σ_range))
+        println("length(k22_total) = ", length(k22_total))
+        
+        # build symmetric full spectrum for interpolation
+        full_σ_range   = vcat(-σ_range,     reverse(σ_range))
+        full_k22_total = vcat(-k22_total,   reverse(k22_total))
+        
+        imag_full_k22  = .-imag.(full_k22_total)
+
+        # interpolation functions for imaginary parts (extrapolate outside)
+        interp_full  = extrapolate(interpolate((full_σ_range,), imag_full_k22,
+                                            Gridded(Linear())), Flat())
+
+        if strain==true
+            full_prf_total = vcat(-prf_total,   reverse(prf_total))
+
+            # create an interpolator per radial shell
+            prf_itp_shells = Vector{Any}(undef, N_layers)
+
+            for j in 1:N_layers
+                prf_layer = Float64.(full_prf_total[:, j])
+                itp = extrapolate(interpolate((Float64.(full_σ_range),), prf_layer, Gridded(Linear())), Flat())
+                prf_itp_shells[j] = itp
+            end
+
+            # define a function to get the radial profile at a given σ
+            function radial_profile_at_sigma(σ::Float64, prf_itp_shells::Vector)
+                return [itp(σ) for itp in prf_itp_shells]
+            end
+        end
+
+        # calculate tidal heating
+        A_22k_e     = zeros(prec,  length(k_range))
+        U_22k_e     = zeros(precc, length(k_range))
+        P_T_k_total = zeros(prec,  length(k_range))
+
+        P_T_k_prf = zeros(prec,  length(k_range), length(shear))
+        P_T_k_prf = zeros(prec,  length(k_range), length(shear))
+
+        for (ikk, kk) in pairs(k_range)
+            σ = 2*axial - kk*omega
+
+            A_22k_e[ikk] = sqrt(6π/5) * X_hansen[ikk]
+
+            U_22k_e[ikk] = (G*S_mass/sma) * (R/sma)^2 * A_22k_e[ikk]
+
+            img_full_k22  = interp_full(σ)
+
+            prefactor = 5 * R * σ / (8π*G)
+            U2 = abs2(U_22k_e[ikk])
+
+            P_T_k_total[ikk] = prefactor * img_full_k22  * U2
+
+            # get profile
+            if σ == 0.
+                continue
+            else
+                if strain==true
+                    unorm_prf = radial_profile_at_sigma(Float64.(σ), prf_itp_shells)
+            
+                    shell_volumes = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
+                    unorm_tot = sum(shell_volumes .* unorm_prf)
+
+                    norm = P_T_k_total[ikk] / unorm_tot
+                    P_T_k_prf[ikk, :] = unorm_prf .* norm
+
+                else
+                    μc = complex_mu([σ], μ, η; material=material)[:,1]
+                    P_T_k_prf[ikk, :] = radial_heating_profile(r, μc, P_T_k_total[ikk])
+                end
+            end
+
+        end
+
+        # total tidal heating
+        power_blk = sum(P_T_k_total) # W
+
+        println("Total Power = $power_blk W")
+        println("--------------------------\n")
+        
+        # get radial heating profile W/m^3
+        power_prf = [sum(P_T_k_prf[:,j]) for j in 1:size(P_T_k_prf,2)]
+        power_prf ./ ρ # Convert to mass heating rate (W/kg)
+
+        return Float64.(power_prf), power_blk, σ_range, k22_total
 
     end
 
 
-    function get_layers(η::Array{prec,1}, 
-                visc_l::Float64, 
-                visc_l_tol::Float64, 
-                visc_s::Float64, 
-                visc_s_tol::Float64
-                )::Tuple{Array{Bool,1},Array{Bool,1}}
-    
-        # Liquidus and Solidus viscosity with tolerance
-        η_l = visc_l + visc_l_tol
-        η_s = visc_s - visc_s_tol
-
-        # Masks for liquid and solid regions
-        mask_l = η .< η_l
-        mask_s = η .> η_s
-
-        return mask_l, mask_s
-    end
-
-
-    function get_layers(r::Array{prec,1}, 
+    function get_layers(r::Array{prec,1},
                         η::Array{prec,1},
                         η_l::Float64,
                         η_s::Float64;
                         min_frac::Float64=0.02
-                        )::Tuple{Array{Bool,1},Array{Bool,1}}
+                        )::Tuple{Vector{Bool},Vector{Bool},Vector{Bool},Vector{Tuple{Int,Int}},Vector{String}}
 
-        # Masks for liquid and solid regions
+        # masks for liquid and solid regions
         mask_l = η .< η_l
         mask_s = η .> η_s
 
-        # Total mantle thickness
+        # total mantle thickness
         H = r[end] - r[1]
         N = length(r) - 1 # subtract CMB layer
 
-        # Iterate over mantle layers to generate phase profile
-        #   Phase encoding
-        #   0 = other / mush
+        # phase encoding:
+        #   0 = mush / other
         #   1 = solid
         #   2 = liquid
         phase_prf = zeros(Int, N)
 
+        # build phase profile
         for i in 1:N
             if mask_s[i]
                 phase_prf[i] = 1
@@ -220,47 +399,294 @@ module Obliqua
             end
         end
 
-        # Moving up from the CMB
+        # smooth phase profile
+        #   moving up from the CMB
         i = 2
         while i < N
-            # start of a segment
             p = phase_prf[i]
             i_start = i
 
+            # extend segment while in same phase
             while i < N && phase_prf[i] == p
                 i += 1
             end
+
             i_end = i - 1
 
-            # Check if enclosed
+            # check island layer 
             if i_start > 1 && i_end < N
+                # get neighbouring segment phases
                 p_below = phase_prf[i_start - 1]
                 p_above = phase_prf[i_end + 1]
 
-                # Same enclosing phase and different from this one
+                # if sandwiched, check island layer thickness
                 if p_below == p_above && p_below != p
-                    # radial thickness of this segment
                     dr = r[i_end] - r[i_start]
-
+                    # if less then threshold fraction smooth phase profile
                     if dr / H < min_frac
-                        # Reassign to enclosing phase
-                        phase[i_start:i_end] .= p_below
+                        phase_prf[i_start:i_end] .= p_below
                     end
                 end
             end
 
             i += 1
         end
-        
-        # Update masks
+
+        # update masks
         mask_s .= phase_prf .== 1
         mask_l .= phase_prf .== 2
 
-        return mask_s, mask_l
+        # build segments + bottom mask
+        segments = String[]
+        mask_c = falses(length(r))
+              
+        # build boundary indices array
+        is_seg = Vector{Tuple{Int,Int}}()
+
+        i = 2
+        while i <= N
+            p = phase_prf[i]
+
+            # mark bottom of this segment
+            mask_c[i-1] = true # "bottom" radius is r[i-1]
+
+            i_start = i
+
+            # step forward through this segment
+            while i <= N && phase_prf[i] == p
+                i += 1
+            end
+
+            i_end = i - 1
+
+            # store boundary indices
+            push!(is_seg, (i_start, i_end))
+
+            # store segments
+            push!(segments,
+                p == 1 ? "solid" :
+                p == 2 ? "fluid" :
+                        "mush"
+            )
+        end
+
+        return mask_s, mask_l, mask_c, is_seg, segments
+    end
+
+
+    function complex_mu(ω_range::AbstractVector,
+                            μ_profile::Array{precc,1},
+                            η_profile::Array{prec,1};
+                            material::String="maxwell"
+                            )::Matrix{precc}
+
+        nlayer = length(μ_profile)
+        nfreq  = length(ω_range)
+
+        # initialize output array
+        μc = precc[0.0 + 0im for i in 1:nlayer, j in 1:nfreq]
+
+        if material == "maxwell"
+            @inbounds for i in 1:nlayer
+                μ = μ_profile[i]
+                η = η_profile[i]
+                for j in 1:nfreq
+                    ω = ω_range[j]
+                    μc[i,j] = 1im*μ*ω / (1im*ω + μ/η)
+                end
+            end
+        elseif material == "andrade"
+            @inbounds for i in 1:nlayer
+                μ = μ_profile[i]
+                η = η_profile[i]
+                for j in 1:nfreq
+                    ω = ω_range[j]
+                    μc[i,j] = Love.andrade_mu_complex(ω, μ, η)
+                end
+            end
+        else
+            throw(ArgumentError("Material type for complex shear modulus not defined; options: 'maxwell' or 'andrade'"))
+        end
+
+        return μc
+    end
+
+
+    function run_solid_strain( omega::Float64,
+                        ecc::prec,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{prec,1};
+                        ncalc::Int=2000
+                        )::Tuple{Array{prec,1},precc,precc}
+
+        # internal structure arrays.
+        # first element is the innermost layer, last element is the outermost layer
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+        η = convert(Vector{prec}, visc)
+        μc = convert(Vector{precc},shear)
+        κ = convert(Vector{prec}, bulk)
+
+        # subdivide input layers such that we have ~ncalc in total
+        rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # get gravity at each layer
+        g = Love.get_g(rr, ρ);
+
+        # create grid
+        Love.define_spherical_grid(res; n=2)
+
+        # get y-functions
+        M, y1_4 = Love.compute_M(rr, ρ, g, μc, κ)
+        #   Tidal
+        tidal_solution_T = Love.compute_y(rr, g, M, y1_4; load=false)
+        #   Load
+        tidal_solution_L = Love.compute_y(rr, g, M, y1_4; load=true)
+
+        # get k2 tidal Love Number (complex-valued)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
+        
+        # return zero for now
+        k2_L = 0.
+
+        # Get profile power output (W m-3), converted to W/kg
+        (Eμ, Eκ) = Love.get_heating_profile(tidal_solution_T,
+                               rr, ρ, g, μc, κ,
+                               omega, ecc)
+
+        Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
+        Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
+
+        power_prf = Eμ_tot .+ Eκ_tot # Compute total volumetric heating (W/m3)
+
+        return power_prf, k2_T, k2_L
+    end
+
+
+    function run_solid( rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{prec,1};
+                        ncalc::Int=2000
+                        )::Tuple{precc,precc}
+
+        # internal structure arrays.
+        # first element is the innermost layer, last element is the outermost layer
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+        η = convert(Vector{prec}, visc)
+        μc = convert(Vector{precc},shear)
+        κ = convert(Vector{prec}, bulk)
+
+        # subdivide input layers such that we have ~ncalc in total
+        rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # get gravity at each layer
+        g = Love.get_g(rr, ρ);
+
+        # create grid
+        Love.define_spherical_grid(res; n=2)
+
+        # get y-functions
+        M, y1_4 = Love.compute_M(rr, ρ, g, μc, κ)
+        #   Tidal
+        tidal_solution_T = Love.compute_y(rr, g, M, y1_4; load=false)
+        #   Load
+        tidal_solution_L = Love.compute_y(rr, g, M, y1_4; load=true)
+
+        # get k2 tidal Love Number (complex-valued)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
+        
+        # return zero for now
+        k2_L = 0.
+
+        return k2_T, k2_L
+    end
+    
+
+    function run_fluid( omega::Float64,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        ρ_ratio::prec;
+                        n::Int64=2,
+                        sigma_R::Float64=1e-3
+                        )::Tuple{precc,precc}
+
+        # internal structure arrays
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+
+        # surface properties
+        R = maximum(r)  # Planet radius (m)
+        g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end]) / R^2  # Surface gravity (m/s^2)
+
+        # fluid magma ocean bottom and height
+        r_b = r[1]
+        H_magma = r[end] - r_b
+             
+        # Rayleigh drag at interface
+        σ_R = sigma_R 
+
+        # calculate parameters
+        μ_n  = n * (n + 1)
+        ξ_n = 3.0 / (2.0*n + 1.0) * ρ_ratio
+        σ_n = sqrt(μ_n * g * H_magma / R^2) # characterestic frequency
+
+        σ_T = omega - im*σ_R
+
+        # Tidal love numbers
+        k2_T = -ξ_n * σ_n^2 / (omega*σ_T - σ_n^2)
+
+        # Load love numbers
+        k2_L = 0. # needs proper expression, possibly the shell formalism in Farhat+2025 for a loaded MO
+
+        return k2_T, k2_L
 
     end
 
-    
+
+    """
+        radial_heating_profile(r, mu, Ptot)
+
+    Compute a spherically symmetric volumetric heating profile H(r) [W/m^3]
+    given:
+    - `r::Vector` radial grid centers (m)
+    - `mu::Vector` complex shear modulus μ(r)
+    - `Ptot::total` dissipated power (W)
+
+    Heating is assumed proportional to Im(μ(r)) and normalized so the
+    integral of H over the volume equals Ptot.
+    """
+    function radial_heating_profile(r::Vector, mu::Vector, Ptot::Real)
+
+        # imaginary part determines dissipation strength
+        w = imag.(mu)
+
+        # avoid division by zero if purely elastic somewhere
+        w .= w .+ (minimum(w) == 0 ? eps() : 0)
+
+        # compute shell volumes (m^3)
+        shell_volumes = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
+
+        # total power for unnormalized profile
+        P_unnorm = sum(w .* shell_volumes)
+
+        # normalization factor
+        norm = Ptot / P_unnorm
+
+        # normalized volumetric profile (W/m^3)
+        H = norm .* w
+
+        return H
+    end
+
+
     # Calculate heating from interior properties
     """
         calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000, material="andrade")
