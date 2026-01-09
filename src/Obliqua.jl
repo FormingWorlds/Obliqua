@@ -14,7 +14,7 @@ module Obliqua
     import TOML:parsefile
     using Interpolations
     using LinearAlgebra
-
+    using DoubleFloats
 
     # Include local jl files (order matters)
     include("Love.jl")
@@ -51,13 +51,13 @@ module Obliqua
 
 
     """
-    Open and validate config file.
+        Open and validate config file.
 
     Arguments:
-    - `cfg_path::String`        path to configuration file
+    - `cfg_path::String`                : Path to configuration file
 
     Returns:
-    - `cfg_dict::Dict`          dictionary containing the configuration
+    - `cfg_dict::Dict`                  : Dictionary containing the configuration
     """
     function open_config(cfg_path::String)::Dict
 
@@ -89,9 +89,9 @@ module Obliqua
 
 
     """
-        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; kwargs...)
+        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, cfg)
 
-    Compute the tidal heating profile of a planetary interior considering both **solid** and **liquid/mushy layers**.
+    Compute the tidal heating profile of a planetary interior considering solid and fluid layers.
 
     # Arguments
     - `omega::prec` : Orbital frequency of the body.
@@ -104,27 +104,13 @@ module Obliqua
     - `visc::Array{prec,1}` : Viscosity profile of the planet.
     - `shear::Array{prec,1}` : Shear modulus profile of the solid layers.
     - `bulk::Array{prec,1}` : Bulk modulus profile of the solid layers.
-
-    # Keyword Arguments
-    - `ncalc::Int64=1000` : Number of points for tidal calculation in solid layers.
-    - `N_sigma::Int64=301` : Number of frequency points for fluid tides.
-    - `material::String="andrade"` : Rheology model used for solid tides.
-    - `visc_l::Float64=1e2` : Lower threshold viscosity for defining liquid regions.
-    - `visc_l_tol::Float64=5e2` : Tolerance added to `visc_l`.
-    - `visc_s::Float64=1e22` : Upper threshold viscosity for defining solid regions.
-    - `visc_s_tol::Float64=5e21` : Tolerance subtracted from `visc_s`.
-    - `sigma_R::Float64=1e-3` : Rayleigh drag coefficient for fluid layers.
+    - `cfg::Dict` : Configuration parameters from dictionary.
 
     # Returns
     - `power_prf::Array{Float64,1}` : Radial profile of tidal heating (W/m³).
     - `power_blk::Float64` : Total tidal power integrated over the interior (W).
     - `σ_range::Array{Float64,1}` : Frequencies at which the Love number `k2` was evaluated.
     - `imag_k2::Array{Float64,1}` : Imaginary part of the Love number `k2` for the planet.
-
-    # Notes
-    - The function splits the interior into solid, mush, and liquid regions based on viscosity thresholds.
-    - Solid tides are computed using `calc_lovepy_tides`, while fluid/mushy tides are computed using `calc_fluid_tides`.
-    - The heating profile is automatically saved as a PDF using `save_heat_profile`.
     """
     function run_tides(omega::prec,
                         axial::prec,
@@ -135,7 +121,7 @@ module Obliqua
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{prec,1},
-                        bulk::Array{prec,1};
+                        bulk::Array{prec,1},
                         cfg::Dict
                         )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
       
@@ -188,6 +174,7 @@ module Obliqua
         p_min    = cfg["orbit"]["obliqua"]["p_min"]
         p_max    = cfg["orbit"]["obliqua"]["p_max"]
         material = cfg["orbit"]["obliqua"]["material"]
+        alpha    = cfg["orbit"]["obliqua"]["alpha"]
         strain   = cfg["orbit"]["obliqua"]["strain"]
 
         # convert interior profiles to BigFloat                 
@@ -227,7 +214,7 @@ module Obliqua
         σ_range = reshape(σ_range, :)
 
         # get forcing frequency dependent complex shear modulus
-        μc = complex_mu(σ_range, μ, η; material=material)
+        μc = complex_mu(σ_range, μ, η; material=material, α=alpha)
 
         # initiate forcing frequency dependent k2 love and load number arrays (one spectrum for each segment)
         k22_T = zeros(precc, N_σ, length(segments))
@@ -447,7 +434,7 @@ module Obliqua
                 # disipation propto imaginary part of the complex shear modulus.
                 else
                     # get complex shear modulus profile at forcing frequency
-                    μc = complex_mu([σ], μ, η; material=material)[:,1]
+                    μc = complex_mu([σ], μ, η; material=material, α=alpha)[:,1]
 
                     # get heating profile
                     P_T_k_prf[ikk, :] = radial_heating_profile(r, μc, P_T_k_total[ikk])
@@ -468,7 +455,27 @@ module Obliqua
     end
 
 
+    """
+        get_layers(r, η, η_l, η_s; min_frac=0.02)
 
+    Determine the phase profile of a planetary interior considering solid, fluid, and mush layers.
+
+    # Arguments
+    - `r::Array{prec,1}`                : Radial positions of layers, from core to surface.
+    - `η::Array{prec,1}`                : Viscosity profile of the planet.
+    - `η_l::Float64`                    : Liquidus viscosity.
+    - `η_s::Float64`                    : Solidus viscosity.
+    
+    # Keyword Arguments
+    - `min_frac::Float64=0.02`          : Minimal segment radius fraction before smoothing.
+
+    # Returns
+    - `mask_s::Vector{Bool}`            : Solid region mask.
+    - `mask_l::Vector{Bool}`            : Fluid region mask.
+    - `mask_c::Vector{Bool}`            : Mush region mask.
+    - `is_seg::Vector{Tuple{Int,Int}}`  : Segment [start, stop] index array.
+    - `segments::Vector{String}`        : Segment phase array.
+    """
     function get_layers(r::Array{prec,1},
                         η::Array{prec,1},
                         η_l::Float64,
@@ -574,25 +581,43 @@ module Obliqua
     end
 
 
-    function complex_mu(ω_range::AbstractVector,
+    """
+        complex_mu(σ_range, μ_profile, η_profile; material="andrade", α=0.3)
+
+    Return the complex shear modulus μ̃(σ) for Maxwell or Andrade rheology.
+
+    # Arguments
+    - `σ_range::AbstractVector`         : Forcing frequency range.
+    - `μ_profile::Array{precc,1}`       : Shear profile of the planet (aka unrelaxed rigidity).
+    - `η_profile::Array{prec,1}`        : Viscosity profile of the planet.
+    
+    # Keyword Arguments
+    - `material::String="andrade"`      : Material for which to find complex shear modulus.
+    - `α::Float64=0.3"`                 : Power-law exponent (free parameter).
+
+    # Returns
+    - `μc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
+    """
+    function complex_mu(σ_range::AbstractVector,
                             μ_profile::Array{precc,1},
                             η_profile::Array{prec,1};
-                            material::String="maxwell"
+                            material::String="andrade", 
+                            α::Float64=0.3
                             )::Matrix{precc}
 
         nlayer = length(μ_profile)
-        nfreq  = length(ω_range)
+        nfreq  = length(σ_range)
 
         # initialize output array
-        μc = precc[0.0 + 0im for i in 1:nlayer, j in 1:nfreq]
+        μc = zeros(precc, nlayer, nfreq)
 
         if material == "maxwell"
             @inbounds for i in 1:nlayer
                 μ = μ_profile[i]
                 η = η_profile[i]
                 for j in 1:nfreq
-                    ω = ω_range[j]
-                    μc[i,j] = 1im*μ*ω / (1im*ω + μ/η)
+                    σ = σ_range[j]
+                    μc[i,j] = 1im*μ*σ / (1im*σ + μ/η)
                 end
             end
         elseif material == "andrade"
@@ -600,8 +625,13 @@ module Obliqua
                 μ = μ_profile[i]
                 η = η_profile[i]
                 for j in 1:nfreq
-                    ω = ω_range[j]
-                    μc[i,j] = Love.andrade_mu_complex(ω, μ, η)
+                    σ = σ_range[j]
+                    τM = η ./ μ # Maxwell time
+                    τA = τM     # Andrade time 
+                    term_andrade = gamma(1 + α) .* (1im .* σ .* τA).^(-α)
+                    term_maxwell = (1im .* σ .* τM).^(-1)
+
+                    μc[i,j] = μ ./ (1 .+ term_andrade .+ term_maxwell)
                 end
             end
         else
@@ -612,6 +642,28 @@ module Obliqua
     end
 
 
+    """
+        run_solid_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000)
+
+    Calculate k2 Lovenumbers in the solid, and compute 1D heating profile from strain tensor.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency range.
+    - `ecc::prec`                       : Eccentricity of the orbit.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `μ_profile::Array{precc,1}`       : Complex shear modulus profile of the planet.
+    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    
+    # Keyword Arguments
+    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+
+    # Returns
+    - `power_prf::Array{prec,1}`        : Heating profile.
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
     function run_solid_strain( omega::Float64,
                         ecc::prec,
                         rho::Array{prec,1},
@@ -667,12 +719,31 @@ module Obliqua
     end
 
 
+    """
+        run_solid(rho, radius, visc, shear, bulk; ncalc=2000)
+
+    Calculate k2 Lovenumbers in the solid.
+
+    # Arguments
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `μ_profile::Array{precc,1}`       : Complex shear modulus profile of the planet.
+    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    
+    # Keyword Arguments
+    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+
+    # Returns
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
     function run_solid( rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{prec,1};
-                        ncalc::Int=2000
+                        ncalc::Int=1000
                         )::Tuple{precc,precc}
 
         # internal structure arrays.
@@ -710,6 +781,25 @@ module Obliqua
     end
     
 
+    """
+        run_fluid(omega, rho, radius, ρ_ratio; n=2, sigma_R=1e-3)
+
+    Calculate k2 Lovenumbers in the fluid.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency range.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `ρ_ratio::prec`                   : Density contrast between current (fluid) and lower (non-fluid) layer.
+    
+    # Keyword Arguments
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient.
+
+    # Returns
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
     function run_fluid( omega::Float64,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
@@ -730,21 +820,8 @@ module Obliqua
         r_b = r[1]
         H_magma = r[end] - r_b
              
-        # Rayleigh drag at interface
-        σ_R = sigma_R 
-
-        # calculate parameters
-        μ_n  = n * (n + 1)
-        ξ_n = 3.0 / (2.0*n + 1.0) * ρ_ratio
-        σ_n = sqrt(μ_n * g * H_magma / R^2) # characterestic frequency
-
-        σ_T = omega - im*σ_R
-
-        # Tidal love numbers
-        k2_T = -ξ_n * σ_n^2 / (omega*σ_T - σ_n^2)
-
-        # Load love numbers
-        k2_L = 0. # needs proper expression, possibly the shell formalism in Farhat+2025 for a loaded MO
+        # get k2 Lovenumbers
+        k2_T, k2_L = Fluid.compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, sigma_R)
 
         return k2_T, k2_L
 
@@ -755,15 +832,21 @@ module Obliqua
         radial_heating_profile(r, mu, Ptot)
 
     Compute a spherically symmetric volumetric heating profile H(r) [W/m^3]
-    given:
-    - `r::Vector` radial grid centers (m)
-    - `mu::Vector` complex shear modulus μ(r)
-    - `Ptot::total` dissipated power (W)
+    
+    # Arguments
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+
+    - `r::Vector`                       : Radial positions of layers, from core to surface.
+    - `mu::Vector`                      : Complex shear modulus profile of the planet.
+    - `Ptot::Real`                      : Totally dissipated power (W)
+
+    # Returns
+    - `H::Vector`                       : Heating profile.
 
     Heating is assumed proportional to Im(μ(r)) and normalized so the
     integral of H over the volume equals Ptot.
     """
-    function radial_heating_profile(r::Vector, mu::Vector, Ptot::Real)
+    function radial_heating_profile(r::Vector, mu::Vector, Ptot::Real)::Vector
 
         # imaginary part determines dissipation strength
         w = imag.(mu)
@@ -1163,7 +1246,7 @@ module Obliqua
         elseif length(ρ_l) == 1
             ρ_l_mean = ρ_l[1]
         else
-            ρ_l_mean = Fluid.mean_rho(ρ_l, r_l, r_b)
+            ρ_l_mean = Fluid.mean_rho(ρ_l, vcat(r_l, r_b))
         end
         
         if length(ρ_s) == 0
@@ -1171,7 +1254,7 @@ module Obliqua
         elseif length(ρ_s) == 1
             ρ_s_mean = ρ_s[1]
         else
-            ρ_s_mean = Fluid.mean_rho(ρ_s, r_s, r_c)
+            ρ_s_mean = Fluid.mean_rho(ρ_s, vcat(r_s, r_c))
         end
         
         # magma ocean height
@@ -1194,47 +1277,14 @@ module Obliqua
         σ_range = reshape(σ_range, :)
 
         # preallocate (complex for viscoelastic)
-        k_T_homo = zeros(precc, n, N_sigma)
-        k_L_homo = zeros(precc, n, N_sigma)
-
-        # could include Andrade solid tides here, instead of propagator method
-        # ...
-
-        # get 2,2 harmonic
-        k_T_22_homo = vec(k_T_homo[2, :])
-        k_L_22_homo = vec(k_L_homo[2, :])
-
-        # get Rayleigh drag at interface, needs to be changed
-        # employ correlation with mixing length
-        σ_R = sigma_R 
-
-        # fluid Love Numbers
-        k22_fluid_high_friction, k22_total = Fluid.compute_fluid_lovenumbers(
-            n,
-            σ_range,
-            k_T_22_homo,
-            k_L_22_homo,
-            ρ_ratio,
-            g,
-            H_magma,
-            σ_R,
-            R
-        )
-
-        # interpolate k2 love number arrays
-        μ_n  = n * (n + 1)
-        ξ_n = 3.0 / (2.0*n + 1.0) * ρ_ratio
-        σ_n = sqrt(μ_n * g * H_magma / R^2) # characterestic frequency
+        k22_total = zeros(precc, N_sigma)
 
         for kk in 1:N_sigma
             σ = σ_range[kk]
-            σ_T = σ - im*σ_R
 
-            k22_fluid_high_friction[kk] =
-                -ξ_n * σ_n^2 / (σ*σ_T - σ_n^2)
+            k2_T, k2_L = Fluid.compute_fluid_lovenumbers(σ, R, H_magma, g, ρ_ratio, n, sigma_R)
 
-            k22_total[kk] =
-                k_T_22_homo[kk] + (1 + k_L_22_homo[kk])*k22_fluid_high_friction[kk]
+            k22_total[kk] = k2_T
         end
 
         k22_total = vec(k22_total)    # reshape(-1)
@@ -1242,22 +1292,17 @@ module Obliqua
         # Build symmetric full spectrum for interpolation
         full_σ_range   = vcat(-σ_range,     reverse(σ_range))
         full_k22_total = vcat(-k22_total,   reverse(k22_total))
-        full_k22_homo  = vcat(-k_T_22_homo, reverse(k_T_22_homo))
 
         imag_full_k22  = imag.(full_k22_total)
-        imag_solid_k22 = imag.(full_k22_homo)
 
         # interpolation functions for imaginary parts (extrapolate outside)
         interp_full  = extrapolate(interpolate((full_σ_range,), imag_full_k22,
-                                            Gridded(Linear())), Flat())
-        interp_solid = extrapolate(interpolate((full_σ_range,), imag_solid_k22,
                                             Gridded(Linear())), Flat())
 
         # calculate tidal heating
         A_22k_e      = zeros(prec,  length(k_range))
         U_22k_e      = zeros(precc, length(k_range))
         P_T_k_total  = zeros(prec,  length(k_range))
-        P_T_k_solid  = zeros(prec,  length(k_range))
 
         for (ikk, kk) in pairs(k_range)
             σ = 2*axial - kk*omega
@@ -1269,18 +1314,15 @@ module Obliqua
             U_22k_e[ikk] = (G*S_mass/sma) * (R/sma)^2 * A_22k_e[ikk]
 
             img_full_k22  = interp_full(σ)
-            img_solid_k22 = interp_solid(σ)
 
             prefactor = 5 * R * σ / (8π*G)
             U2 = abs2(U_22k_e[ikk])
 
             P_T_k_total[ikk] = prefactor * img_full_k22  * U2
-            P_T_k_solid[ikk] = prefactor * img_solid_k22 * U2
         end
 
         # Total tidal heating (negative sum)
         P_tidal_total = -sum(P_T_k_total) # W
-        P_tidal_solid = -sum(P_T_k_solid) # W
 
         # Get power profile
         power_prf = zeros(prec, length(ρ))

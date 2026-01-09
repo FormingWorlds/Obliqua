@@ -71,7 +71,7 @@ end
 if suite >= 0
     @info " "
     @info "Testing if Fluid.jl module is imported"
-    if isdefined(Fluid, :calc_fluid_tides)
+    if isdefined(Fluid, :compute_fluid_lovenumbers)
         @info "Pass"
     else
         @warn "Fail"
@@ -247,10 +247,10 @@ end
 
 if suite > 6
     # -------------
-    # Test liquid interior data validity
+    # Test fluid interior data validity
     # -------------
     @info " "
-    @info "Testing liquid interior data validity"
+    @info "Testing fluid interior data validity"
     ok = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", true)
     if ok
         @info "Pass"
@@ -262,10 +262,10 @@ if suite > 6
     @info "--------------------------"
 
     # -------------
-    # Test Liquid.jl (minimal)
+    # Test Fluid.jl (minimal)
     # -------------
     @info " "
-    @info "Testing Liquid.jl"
+    @info "Testing Fluid.jl"
     omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid.json", false)
 
     power_prf_expt  = [0.0, 4.8070888926231234e-5]
@@ -313,10 +313,10 @@ if suite > 8
     @info "--------------------------"
 
     # -------------
-    # Test Liquid.jl (PROTEUS-like)
+    # Test Fluid.jl (PROTEUS-like)
     # -------------
     @info " "
-    @info "Testing Liquid.jl"
+    @info "Testing Fluid.jl"
     omega, axial, ecc, sma, S_mass, rho, radius, visc = load.load_interior_liquid("$RES_DIR/interior_data/test_mantle_liquid_full.json", false)
 
     power_prf_expt  = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.2425507160886101e-11, 1.247057869117265e-11, 1.2516453810781429e-11, 1.2563135220101134e-11, 1.2610676478283761e-11, 1.2659083790612889e-11, 1.2708409541623968e-11, 1.2758673237938062e-11, 1.2809914760255097e-11, 1.2862209173471728e-11, 1.2915579079219025e-11, 1.2969931827930746e-11, 1.302529416461838e-11, 1.3081604494621154e-11, 1.3138973237950605e-11, 1.3197436524617666e-11, 1.3257102950688364e-11, 1.3318044915122327e-11, 1.3380159375468342e-11, 1.3443554451719328e-11, 1.3507697369285256e-11, 1.357106154494241e-11, 1.3631454664018605e-11, 1.3688086768040071e-11, 1.3741180885641205e-11, 1.379128953020106e-11, 1.3839469103782372e-11, 1.3886772628443755e-11, 1.3933736994598853e-11, 1.3982642765511493e-11]
@@ -377,7 +377,7 @@ if suite > 10
     imag_k2_expt    = [9.338013011939597e-8, 6.869356835427922e-7, 5.052955815066234e-6, 3.714832089304862e-5, 0.0002733212410749532, 0.09171577226656115, 0.015200057976338515, 0.09305722494783335, 0.18000650834364215, 0.0009399615893044621]
 
     power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(
-        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; cfg
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, cfg
     )
 
     test_pass = true

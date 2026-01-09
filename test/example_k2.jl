@@ -68,7 +68,7 @@ if suite > 10
 
     # Run tidal calculation
     power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(
-        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; cfg=cfg
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, cfg
     )
 
     println(power_prf)
