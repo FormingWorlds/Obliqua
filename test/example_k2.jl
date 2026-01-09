@@ -60,7 +60,7 @@ if suite > 10
     @info "Testing Obliqua.jl"
 
     # Load configuration
-    cfg = Obliqua.open_config("/home/marijn/LovePy/fwlLove.jl/res/config/all_options.toml")
+    cfg = Obliqua.open_config("$ROOT_DIR/res/config/all_options.toml")
 
     # Load interior model
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, ncalc =
