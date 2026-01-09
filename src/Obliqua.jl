@@ -1324,7 +1324,7 @@ module Obliqua
 
         
         # get hansen coefficients
-        k_range2, X_hansen = Fluid.get_hansen(ecc, n, m, k_min, k_max)
+        k_range2, X_hansen = Hansen.get_hansen(ecc, n, m, k_min, k_max)
 
         # orbital and axial frequencies
         t_range = 10 .^ range(-15, stop=6, length=N_sigma)   # periods        
