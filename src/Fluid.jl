@@ -2,11 +2,6 @@
 
 module Fluid
 
-    using Interpolations
-    using LinearAlgebra
-    include("Hansen.jl")
-    using .Hansen
-
     export compute_fluid_lovenumbers
 
     # Precision types
@@ -15,15 +10,7 @@ module Fluid
 
 
     # Constants
-    AU = 1.495978707e11  # m
-    G  = 6.6743e-11  # m^3 kg^-1 s^-2
-
-    # Degree Love number
-    n = 2
-    m = 2
-    k_min = -30
-    k_max = 40
-    k_range = collect(k_min:k_max)
+    const G::prec  = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
     
     """
@@ -115,18 +102,10 @@ module Fluid
     # Returns
     - `mean_density::prec`              : Mean density in segment.
     """
-    function mean_rho( ρ::Array{prec,1},
-                        r::Array{prec,1}
-                        )::prec
-        """Calculate mean density of a sphere given density profile and radius profile.
-
-        Args:
-            ρ (Array{prec,1}): Density profile (kg/m^3).
-            r (Array{prec,1}): Radius profile (m).
-
-        Returns:
-            prec: Mean density (kg/m^3).
-        """
+    function mean_rho( 
+            ρ::Array{prec,1},
+            r::Array{prec,1}
+        )::prec
 
         # calculate mean density of region
         V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)

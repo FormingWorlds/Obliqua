@@ -19,6 +19,7 @@ module Obliqua
     # Include local jl files (order matters)
     include("Love.jl")
     include("Fluid.jl")
+    include("Solid.jl")
     include("Hansen.jl")
     include("load.jl")
     include("plotting.jl")
@@ -26,6 +27,7 @@ module Obliqua
     # Import submodules
     import .Love
     import .Fluid
+    import .Solid
     import .Hansen
     import .load
     import .plotting
@@ -33,6 +35,7 @@ module Obliqua
     # Export submodules (mostly for autodoc purposes)
     export Love
     export Fluid
+    export Solid
     export Hansen
     export load
     export plotting
@@ -44,8 +47,9 @@ module Obliqua
     prec  = BigFloat
     precc = Complex{BigFloat}
 
-    const AU::prec = prec(1.495978707e11)   # m
-    const G::prec  = prec(6.6743e-11)       # m^3 kg^-1 s^-2
+    const AU::prec      = prec(1.495978707e11)   # m
+    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
+    const M_Earth::prec = prec(5.9724e24)        # kg
 
     const res::Float64 = 20.0               # angular resolution in degrees
 
@@ -134,7 +138,7 @@ module Obliqua
             "star" => ["mass"],
             "orbit" => ["semimajoraxis", "eccentricity"],
             "orbit.obliqua" => [
-                "min_frac","visc_l","visc_l_tol","visc_s","visc_s_tol",
+                "dim","min_frac","visc_l","visc_l_tol","visc_s","visc_s_tol",
                 "sigma_R","n","m","N_sigma","ncalc","k_min","k_max",
                 "p_min","p_max","material","strain"
             ],
@@ -163,6 +167,7 @@ module Obliqua
         end
 
         # collection of config params 
+        dim      = cfg["orbit"]["obliqua"]["dim"]
         min_frac = cfg["orbit"]["obliqua"]["min_frac"]
         sigma_R  = cfg["orbit"]["obliqua"]["sigma_R"]
         n        = cfg["orbit"]["obliqua"]["n"]
@@ -176,7 +181,8 @@ module Obliqua
         material = cfg["orbit"]["obliqua"]["material"]
         alpha    = cfg["orbit"]["obliqua"]["alpha"]
         strain   = cfg["orbit"]["obliqua"]["strain"]
-
+        mass_tot = cfg["struct"]["mass_tot"]*M_Earth
+        
         # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
@@ -270,25 +276,35 @@ module Obliqua
 
                 # if segment is solid
                 if seg == "solid"
-                    # if heating profile from strain tensor
-                    if strain==true
+
+                    # if 1d interior and heating profile from strain tensor
+                    if dim==1 && strain==true
                         # calculate tides in solid region 
-                        prf_seg[i,:], kT, kL = run_solid_strain( 
+                        prf_seg[i,:], kT, kL = run_solid_1d_strain( 
                             σ, ecc, ρ_seg,  
                             r_seg, η_seg,                               
                             μc_seg[:, i], κ_seg; 
                             ncalc=ncalc
                         )
-                    # else no heating profile in segment 
+                    # elseif 1d interior but no heating profile in segment 
                     #   --> global heating profile from complex shear modulus
-                    else
+                    elseif dim==1 && strain==false
                         # calculate tides in solid region 
-                        kT, kL = run_solid( 
+                        kT, kL = run_solid_1d( 
                             ρ_seg, r_seg, η_seg,                               
                             μc_seg[:, i], κ_seg; 
                             ncalc=ncalc
                         )
-
+                    # else 0d interior.
+                    elseif dim==0 && strain==false
+                        kT, kL = run_solid_0d( 
+                            μc_seg[:, i],
+                            r_seg,
+                            mass_tot;
+                            n=n
+                        )
+                    else
+                        throw("No compatible solid tides module for dim=$dim and strain=$strain.")
                     end
 
                 # if segment is fluid
@@ -643,9 +659,9 @@ module Obliqua
 
 
     """
-        run_solid_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000)
+        run_solid_1d_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000)
 
-    Calculate k2 Lovenumbers in the solid, and compute 1D heating profile from strain tensor.
+    Use Love.jl to calculate k2 Lovenumbers in the 1d solid, and compute 1D heating profile from strain tensor.
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency range.
@@ -664,7 +680,7 @@ module Obliqua
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
-    function run_solid_strain( omega::Float64,
+    function run_solid_1d_strain( omega::Float64,
                         ecc::prec,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
@@ -720,9 +736,9 @@ module Obliqua
 
 
     """
-        run_solid(rho, radius, visc, shear, bulk; ncalc=2000)
+        run_solid_1d(rho, radius, visc, shear, bulk; ncalc=2000)
 
-    Calculate k2 Lovenumbers in the solid.
+    Use Love.jl to calculate k2 Lovenumbers in the 1d solid.
 
     # Arguments
     - `rho::Array{prec,1}`              : Density profile of the planet.
@@ -738,7 +754,7 @@ module Obliqua
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
-    function run_solid( rho::Array{prec,1},
+    function run_solid_1d( rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
@@ -782,6 +798,47 @@ module Obliqua
     
 
     """
+        run_solid_0d(μc, radius, mass_tot; n=2)
+
+    Calculate k2 Lovenumbers in the 0d solid.
+
+    # Arguments
+    - `μc::Array{precc,1}`              : Forcing frequency range.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `mass_tot::Float64`               : Total mass of planet.
+    
+    # Keyword Arguments
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+
+    # Returns
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
+    function run_solid_0d( μc::Array{precc,1},
+                        radius::Array{prec,1},
+                        mass_tot::prec;
+                        n::Int64=2
+                        )::Tuple{precc,precc}
+
+        # internal structure arrays
+        μc = convert(Vector{precc}, μc)
+        r  = convert(Vector{prec}, radius)
+
+        # get mean complex shear modulus in segment
+        μc_mean = Solid.mean_cmu(μc, r)
+
+        # surface properties
+        R = maximum(r)  # Segment outer radius (m)
+
+        # get k2 Lovenumbers
+        k2_T, k2_L = Solid.compute_solid_lovenumbers(μc_mean, mass_tot, R, n)
+
+        return k2_T, k2_L
+
+    end
+
+
+    """
         run_fluid(omega, rho, radius, ρ_ratio; n=2, sigma_R=1e-3)
 
     Calculate k2 Lovenumbers in the fluid.
@@ -813,7 +870,7 @@ module Obliqua
         r = convert(Vector{prec}, radius)
 
         # surface properties
-        R = maximum(r)  # Planet radius (m)
+        R = maximum(r)  # Segment outer radius (m)
         g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end]) / R^2  # Surface gravity (m/s^2)
 
         # fluid magma ocean bottom and height
