@@ -1176,8 +1176,6 @@ module Obliqua
     - Layers are categorized into liquid, mush, and solid based on `visc_l` and `visc_s`.
     - `r_b` denotes the bottom of the liquid region.
     - Hansen coefficients and Love numbers are computed over a frequency spectrum and interpolated.
-    - The total tidal dissipation is computed using both the fluid and solid contributions.
-
     """
     function calc_fluid_tides( omega::prec,
                         axial::prec,
@@ -1246,7 +1244,7 @@ module Obliqua
         elseif length(ρ_l) == 1
             ρ_l_mean = ρ_l[1]
         else
-            ρ_l_mean = Fluid.mean_rho(ρ_l, vcat(r_l, r_b))
+            ρ_l_mean = Fluid.mean_rho(ρ_l, vcat(r_b, r_l))
         end
         
         if length(ρ_s) == 0
@@ -1254,7 +1252,7 @@ module Obliqua
         elseif length(ρ_s) == 1
             ρ_s_mean = ρ_s[1]
         else
-            ρ_s_mean = Fluid.mean_rho(ρ_s, vcat(r_s, r_c))
+            ρ_s_mean = Fluid.mean_rho(ρ_s, vcat(r_c, r_s))
         end
         
         # magma ocean height
@@ -1326,7 +1324,7 @@ module Obliqua
 
         # Get power profile
         power_prf = zeros(prec, length(ρ))
-        power_prf[mask_l] .= Fluid.heat_profile(P_tidal_total, ρ_l, r_l, r_b)
+        power_prf[mask_l] .= Fluid.heat_profile(P_tidal_total, ρ_l, vcat(r_b, r_l))
         
         # Get k2 lovenumber at forcing frequency used by Love.jl
         k2_total = interp_full(2*axial - omega)

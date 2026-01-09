@@ -26,78 +26,6 @@ module Fluid
     k_range = collect(k_min:k_max)
 
     
-
-    function heat_profile( power::prec, 
-                            ρ::Array{prec,1},
-                            r::Array{prec,1},
-                            b::prec
-                            )::Array{prec,1}
-        # concatenate bottom radius and region radii
-        r = vcat(b, r)
-
-        # calculate mean density of region
-        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
-        
-        # calculate power density
-        power_ρ = power / sum(V) # W/m3
-
-        # calculate power profile
-        power_prf = power_ρ ./ ρ # W/kg
-
-        return power_prf
-
-    end
-
-    # Identiy liquid region
-    function mean_rho( ρ::Array{prec,1},
-                        r::Array{prec,1},
-                        b::prec
-                        )::prec
-        """Calculate mean density of a sphere given density profile and radius profile.
-
-        Args:
-            ρ (Array{prec,1}): Density profile (kg/m^3).
-            r (Array{prec,1}): Radius profile (m).
-
-        Returns:
-            prec: Mean density (kg/m^3).
-        """
-        # concatenate bottom radius and region radii
-        r = vcat(b, r)
-
-        # calculate mean density of region
-        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
-        M = sum(V .* ρ[1:end])                       # Total mass (kg)
-        mean_density = M / sum(V)                    # Mean density (kg/m^3)
-
-        return mean_density
-
-    end
-
-    # Identiy liquid region
-    function mean_rho( ρ::Array{prec,1},
-                        r::Array{prec,1}
-                        )::prec
-        """Calculate mean density of a sphere given density profile and radius profile.
-
-        Args:
-            ρ (Array{prec,1}): Density profile (kg/m^3).
-            r (Array{prec,1}): Radius profile (m).
-
-        Returns:
-            prec: Mean density (kg/m^3).
-        """
-
-        # calculate mean density of region
-        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
-        M = sum(V .* ρ[1:end])                       # Total mass (kg)
-        mean_density = M / sum(V)                    # Mean density (kg/m^3)
-
-        return mean_density
-
-    end
-
-    
     """
         compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, σ_R)    
     
@@ -140,6 +68,73 @@ module Fluid
         k2_L = 0. # needs proper expression, possibly the shell formalism in Farhat+2025 for a loaded MO
 
         return k2_T, k2_L
+    end
+
+
+    """
+        heat_profile(power, ρ, r)
+
+    Construct 1D uniform heating profile.
+
+    # Arguments
+    - `power::prec`                     : Total dissipated power.
+    - `ρ::Array{prec,1}`                : Density profile of the planet.
+    - `r::Array{prec,1}`                : Radial positions of layers, from bottom to top of segment.
+
+    # Returns
+    - `power_prf::Array{prec,1}`        : Heating profile.
+    """
+    function heat_profile( power::prec, 
+                            ρ::Array{prec,1},
+                            r::Array{prec,1}
+                            )::Array{prec,1}
+
+        # calculate mean density of region
+        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
+        
+        # calculate power density
+        power_ρ = power / sum(V) # W/m3
+
+        # calculate power profile
+        power_prf = power_ρ ./ ρ # W/kg
+
+        return power_prf
+
+    end
+
+
+    """
+        mean_rho(ρ, r)
+
+    Calculate the mean density in segment.
+
+    # Arguments
+    - `ρ::Array{prec,1}`                : Density profile of the planet.
+    - `r::Array{prec,1}`                : Radial positions of layers, from bottom to top of segment.
+
+    # Returns
+    - `mean_density::prec`              : Mean density in segment.
+    """
+    function mean_rho( ρ::Array{prec,1},
+                        r::Array{prec,1}
+                        )::prec
+        """Calculate mean density of a sphere given density profile and radius profile.
+
+        Args:
+            ρ (Array{prec,1}): Density profile (kg/m^3).
+            r (Array{prec,1}): Radius profile (m).
+
+        Returns:
+            prec: Mean density (kg/m^3).
+        """
+
+        # calculate mean density of region
+        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
+        M = sum(V .* ρ[1:end])                       # Total mass (kg)
+        mean_density = M / sum(V)                    # Mean density (kg/m^3)
+
+        return mean_density
+
     end
 
 end
