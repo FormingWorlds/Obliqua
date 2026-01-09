@@ -25,7 +25,7 @@ module plotting
 
         xmin = xmin_raw * pad_low
         xmax = xmax_raw * pad_high
-        ymin = ymin_raw * pad_low
+        ymin = max(ymin_raw * pad_low, 1e-7)
         ymax = ymax_raw * pad_high
 
         # exponent ranges

@@ -63,12 +63,12 @@ if suite > 10
     cfg = Obliqua.open_config("$RES_DIR/config/all_options.toml")
 
     # Load interior model
-    omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, ncalc =
-        load.load_interior_full("$RES_DIR/interior_data/test_mantle_full_test.json", false)
+    omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+        load.load_interior_mush_full("$RES_DIR/interior_data/test_mantle_mush_full_test.json", false)
 
     # Run tidal calculation
     power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(
-        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, cfg
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, cfg
     )
 
     println(power_prf)

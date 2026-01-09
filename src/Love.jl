@@ -962,6 +962,85 @@ module Love
         return y
     end
 
+    function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k; core="liquid", load=false)
+        porous_layer = ϕ .> 0.0
+
+        ## Convert parameters to the precision of precc:
+        r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k = convert_params_to_prec(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k)
+
+        sum(porous_layer) > 1.0 && error("Can only handle one porous layer for now!")
+
+        nlayers = size(r)[2]
+        nsublayers = size(r)[1]
+
+        # Define starting vector as the core solution matrix, Y_r_C (Eq. S5.15)
+        y_start = get_Ic(r[end,1], ρ[1], g[end,1], μ[1], core; M=8, N=4)
+
+        y1_4 = zeros(precc, 8,   4, nsublayers-1, nlayers)  # Four linearly independent y solutions
+        
+        for i in 2:nlayers
+            Bprod = zeros(precc, 8, 8, nsublayers-1) # D matrix from Eq. S5.13
+            @views get_B_product!(Bprod, r[:,i], ρ[i], g[:,i], μ[i], K[i], ω, ρₗ[i], Kl[i], Kd[i], α[i], ηₗ[i], ϕ[i], k[i])
+
+            # Modify starting vector if the layer is porous
+            # If a new porous layer (i.e., sitting on a non-porous layer)
+            # reset the pore pressure and darcy flux
+            if porous_layer[i] && !porous_layer[i-1]
+                y_start[7,4] = 1.0          # Non-zero pore pressure
+                y_start[8,4] = 0.0          # Zero radial Darcy flux
+            elseif !porous_layer[i]
+                y_start[7:8, :] .= 0.0      # Pore pressure and flux undefined
+            end
+
+            for j in 1:nsublayers-1
+                y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
+            end
+
+            y_start[:,:] .= @view(y1_4[:,:,end,i])
+        end
+
+        # Get solution at the surface and porous layer interface (Eq. S5.20)
+        M = zeros(precc, 4,4)
+        
+        M[1, :] .= y1_4[3,:,end,end] # Row 1 - Radial Stress
+        M[2, :] .= y1_4[4,:,end,end] # Row 2 - Tangential Stress
+        M[3, :] .= y1_4[6,:,end,end] # Row 3 - Potential Stress
+        
+        for i in 2:nlayers
+            if porous_layer[i]
+                M[4, :] .= y1_4[8,:,end,i]  #  Row 4 - Darcy flux (r = r_tp)
+            end
+        end
+        
+        return M, y1_4
+    end
+
+    function compute_y_mush(r, g, M, y1_4; load=false)
+
+        nlayers = size(r)[2]
+        nsublayers = size(r)[1]
+
+        b = zeros(precc, 4)
+        if load
+            b[1] = -(2n+1)*g[end,end]/(4π*(r[end,end])^2)
+            b[3] = -(2n+1)*G/(r[end,end])^2
+        else
+            b[3] = (2n+1)/r[end,end] 
+        end
+
+        C = M \ b
+
+        y = zeros(ComplexF64, 8, nsublayers-1, nlayers)
+
+        for i in 2:nlayers
+            for j in 1:nsublayers-1
+                y[:,j,i] = @view(y1_4[:,:,j,i])*C
+            end
+        end
+
+        return y
+    end
+
     """
         compute_y(r, ρ, g, μ, K; core="liquid")
 
@@ -1448,7 +1527,7 @@ module Love
             rend = lay
         end
 
-        # Compute dissipation (volumetric heating in W/m³)
+        # Compute dissipation (volumetric heating in W/m^3)
         for j in rstart:rend    
             for i in 1:nsublay-1
                 dr = r[i+1, j] - r[i, j]                   # radial thickness of sublayer
@@ -1466,7 +1545,7 @@ module Love
                 Eκ_vol[i,j] = sum(sin.(clats) .* Eκ[:,:,i,j] * dres^2) * r[i,j]^2.0 * dr / dvol
             end
 
-            # Average over sublayers to get layer volumetric heating (W/m³)
+            # Average over sublayers to get layer volumetric heating (W/m^3)
             Eμ_tot[j] = sum(Eμ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
             Eκ_tot[j] = sum(Eκ_vol[1:nsublay-1,j] .* diff(r[1:nsublay,j])) / (r[nsublay,j] - r[1,j])
         end

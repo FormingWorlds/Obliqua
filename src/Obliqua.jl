@@ -126,6 +126,7 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{prec,1},
                         bulk::Array{prec,1},
+                        phi::Array{prec,1},
                         cfg::Dict
                         )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
       
@@ -140,7 +141,7 @@ module Obliqua
             "orbit.obliqua" => [
                 "dim","min_frac","visc_l","visc_l_tol","visc_s","visc_s_tol",
                 "sigma_R","n","m","N_sigma","ncalc","k_min","k_max",
-                "p_min","p_max","material","strain"
+                "p_min","p_max","material","strain", "mush"
             ],
             "struct" => ["mass_tot","core_density"]
         )
@@ -181,21 +182,30 @@ module Obliqua
         material = cfg["orbit"]["obliqua"]["material"]
         alpha    = cfg["orbit"]["obliqua"]["alpha"]
         strain   = cfg["orbit"]["obliqua"]["strain"]
+        mush     = cfg["orbit"]["obliqua"]["mush"]
         mass_tot = cfg["struct"]["mass_tot"]*M_Earth
-        
+        visc_l   = cfg["orbit"]["obliqua"]["visc_l"]
+        visc_l_tol = cfg["orbit"]["obliqua"]["visc_l_tol"]
+        visc_s   = cfg["orbit"]["obliqua"]["visc_s"]
+        visc_s_tol = cfg["orbit"]["obliqua"]["visc_s_tol"]
+        bulk_l   = cfg["orbit"]["obliqua"]["bulk_l"]
+        permea   = cfg["orbit"]["obliqua"]["permea"]
+        porosity_thresh = cfg["orbit"]["obliqua"]["porosity_thresh"]
+
         # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
         μ = convert(Vector{precc},shear)
         κ = convert(Vector{prec}, bulk)
+        ϕ = convert(Vector{prec}, phi)
 
         # number of layers
         N_layers = length(r)-1
 
         # liquidus and solidus viscosity with tolerance
-        η_l = cfg["orbit"]["obliqua"]["visc_l"] + cfg["orbit"]["obliqua"]["visc_l_tol"]
-        η_s = cfg["orbit"]["obliqua"]["visc_s"] - cfg["orbit"]["obliqua"]["visc_s_tol"]
+        η_l = visc_l + visc_l_tol
+        η_s = visc_s - visc_s_tol
 
         # get smoothed out region masks and segments
         mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s; min_frac)
@@ -251,6 +261,7 @@ module Obliqua
             η_seg  = η[i_start:i_end]                              
             μc_seg = μc[i_start:i_end, :] 
             κ_seg  = κ[i_start:i_end]
+            ϕ_seg  = ϕ[i_start:i_end]
 
             # preallocate heating profile for segment
             prf_seg = zeros(prec, N_σ, length(r_seg)-1)
@@ -278,7 +289,7 @@ module Obliqua
                 if seg == "solid"
 
                     # if 1d interior and heating profile from strain tensor
-                    if dim==1 && strain==true
+                    if dim==1 && strain==true && mush==false
                         # calculate tides in solid region 
                         prf_seg[i,:], kT, kL = run_solid_1d_strain( 
                             σ, ecc, ρ_seg,  
@@ -288,12 +299,29 @@ module Obliqua
                         )
                     # elseif 1d interior but no heating profile in segment 
                     #   --> global heating profile from complex shear modulus
-                    elseif dim==1 && strain==false
+                    elseif dim==1 && strain==false && mush==false
                         # calculate tides in solid region 
                         kT, kL = run_solid_1d( 
                             ρ_seg, r_seg, η_seg,                               
                             μc_seg[:, i], κ_seg; 
                             ncalc=ncalc
+                        )
+                    # elseif 1d interior with mush interface and heating profile from strain tensor
+                    elseif dim==1 && strain==true && mush==true
+                        prf_seg[i,:], kT, kL = run_solid_mush_1d_strain( 
+                            σ, ecc, ρ_seg, r_seg,
+                            η_seg, μc_seg[:, i], κ_seg, ϕ_seg;
+                            ncalc, n, visc_l, bulk_l,
+                            permea, porosity_thresh
+                        )
+                    # elseif 1d interior with mush interface  but no heating profile in segment 
+                    #   --> global heating profile from complex shear modulus
+                    elseif dim==1 && strain==false && mush==true
+                        kT, kL = run_solid_mush_1d(
+                            σ, ρ_seg, r_seg,
+                            η_seg, μc_seg[:, i], κ_seg, ϕ_seg;
+                            ncalc, n, visc_l, bulk_l,
+                            permea, porosity_thresh
                         )
                     # else 0d interior.
                     elseif dim==0 && strain==false
@@ -659,7 +687,7 @@ module Obliqua
 
 
     """
-        run_solid_1d_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000)
+        run_solid_1d_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000, n=2)
 
     Use Love.jl to calculate k2 Lovenumbers in the 1d solid, and compute 1D heating profile from strain tensor.
 
@@ -674,6 +702,7 @@ module Obliqua
     
     # Keyword Arguments
     - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
 
     # Returns
     - `power_prf::Array{prec,1}`        : Heating profile.
@@ -687,7 +716,8 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{prec,1};
-                        ncalc::Int=2000
+                        ncalc::Int=2000,
+                        n::Int=2
                         )::Tuple{Array{prec,1},precc,precc}
 
         # internal structure arrays.
@@ -705,7 +735,7 @@ module Obliqua
         g = Love.get_g(rr, ρ);
 
         # create grid
-        Love.define_spherical_grid(res; n=2)
+        Love.define_spherical_grid(res; n=n)
 
         # get y-functions
         M, y1_4 = Love.compute_M(rr, ρ, g, μc, κ)
@@ -736,7 +766,7 @@ module Obliqua
 
 
     """
-        run_solid_1d(rho, radius, visc, shear, bulk; ncalc=2000)
+        run_solid_1d(rho, radius, visc, shear, bulk; ncalc=2000, n=2)
 
     Use Love.jl to calculate k2 Lovenumbers in the 1d solid.
 
@@ -749,7 +779,8 @@ module Obliqua
     
     # Keyword Arguments
     - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
-
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    
     # Returns
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
@@ -759,7 +790,8 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{prec,1};
-                        ncalc::Int=1000
+                        ncalc::Int=1000,
+                        n::Int=2
                         )::Tuple{precc,precc}
 
         # internal structure arrays.
@@ -777,7 +809,7 @@ module Obliqua
         g = Love.get_g(rr, ρ);
 
         # create grid
-        Love.define_spherical_grid(res; n=2)
+        Love.define_spherical_grid(res; n=n)
 
         # get y-functions
         M, y1_4 = Love.compute_M(rr, ρ, g, μc, κ)
@@ -796,6 +828,233 @@ module Obliqua
         return k2_T, k2_L
     end
     
+
+    """
+        run_solid_mush_1d_strain(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+
+    Use Love.jl to calculate k2 Lovenumbers in the 1d solid with mush interface, and compute 1D heating profile from strain tensor.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency range.
+    - `ecc::prec`                       : Eccentricity of the orbit.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
+    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
+    
+    # Keyword Arguments
+    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `visc_l::Float64=1e2`             : Liquid viscosity.
+    - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
+    - `permea::Float64=1e-7`            : Permeability of mush layer.
+    - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
+
+    # Returns
+    - `power_prf::Array{prec,1}`        : Heating profile.
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
+    function run_solid_mush_1d_strain( omega::Float64,
+                        ecc::prec,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{prec,1},
+                        phi::Array{prec,1};
+                        ncalc::Int=2000,
+                        n::Int=2,
+                        visc_l::Float64=1e2,
+                        bulk_l::Float64=1e9,
+                        permea::Float64=1e-7,
+                        porosity_thresh::Float64=1e-5
+                        )::Tuple{Array{prec,1},precc,precc}
+
+        # internal structure arrays.
+        # first element is the innermost layer, last element is the outermost layer
+        ρ  = convert(Vector{prec}, rho)
+        r  = convert(Vector{prec}, radius)
+        η  = convert(Vector{prec}, visc)
+        μc = convert(Vector{precc},shear)
+        κs = convert(Vector{prec}, bulk)
+        ϕ  = convert(Vector{prec}, phi)
+        κd = 0.01.*κs                        # drained bulk modulus
+
+        α  = 1.0.-(κd./κs)                    # Biot's modulus
+
+        # allocate zero arrays with same length and precision as r
+        κl = zeros(prec, length(r))
+        ηl = zeros(prec, length(r))
+        k  = zeros(prec, length(r))
+
+        # implicitely the mush interface occurs at the top of the solid
+        # the mush layer index is therefore
+        ii = length(ϕ)
+
+        # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
+        if ϕ[ii] <= prec(porosity_thresh)
+            println(ϕ[ii])
+            throw("No mush region identified in viscosity profile.")
+        end
+
+        # update the liquid arrays
+        κl[ii] = prec(bulk_l)   # liquid bulk modulus
+        ηl[ii] = prec(visc_l)   # liquid viscosity
+        k[ii]  = prec(permea)   # permeability
+
+        ρs = ρ.*(1.0.-ϕ)        # solid density 
+        ρl = ρ.*ϕ               # liquid density
+
+        # set porosity to zero outside mush region (otherwise code cannot solve system)
+        ϕ[1:ii-1]   .= 0.0      # zero below ii
+
+        # subdivide input layers such that we have ~ncalc in total
+        rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # get gravity at each layer
+        g = Love.get_g(rr, ρ);
+
+        # create grid
+        Love.define_spherical_grid(res; n=n)
+
+        # get y-functions
+        M, y1_4 = Love.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k; core="liquid", load=false)
+        #   Tidal
+        tidal_solution_T = Love.compute_y_mush(rr, g, M, y1_4; load=false)
+        #   Load
+        tidal_solution_L = Love.compute_y_mush(rr, g, M, y1_4; load=true)
+
+        # get k2 tidal Love Number (complex-valued)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
+        
+        # return zero for now
+        k2_L = 0.
+
+        # Get profile power output (W m-3), converted to W/kg
+        (Eμ, Eκ, El) = Love.get_heating_profile(tidal_solution_T,
+                               rr, ρs, g, μc, κs,
+                               omega, ρl, κl, κd, 
+                               α, ηl, ϕ, k, ecc)
+
+        Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
+        Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
+        El_tot, _ = El   # fluid       (W), (W/m3)
+
+        power_prf = Eμ_tot .+ Eκ_tot .+ El_tot # Compute total volumetric heating (W/m3)
+
+        return power_prf, k2_T, k2_L
+    end
+
+
+    """
+        run_solid_mush_1d(omega, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+
+    Use Love.jl to calculate k2 Lovenumbers in the 1d solid with mush interface.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
+    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
+    
+    # Keyword Arguments
+    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `visc_l::Float64=1e2`             : Liquid viscosity.
+    - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
+    - `permea::Float64=1e-7`            : Permeability of mush layer.
+    - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
+
+    # Returns
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
+    function run_solid_mush_1d( omega::Float64,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{prec,1},
+                        phi::Array{prec,1};
+                        ncalc::Int=2000,
+                        n::Int=2,
+                        visc_l::Float64=1e2,
+                        bulk_l::Float64=1e9,
+                        permea::Float64=1e-7,
+                        porosity_thresh::Float64=1e-5
+                        )::Tuple{precc,precc}
+
+        # internal structure arrays.
+        # first element is the innermost layer, last element is the outermost layer
+        ρ  = convert(Vector{prec}, rho)
+        r  = convert(Vector{prec}, radius)
+        η  = convert(Vector{prec}, visc)
+        μc = convert(Vector{precc},shear)
+        κs = convert(Vector{prec}, bulk)
+        ϕ  = convert(Vector{prec}, phi)
+        κd = 0.01.*κs                        # drained bulk modulus
+
+        α  = 1.0.-(κd./κs)                    # Biot's modulus
+
+        # allocate zero arrays with same length and precision as r
+        κl = zeros(prec, length(r))
+        ηl = zeros(prec, length(r))
+        k  = zeros(prec, length(r))
+
+        # implicitely the mush interface occurs at the top of the solid
+        # the mush layer index is therefore
+        ii = length(ϕ)
+
+        # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
+        if ϕ[ii] <= prec(porosity_thresh)
+            println(ϕ[ii])
+            throw("No mush region identified in viscosity profile.")
+        end
+
+        # update the liquid arrays
+        κl[ii] = prec(bulk_l)   # liquid bulk modulus
+        ηl[ii] = prec(visc_l)   # liquid viscosity
+        k[ii]  = prec(permea)   # permeability
+
+        ρs = ρ.*(1.0.-ϕ)        # solid density 
+        ρl = ρ.*ϕ               # liquid density
+
+        # set porosity to zero outside mush region (otherwise code cannot solve system)
+        ϕ[1:ii-1]   .= 0.0      # zero below ii
+
+        # subdivide input layers such that we have ~ncalc in total
+        rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
+
+        # get gravity at each layer
+        g = Love.get_g(rr, ρ);
+
+        # create grid
+        Love.define_spherical_grid(res; n=n)
+
+        # get y-functions
+        M, y1_4 = Love.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k; core="liquid", load=false)
+        #   Tidal
+        tidal_solution_T = Love.compute_y_mush(rr, g, M, y1_4; load=false)
+        #   Load
+        tidal_solution_L = Love.compute_y_mush(rr, g, M, y1_4; load=true)
+
+        # get k2 tidal Love Number (complex-valued)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
+        
+        # return zero for now
+        k2_L = 0.
+
+        return k2_T, k2_L
+    end
+
 
     """
         run_solid_0d(μc, radius, mass_tot; n=2)
