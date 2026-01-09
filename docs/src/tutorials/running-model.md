@@ -26,9 +26,9 @@ In general, we can use
 
 | Tides                     | Function                               |
 |:--------------------------|:---------------------------------------|
-| solid-phase               | `Obliqua.calc_lovepy_tides`       |
-| solid-phase + mush layer  | `Obliqua.calc_lovepy_tides_mush`  |
-| liquid-phase              | `Obliqua.calc_fluid_tides`       |
+| solid-phase               | `Obliqua.calc_lovepy_tides`            |
+| solid-phase + mush layer  | `Obliqua.calc_lovepy_tides_mush`       |
+| liquid-phase              | `Obliqua.calc_fluid_tides`             |
 | solid+liquid-phase        | `Obliqua.run_tides`                    |
 
 ---
