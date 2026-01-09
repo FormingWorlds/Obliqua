@@ -1,0 +1,65 @@
+# This is the default configuration file
+# The variables are explained below. If you want to model your own conditions,
+# try making a copy of this file and then modifying it.
+
+# The general structure is:
+#   [params]        parameters for code execution, output files, time-stepping, convergence
+#   [star]          stellar parameters, model selection
+#   [orbit]         planetary orbital parameters
+#   [struct]        planetary structure (mass, radius)
+
+# ----------------------------------------------------
+
+title = "Default"               # Name for this configuration file
+version = "1.0"                 # Version of this configuration file
+
+# Parameters
+[params]
+    # output files
+    [params.out]
+        path        = "default"
+        logging     = "INFO"
+        plot_fmt    = "png"     # Plotting image file format, "png" or "pdf" recommended
+
+# ----------------------------------------------------
+# Star
+[star]
+    # Physical parameters
+    mass    = 1.0               # stellar mass [M_sun]
+
+# Orbital system
+[orbit]
+    semimajoraxis = 1.0         # initial semi-major axis of planet's orbit [AU]
+    eccentricity = 0.0          # initial eccentricity of planet's orbit [dimensionless]
+    zenith_angle = 48.19        # characteristic zenith angle [degrees]
+
+    evolve  = false             # whether to evolve the SMaxis and eccentricity
+    module  = "obliqua"         # module used to calculate tidal heating
+
+    satellite = false           # include satellite (moon)?
+    mass_sat = 7.347e+22        # mass of satellite [kg]
+    semimajoraxis_sat = 3e8     # initial SMA of satellite's orbit [m]
+
+    [orbit.obliqua]
+        min_frac    = 0.02      # M_suninimal segment radius fraction before smoothing [dimensionless]
+        visc_l      = 1e2       # Liquid viscosity [Pa s]
+        visc_l_tol  = 5e2       # Liquid viscosity tolerance [Pa s]
+        visc_s      = 1e14      # Solid visosity [Pa s]
+        visc_s_tol  = 5e13      # Solid viscosity tolerance [Pa s]
+        sigma_R     = 1e-3      # Rayleigh drag coefficient []
+        n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
+        m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
+        N_sigma     = 50        # Number probe frequencies to evaluate k2 at
+        ncalc       = 1000      # Number of sublayers to use for Love.jl
+        k_min       = -30       # Minimum tidal mode range (k is the Fourier index in mean anomaly)
+        k_max       = 40        # Maximum tidal mode range (k is the Fourier index in mean anomaly)
+        p_min       = -20       # Minimum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over minimal 1e-17 yr interval
+        p_max       = 6         # Maximum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over maximal 1e9   yr interval
+        material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
+        strain      = true      # Strategy for obtaining heating profile
+
+
+# Planetary structure - physics table
+[struct]
+    mass_tot     = 1.0          # M_earth
+    core_density = 10738.33     # Core density [kg m-3]

@@ -39,15 +39,53 @@ module Obliqua
 
     export run_tides
 
-    prec = BigFloat
+    const ROOT_DIR::String = abspath(dirname(abspath(@__FILE__)), "../")
+
+    prec  = BigFloat
     precc = Complex{BigFloat}
 
+    const AU::prec = prec(1.495978707e11)   # m
+    const G::prec  = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
-    # Constants
-    AU = 1.495978707e11  # m
-    G = prec(6.6743e-11)  # m^3 kg^-1 s^-2
+    const res::Float64 = 20.0               # angular resolution in degrees
 
-    res = 20.0
+
+    """
+    Open and validate config file.
+
+    Arguments:
+    - `cfg_path::String`        path to configuration file
+
+    Returns:
+    - `cfg_dict::Dict`          dictionary containing the configuration
+    """
+    function open_config(cfg_path::String)::Dict
+
+        # open file
+        cfg_dict = parsefile(cfg_path)
+
+        # check headers
+        headers = ["params", "star", "orbit", "struct", "title", "version"]
+        for h in headers
+            if !haskey(cfg_dict, h)
+                error("Key $h is missing from configuration file at '$cfg_path'")
+            end
+        end
+
+        # check that output dir is named
+        if !haskey(cfg_dict["params"]["out"],"path") || (cfg_dict["params"]["out"]=="")
+            error("Output directory is missing from configuration file at '$cfg_path'")
+        end
+        out_path = abspath(cfg_dict["params"]["out"]["path"])
+
+        # check if this is a dangerous path
+        if ispath(joinpath(out_path, ".git")) || (joinpath(out_path) == pwd()) || samefile(out_path, ROOT_DIR)
+            error("Output directory is unsafe")
+        end
+
+        # looks good
+        return cfg_dict
+    end
 
 
     """
@@ -80,10 +118,11 @@ module Obliqua
     # Returns
     - `power_prf::Array{Float64,1}` : Radial profile of tidal heating (W/m³).
     - `power_blk::Float64` : Total tidal power integrated over the interior (W).
-    - `imag_k2::Float64` : Imaginary part of the Love number `k2` for the planet.
+    - `σ_range::Array{Float64,1}` : Frequencies at which the Love number `k2` was evaluated.
+    - `imag_k2::Array{Float64,1}` : Imaginary part of the Love number `k2` for the planet.
 
     # Notes
-    - The function splits the interior into **solid**, **mush**, and **liquid** regions based on viscosity thresholds.
+    - The function splits the interior into solid, mush, and liquid regions based on viscosity thresholds.
     - Solid tides are computed using `calc_lovepy_tides`, while fluid/mushy tides are computed using `calc_fluid_tides`.
     - The heating profile is automatically saved as a PDF using `save_heat_profile`.
     """
@@ -97,86 +136,111 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{prec,1},
                         bulk::Array{prec,1};
-                        ncalc::Int64=1000,
-                        N_sigma::Int64=50,
-                        material::String="andrade",
-                        visc_l::Float64=1e2,
-                        visc_l_tol::Float64=5e2,
-                        visc_s::Float64=1e14,
-                        visc_s_tol::Float64=5e13,
-                        sigma_R::Float64=1e-3,
-                        strain::Bool=true
+                        cfg::Dict
                         )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
       
-        # interior profiles                        
+        # Read configuration options from dict
+        @info "Using configuration '$(cfg["title"])'"
+        
+        # Check that config has these always-required keys
+        req_keys = Dict(
+            "params.out" => ["path"],
+            "star" => ["mass"],
+            "orbit" => ["semimajoraxis", "eccentricity"],
+            "orbit.obliqua" => [
+                "min_frac","visc_l","visc_l_tol","visc_s","visc_s_tol",
+                "sigma_R","n","m","N_sigma","ncalc","k_min","k_max",
+                "p_min","p_max","material","strain"
+            ],
+            "struct" => ["mass_tot","core_density"]
+        )
+        for (section, keys) in req_keys
+            path = split(section, ".")
+            node = cfg
+
+            # walk down the nested Dict
+            for p in path
+                if !haskey(node, p)
+                    @error "Config: missing required section `$(join(path, "."))`"
+                    return false
+                end
+                node = node[p]
+            end
+
+            # check required keys at this level
+            for k in keys
+                if !haskey(node, k)
+                    @error "Config: missing required key `$(join(path, "."))::$k`"
+                    return false
+                end
+            end
+        end
+
+        # collection of config params 
+        min_frac = cfg["orbit"]["obliqua"]["min_frac"]
+        sigma_R  = cfg["orbit"]["obliqua"]["sigma_R"]
+        n        = cfg["orbit"]["obliqua"]["n"]
+        m        = cfg["orbit"]["obliqua"]["m"]
+        N_σ      = cfg["orbit"]["obliqua"]["N_sigma"]
+        ncalc    = cfg["orbit"]["obliqua"]["ncalc"]
+        k_min    = cfg["orbit"]["obliqua"]["k_min"]
+        k_max    = cfg["orbit"]["obliqua"]["k_max"]
+        p_min    = cfg["orbit"]["obliqua"]["p_min"]
+        p_max    = cfg["orbit"]["obliqua"]["p_max"]
+        material = cfg["orbit"]["obliqua"]["material"]
+        strain   = cfg["orbit"]["obliqua"]["strain"]
+
+        # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
         μ = convert(Vector{precc},shear)
         κ = convert(Vector{prec}, bulk)
 
+        # number of layers
         N_layers = length(r)-1
 
         # liquidus and solidus viscosity with tolerance
-        η_l = visc_l + visc_l_tol
-        η_s = visc_s - visc_s_tol
+        η_l = cfg["orbit"]["obliqua"]["visc_l"] + cfg["orbit"]["obliqua"]["visc_l_tol"]
+        η_s = cfg["orbit"]["obliqua"]["visc_s"] - cfg["orbit"]["obliqua"]["visc_s_tol"]
 
-        # smooth out masked regions
-        mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s)
-
-        # println("\n==== SEGMENT SUMMARY ====")
-        # println("segments = ", segments)
-        # println("is_seg   = ", is_seg)
-        # println("mask_c   = ", findall(mask_c))
-        # println("==========================\n")
+        # get smoothed out region masks and segments
+        mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s; min_frac)
 
         # check if CMB is at the bottom of the mantle
         if any(r[1] .>= r[2:end])
             throw("CMB radius not at bottom of mantle, did you properly order the interior arrays?")
         end
 
-        R = maximum(r)  # Planet radius (m)
-
-        # With zero eccentricity and zero obliquity only static m=0 terms survive no time-varying tide --> no dissipation
-        # With zero eccentricity but nonzero obliquity the tidal bulge is forced to wobble because the spin axis is tilted this excites time-varying diurnal terms (mainly m=1) so dissipation occurs even when e=0
-
-        # power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
-        n = 2
-
-        # harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
-        m = 2
-
-        # number probe frequencies to evaluate k2 at
-        N_σ = N_sigma
+        # find planet radius (m)
+        R = maximum(r)
 
         # tidal mode range (k is the Fourier index in mean anomaly)
-        k_min = -30
-        k_max = 40
         k_range = collect(k_min:k_max)
 
         # get hansen coefficients
         k_range2, X_hansen = Hansen.get_hansen(ecc, n, m, k_min, k_max)
 
         # orbital and axial frequencies
-        t_range = 10 .^ range(-20, stop=6, length=N_σ)   # periods        
-        σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)
+        t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
+        σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
         σ_range = reshape(σ_range, :)
 
+        # get forcing frequency dependent complex shear modulus
         μc = complex_mu(σ_range, μ, η; material=material)
 
+        # initiate forcing frequency dependent k2 love and load number arrays (one spectrum for each segment)
         k22_T = zeros(precc, N_σ, length(segments))
         k22_L = zeros(precc, N_σ, length(segments))
         
-        prf_total = zeros(prec, N_σ, length(shear))
+        # initiate forcing frequency dependent heating profile 
+        prf_total = zeros(prec, N_σ, N_layers)
 
         # arbitrary high density for bottom boundary
-        ρ_mean_lower = 5000.0   # Can be replaced with core density
+        ρ_mean_lower = Float64(cfg["struct"]["core_density"])
 
         # loop over segments, starting at CMB
         for (iseg, seg) in pairs(segments)
-            # println("---- entering segment $iseg ----")
-            # println("segment type = ", seg)
-            # println("is_seg[$iseg] = ", is_seg[iseg])
 
             # preallocate (complex for viscoelastic)
             #  (T)idal love number
@@ -195,9 +259,10 @@ module Obliqua
             μc_seg = μc[i_start:i_end, :] 
             κ_seg  = κ[i_start:i_end]
 
+            # preallocate heating profile for segment
             prf_seg = zeros(prec, N_σ, length(r_seg)-1)
 
-            # mean densities
+            # mean density in current segment
             if length(ρ_seg) == 1
                 ρ_mean = ρ_seg[1]
             else
@@ -207,16 +272,18 @@ module Obliqua
             # density ratio
             ρ_ratio = ρ_mean / ρ_mean_lower
 
-            # get solid k2 spectrum
+            # get k2 spectrum for segment
             for i in 1:N_σ
-                # specific forcing frequency
+                # specify forcing frequency
                 σ = σ_range[i]
                 
-                # default values 
+                # preallocate k2 for segment
                 kT = zero(precc)
                 kL = zero(precc)
 
+                # if segment is solid
                 if seg == "solid"
+                    # if heating profile from strain tensor
                     if strain==true
                         # calculate tides in solid region 
                         prf_seg[i,:], kT, kL = run_solid_strain( 
@@ -225,7 +292,8 @@ module Obliqua
                             μc_seg[:, i], κ_seg; 
                             ncalc=ncalc
                         )
-
+                    # else no heating profile in segment 
+                    #   --> global heating profile from complex shear modulus
                     else
                         # calculate tides in solid region 
                         kT, kL = run_solid( 
@@ -236,6 +304,7 @@ module Obliqua
 
                     end
 
+                # if segment is fluid
                 elseif seg == "fluid"
                     # calculate fluid tides in fluid region 
                     kT, kL = run_fluid(
@@ -244,29 +313,42 @@ module Obliqua
                         n=n, 
                         sigma_R=sigma_R
                     ) 
-                                        
-                    # store heating
                 
+                # if segment is mush
                 elseif seg == "mush"
                     # calculate mush tides in mush region 
                     kT, kL = 0., 0. # no expression for this yet
-                                      
+
+                # if segment is ice
+                elseif seg == "ice"
+                    # calculate ice tides in ice region 
+                    kT, kL = 0., 0. # no expression for this yet
+                           
+                # if segment is water
+                elseif seg == "water"
+                    # calculate water tides in water region 
+                    kT, kL = 0., 0. # no expression for this yet
+                          
                 end
 
+                # update k2 spectrum for segment
                 k22_T_seg[i] = kT
                 k22_L_seg[i] = kL
 
-            # repeat for all probe frequencies
+            # repeat for all probe forcing frequencies
             end
         
+            # update previous segment mean density before moving to next segment
             ρ_mean_lower = ρ_mean
 
             # store k2 spectra (max 1 per segment)
             k22_T[:, iseg] .= k22_T_seg
             k22_L[:, iseg] .= k22_L_seg
 
+            # append segment heating profile to global heating profile
             prf_total[:, i_start:i_end] .= prf_seg[:, :]
-            # step to next layer
+
+            # step to next segment
         end
 
         # initialize total k2 with the contribution from the top layer
@@ -278,27 +360,27 @@ module Obliqua
                 k22_total[i] = k22_T[i, iseg] + (1.0 + k22_L[i, iseg]) * k22_total[i]
             end
         end
-
-        # println("--------------------------\n")
-        # println("length(σ_range)   = ", length(σ_range))
-        # println("length(k22_total) = ", length(k22_total))
         
+        # extract imaginary part of complex global k2 spectrum
+        imag_k2 = .-imag.(k22_total)
+
         # build symmetric full spectrum for interpolation
-        full_σ_range   = vcat(-σ_range,     reverse(σ_range))
-        full_k22_total = vcat(-k22_total,   reverse(k22_total))
-        
-        imag_full_k22  = .-imag.(full_k22_total)
+        full_σ_range  = vcat(-σ_range, reverse(σ_range))
+        imag_full_k22 = vcat(-imag_k2, reverse(imag_k2))
 
-        # interpolation functions for imaginary parts (extrapolate outside)
+        # interpolation function for imaginary part (extrapolate outside)
         interp_full  = extrapolate(interpolate((full_σ_range,), imag_full_k22,
                                             Gridded(Linear())), Flat())
 
+        # if segment wise heating profiles are calculated, interpolate heating in each layer across forcing frequency domain
         if strain==true
+            # build symmetric full spectrum for interpolation
             full_prf_total = vcat(-prf_total,   reverse(prf_total))
 
             # create an interpolator per radial shell
             prf_itp_shells = Vector{Any}(undef, N_layers)
 
+            # interpolation functions for heating profile (extrapolate outside)
             for j in 1:N_layers
                 prf_layer = Float64.(full_prf_total[:, j])
                 itp = extrapolate(interpolate((Float64.(full_σ_range),), prf_layer, Gridded(Linear())), Flat())
@@ -312,64 +394,79 @@ module Obliqua
         end
 
         # calculate tidal heating
+        # initialize frequency dependent quentities
         A_22k_e     = zeros(prec,  length(k_range))
         U_22k_e     = zeros(precc, length(k_range))
+
+        # initialize frequency dependent total heating
         P_T_k_total = zeros(prec,  length(k_range))
 
-        P_T_k_prf = zeros(prec,  length(k_range), length(shear))
+        # initialize frequency dependent heating profile
         P_T_k_prf = zeros(prec,  length(k_range), length(shear))
 
+        # loop over tidal modes 
         for (ikk, kk) in pairs(k_range)
-            σ = 2*axial - kk*omega
+            # calculate physical forcing frequency
+            σ = m*axial - kk*omega
 
+            # calculate coefficients
             A_22k_e[ikk] = sqrt(6π/5) * X_hansen[ikk]
-
             U_22k_e[ikk] = (G*S_mass/sma) * (R/sma)^2 * A_22k_e[ikk]
 
-            img_full_k22  = interp_full(σ)
+            # get imaginary part of complex k2 love number from global spectrum at forcing frequency
+            img_full_k22 = interp_full(σ)
 
+            # calculate prefactor and total availible heat
             prefactor = 5 * R * σ / (8π*G)
             U2 = abs2(U_22k_e[ikk])
 
+            # calculate total heat input at forcing frequency
             P_T_k_total[ikk] = prefactor * img_full_k22  * U2
 
-            # get profile
+            # obtain heating profile
+            # if the forcing frequenccy is zero, then the total heat input is zero.
             if σ == 0.
                 continue
             else
+                # if segment wise heating profile exists, normalize it to the obtained total heating
                 if strain==true
+                    # get global heating profile from at forcing frequency
                     unorm_prf = radial_profile_at_sigma(Float64.(σ), prf_itp_shells)
             
+                    # determine the unnormalized total heat input
                     shell_volumes = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
                     unorm_tot = sum(shell_volumes .* unorm_prf)
 
+                    # determine the normalization
                     norm = P_T_k_total[ikk] / unorm_tot
+
+                    # normalize the heating profile 
                     P_T_k_prf[ikk, :] = unorm_prf .* norm
 
+                # if no segment wise heating profiles exist, assume 
+                # disipation propto imaginary part of the complex shear modulus.
                 else
+                    # get complex shear modulus profile at forcing frequency
                     μc = complex_mu([σ], μ, η; material=material)[:,1]
+
+                    # get heating profile
                     P_T_k_prf[ikk, :] = radial_heating_profile(r, μc, P_T_k_total[ikk])
                 end
             end
-
         end
 
         # total tidal heating
         power_blk = sum(P_T_k_total) # W
 
-        # println("Total Power = $power_blk W")
-        # println("--------------------------\n")
-        
         # get radial heating profile W/m^3
         power_prf = [sum(P_T_k_prf[:,j]) for j in 1:size(P_T_k_prf,2)]
-        power_prf ./ ρ # Convert to mass heating rate (W/kg)
+        power_prf ./ ρ # convert to mass heating rate (W/kg)
 
-        # Extract imaginary part
-        imag_k2 = .-imag.(k22_total)
-
+        # convert everything to Float64
         return Float64.(power_prf), power_blk, Float64.(σ_range), Float64.(imag_k2)
 
     end
+
 
 
     function get_layers(r::Array{prec,1},

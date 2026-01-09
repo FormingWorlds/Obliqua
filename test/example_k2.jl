@@ -59,13 +59,16 @@ if suite > 10
     @info " "
     @info "Testing Obliqua.jl"
 
+    # Load configuration
+    cfg = Obliqua.open_config("/home/marijn/LovePy/fwlLove.jl/res/config/all_options.toml")
+
     # Load interior model
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, ncalc =
         load.load_interior_full("$RES_DIR/interior_data/test_mantle_full_test.json", false)
 
     # Run tidal calculation
     power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(
-        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; ncalc=ncalc, N_sigma=10, strain=true
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk; cfg=cfg
     )
 
     println(power_prf)
