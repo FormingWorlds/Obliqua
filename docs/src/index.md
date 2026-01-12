@@ -35,6 +35,12 @@ https://fwl-proteus.readthedocs.io
 
 ### Source code
 
-GitHub: [https://github.com/FormingWorlds/Obliqua](https://github.com/FormingWorlds/Obliqua)
+GitHub: [https://github.com/FormingWorlds/Obliqua](https://github.com/FormingWorlds/Love.jl)
 
 This software is available under the MIT license
+
+### Integrations
+
+This project is being developed in close collaboration with the [PROTEUS](https://github.com/FormingWorlds/PROTEUS) similation framework. Obliqua can be used seamlessly within PROTEUS to model tidal dissipation and Love number evolution in planetary interiors.
+
+For detailed instructions on installing and using Obliqua in combination with PROTEUS, please refer to the [installation guide](https://proteus-framework.org/Love.jl/dev/install/) in the Obliqua documentation.

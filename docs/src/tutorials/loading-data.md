@@ -6,9 +6,9 @@ CollapsedDocStrings = true
 
 # Loading data
 
-The `fwlLove` package comes with with several tidal heating modules. Each modules can be excessed through one cohensive function. Depending on which module you want to use `fwlLove` requires different input parameters. In order to get started, several data files are included, these can be used in combination with the different functions. First we shall show how to load these data files.
+The `Obliqua` package comes with with several tidal heating modules. Each modules can be excessed through one cohensive function. Depending on which module you want to use `Obliqua` requires different input parameters. In order to get started, several data files are included, these can be used in combination with the different functions. First we shall show how to load these data files.
 
-The data files are stored in the `/path/to/fwlLove/res` folder, and are of type `JSON`. They have following structure
+The data files are stored in the `/path/to/Obliqua/res` folder, and are of type `JSON`. They have following structure
 
 ```json
 {
@@ -31,7 +31,7 @@ Depending on which module is being used the following parameters need to be prov
 
 ##### Table of inputs
 
-| Input | `Love.jl` (solid-phase) | `Love.jl` (solid-phase + mush layer) | `Fluid.jl` (liquid-phase) | Description | Symbol |
+| Input   | solid-phase      | solid-phase + mush interface | liquid-phase | Description | Symbol |
 |:--------|:----------------:|:----------------:|:--------:|:---------------------------------|-------------:|
 | omega   | ✔️              | ✔️               | ✔️       | Orbital Frequency                | ``\omega``   |
 | axial   | ❌              | ❌               | ✔️       | Axial Frequency                  | ``\Omega``   |
