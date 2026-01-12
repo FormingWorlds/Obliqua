@@ -139,7 +139,7 @@ module Obliqua
             "star" => ["mass"],
             "orbit" => ["semimajoraxis", "eccentricity"],
             "orbit.obliqua" => [
-                "dim","min_frac","visc_l","visc_l_tol","visc_s","visc_s_tol",
+                "dim","min_frac","visc_l","visc_lus","visc_s","visc_sus",
                 "sigma_R","n","m","N_sigma","ncalc","k_min","k_max",
                 "p_min","p_max","material","strain", "mush"
             ],
@@ -185,9 +185,9 @@ module Obliqua
         mush     = cfg["orbit"]["obliqua"]["mush"]
         mass_tot = cfg["struct"]["mass_tot"]*M_Earth
         visc_l   = cfg["orbit"]["obliqua"]["visc_l"]
-        visc_l_tol = cfg["orbit"]["obliqua"]["visc_l_tol"]
+        visc_lus = cfg["orbit"]["obliqua"]["visc_lus"]
         visc_s   = cfg["orbit"]["obliqua"]["visc_s"]
-        visc_s_tol = cfg["orbit"]["obliqua"]["visc_s_tol"]
+        visc_sus = cfg["orbit"]["obliqua"]["visc_sus"]
         bulk_l   = cfg["orbit"]["obliqua"]["bulk_l"]
         permea   = cfg["orbit"]["obliqua"]["permea"]
         porosity_thresh = cfg["orbit"]["obliqua"]["porosity_thresh"]
@@ -204,8 +204,8 @@ module Obliqua
         N_layers = length(r)-1
 
         # liquidus and solidus viscosity
-        η_l = visc_l_tol
-        η_s = visc_s_tol
+        η_l = visc_lus
+        η_s = visc_sus
 
         # get smoothed out region masks and segments
         mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s; min_frac)
