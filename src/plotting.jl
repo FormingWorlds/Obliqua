@@ -5,6 +5,22 @@ module plotting
     using Plots
     using Printf
 
+
+    """
+        plot_imagk2_spectrum(σ_range, imag_k2; outpath)
+
+    Create and save a plot of the k2 Lovenumber as function of forcing frequency.
+
+    # Arguments
+    - `σ_range::Array{prec,1}`          : Forcing frequency range.
+    - `imag_k2::Array{precc,1}`         : k2 Lovenumbers.
+    
+    # Keyword Arguments
+    - `outpathn::Union{Nothing,String}=nothing` : If provided, the figure is saved to this path using `savefig`.
+
+    # Returns
+    - `plt`                             : The `Plots.Plot` object.
+    """
     function plot_imagk2_spectrum(σ_range, imag_k2; outpath::Union{Nothing,String}=nothing)
 
         # helper for scientific-notation log ticks

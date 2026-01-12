@@ -203,9 +203,9 @@ module Obliqua
         # number of layers
         N_layers = length(r)-1
 
-        # liquidus and solidus viscosity with tolerance
-        η_l = visc_l + visc_l_tol
-        η_s = visc_s - visc_s_tol
+        # liquidus and solidus viscosity
+        η_l = visc_l_tol
+        η_s = visc_s_tol
 
         # get smoothed out region masks and segments
         mask_l, mask_s, mask_c, is_seg, segments = get_layers(r, η, η_l, η_s; min_frac)
@@ -689,7 +689,7 @@ module Obliqua
     """
         run_solid_1d_strain(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000, n=2)
 
-    Use Love.jl to calculate k2 Lovenumbers in the 1d solid, and compute 1D heating profile from strain tensor.
+    Use 1D solid tides model to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency range.
@@ -701,7 +701,7 @@ module Obliqua
     - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `ncalc::Int=1000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
 
     # Returns
@@ -768,7 +768,7 @@ module Obliqua
     """
         run_solid_1d(rho, radius, visc, shear, bulk; ncalc=2000, n=2)
 
-    Use Love.jl to calculate k2 Lovenumbers in the 1d solid.
+    Use 1D solid tides model to calculate k2 Lovenumbers.
 
     # Arguments
     - `rho::Array{prec,1}`              : Density profile of the planet.
@@ -778,7 +778,7 @@ module Obliqua
     - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `ncalc::Int=1000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     
     # Returns
@@ -832,7 +832,7 @@ module Obliqua
     """
         run_solid_mush_1d_strain(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
 
-    Use Love.jl to calculate k2 Lovenumbers in the 1d solid with mush interface, and compute 1D heating profile from strain tensor.
+    Use 1D solid tides model with mush interface to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency range.
@@ -845,7 +845,7 @@ module Obliqua
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `ncalc::Int=1000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
@@ -896,7 +896,6 @@ module Obliqua
 
         # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
         if ϕ[ii] <= prec(porosity_thresh)
-            println(ϕ[ii])
             throw("No mush region identified in viscosity profile.")
         end
 
@@ -953,7 +952,7 @@ module Obliqua
     """
         run_solid_mush_1d(omega, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
 
-    Use Love.jl to calculate k2 Lovenumbers in the 1d solid with mush interface.
+    Use 1D solid tides model with mush interface to calculate k2 Lovenumbers.
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency.
@@ -965,7 +964,7 @@ module Obliqua
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers to use for Love.jl
+    - `ncalc::Int=1000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
@@ -1014,7 +1013,6 @@ module Obliqua
 
         # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
         if ϕ[ii] <= prec(porosity_thresh)
-            println(ϕ[ii])
             throw("No mush region identified in viscosity profile.")
         end
 
@@ -1188,7 +1186,7 @@ module Obliqua
 
     # Calculate heating from interior properties
     """
-        calc_lovepy_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000, material="andrade")
+        calc_solid_tides(omega, ecc, rho, radius, visc, shear, bulk; ncalc=2000, material="andrade")
 
     Calculate tidal heating in a solid planetary interior using the Love number approach (`Love.jl`).
 
@@ -1215,7 +1213,7 @@ module Obliqua
     - Implements Efroimsky (2012) equations for viscoelastic response.  
     - Shear and bulk heating contributions are computed separately and summed.
     """
-    function calc_lovepy_tides( omega::prec,
+    function calc_solid_tides( omega::prec,
                                     ecc::prec,
                                     rho::Array{prec,1},
                                     radius::Array{prec,1},
@@ -1225,6 +1223,12 @@ module Obliqua
                                     ncalc::Int=2000,
                                     material::String="andrade"
                                     )::Tuple{Array{Float64,1},Float64,Float64}
+
+        Base.depwarn(
+            "`calc_solid_tides` is deprecated, use `run_tides` instead.",
+            :run_tides;
+            force = true
+        )
 
         # Internal structure arrays.
         # First element is the innermost layer, last element is the outermost layer
@@ -1297,7 +1301,7 @@ module Obliqua
 
     # Calculate heating from interior properties with mush
     """
-        calc_lovepy_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi;
+        calc_solid_tides_mush(omega, ecc, rho, radius, visc, shear, bulk, phi;
                                 ncalc=2000, material="andrade", visc_l=1e2,
                                 bulk_l=1e9, permea=1e-7)
 
@@ -1331,7 +1335,7 @@ module Obliqua
     - Uses drained and Biot moduli to handle fluid–solid coupling.  
     - Throws an error if no mush region is identified (`phi` insufficient).
     """
-    function calc_lovepy_tides_mush(omega::prec,
+    function calc_solid_tides_mush(omega::prec,
                                     ecc::prec,
                                     rho::Array{prec,1},
                                     radius::Array{prec,1},
@@ -1345,6 +1349,12 @@ module Obliqua
                                     bulk_l::Float64=1e9,
                                     permea::Float64=1e-7
                                     )::Tuple{Array{Float64,1},Float64,Float64}
+
+        Base.depwarn(
+            "`calc_solid_tides_mush` is deprecated, use `run_tides` instead.",
+            :run_tides;
+            force = true
+        )
 
         # Internal structure arrays.
         # First element is the innermost layer, last element is the outermost layer
@@ -1507,6 +1517,12 @@ module Obliqua
                         sigma_R::Float64=1e-3
                         )::Tuple{Array{Float64,1},Float64,Float64}
 
+        Base.depwarn(
+            "`calc_fluid_tides` is deprecated, use `run_tides` instead.",
+            :run_tides;
+            force = true
+        )
+
         # Degree Love number
         n = 2
         m = 2
@@ -1564,7 +1580,7 @@ module Obliqua
         end
         
         if length(ρ_s) == 0
-            ρ_s_mean = 5000.0  # arbitrary high density
+            ρ_s_mean = 10738.33  # core density
         elseif length(ρ_s) == 1
             ρ_s_mean = ρ_s[1]
         else
@@ -1642,7 +1658,7 @@ module Obliqua
         power_prf = zeros(prec, length(ρ))
         power_prf[mask_l] .= Fluid.heat_profile(P_tidal_total, ρ_l, vcat(r_b, r_l))
         
-        # Get k2 lovenumber at forcing frequency used by Love.jl
+        # Get k2 lovenumber at specific forcing frequency 
         k2_total = interp_full(2*axial - omega)
         
         return convert(Vector{Float64}, power_prf), convert(Float64, P_tidal_total), convert(Float64, k2_total)
