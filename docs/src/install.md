@@ -13,10 +13,10 @@ GNU/Linux and MacOS (including ARM) are supported.
 Follow the steps below in order to setup the code.
 1. Install Julia's package manager: `curl -fsSL https://install.julialang.org | sh`
 2. Switch to Julia 1.11: `juliaup add 1.11 && juliaup default 1.11`
-3. Download Love.jl: `git clone https://github.com/FormingWorlds/Love.jl.git`
-4. Change directory: `cd Love.jl`
+3. Download Obliqua: `git clone https://github.com/FormingWorlds/Obliqua.git`
+4. Change directory: `cd Obliqua`
 5. Open Julia package manager: `julia`, then press `]`
-6. Install: `add https://github.com/FormingWorlds/Love.jl.git#julia`
+6. Install: `add https://github.com/FormingWorlds/Obliqua.git#julia`
 
 ## Testing
 If you want to run the tests manually, simply use the script in the `test/` folder.

@@ -20,9 +20,10 @@ If you are interested in contributing to the model, please contact the developer
 
 ```@autodocs
 Modules = [
-    fwlLove.Love, 
-    fwlLove.Fluid,
-    fwlLove.Fluid.Hansen
+    Obliqua.Love, 
+    Obliqua.Fluid,
+    Obliqua.Solid,
+    Obliqua.Hansen
 ]
 Order   = [:function, :type]     
 ```

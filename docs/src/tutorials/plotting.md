@@ -6,14 +6,14 @@ CollapsedDocStrings = true
 
 # Plotting 
 
-Currently, there are two plotting scripts included with `fwlLove`. More will be added. 
+Currently, there are two plotting scripts included with `Obliqua`. More will be added. 
 
 ---
 ---
 
 
 ```@autodocs
-Modules = [fwlLove.plotting]
+Modules = [Obliqua.plotting]
 Order   = [:function, :type]   
 ```
 

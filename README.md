@@ -7,24 +7,24 @@
   <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
 </a>
 
-## Love.jl (Tidal heating model)
+## Obliqua (Tidal heating model)
 
-A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid and partially-solid planetary bodies.
+A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles
 
 Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
 
 ### Documentation
-https://proteus-framework.org/Love.jl
+https://proteus-framework.org/Obliqua
 
 ## Contributors
 
 | Name                    | Email address                         |
 | -                       | -                                     |
-| Hamish Hay              | hamish[at]tides.rocks                 |
 | Marijn van Dijk         | m.r.van.dijk.3[at]student.rug.nl      |
 | Tim Lichtenberg         | tim.lichtenberg[at]rug.nl             |
 | Harrison Nicholls       | harrison.nicholls[at]physics.ox.ac.uk |
 | Mohammad Farhat         | farhat[at]berkeley.edu                |
+| Hamish Hay              | hamish[at]tides.rocks                 |
 
 
 ### Repository structure
@@ -37,15 +37,15 @@ https://proteus-framework.org/Love.jl
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/FormingWorlds/Love.jl.git
+   git clone https://github.com/FormingWorlds/Obliqua.git
    ```
 2. Move to the repository directory and start Julia
    ```sh
-   cd Love.jl
+   cd Obliqua
    julia
    ```
-3. Install `Love.jl`
+3. Install `Obliqua`
    ```sh
    julia> ]
-   pkg> add https://github.com/FormingWorlds/Love.jl.git#julia
+   pkg> add https://github.com/FormingWorlds/Obliqua.git#julia
 
