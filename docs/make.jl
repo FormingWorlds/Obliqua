@@ -42,7 +42,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "https://github.com/FormingWorlds/Love.jl.git",
+    repo = "https://github.com/FormingWorlds/Obliqua.git",
     push_preview=true
 )
 
