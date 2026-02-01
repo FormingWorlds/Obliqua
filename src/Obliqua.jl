@@ -247,14 +247,17 @@ module Obliqua
 
         # tidal mode range (k is the Fourier index in mean anomaly)
         k_range = collect(k_min:k_max)
+        N_σ     = length(k_range)
 
         # get hansen coefficients
         k_range2, X_hansen = Hansen.get_hansen(ecc, n, m, k_min, k_max)
 
         # orbital and axial frequencies
-        t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
-        σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
-        σ_range = reshape(σ_range, :)
+        # t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
+        # σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
+        # σ_range = reshape(σ_range, :)
+
+        σ_range = m*axial - k_range.*omega
 
         # get forcing frequency dependent complex shear modulus
         μc = complex_mu(σ_range, μ, η; material=material, α=alpha)
@@ -305,9 +308,13 @@ module Obliqua
             ρ_ratio = ρ_mean / ρ_mean_lower
 
             # get k2 spectrum for segment
-            for i in 1:N_σ
-                # specify forcing frequency
-                σ = σ_range[i]
+            for (ikk, kk) in pairs(k_range)
+                # calculate physical forcing frequency
+                σ = m*axial - kk*omega
+
+            # for i in 1:N_σ
+            #     # specify forcing frequency
+            #     σ = σ_range[i]
                 
                 # preallocate k2 for segment
                 kT = zero(precc)
@@ -331,7 +338,7 @@ module Obliqua
                     elseif module_solid=="solid2d" && strain==true
                         # calculate tides in solid region 
                         prf_seg[i,:], kT, kL = run_solid1d_strain( 
-                            σ, ecc, ρ_seg,  
+                            σ, X_hansen[ikk], ρ_seg,  
                             r_seg, η_seg,                               
                             μc_seg[:, i], κ_seg; 
                             ncalc=ncalc
@@ -348,7 +355,7 @@ module Obliqua
                     # elseif 1D interior with mush interface and heating profile from strain tensor
                     elseif module_solid=="solid1d-mush" && strain==true
                         prf_seg[i,:], kT, kL = run_solid1d_mush_strain( 
-                            σ, ecc, ρ_seg, r_seg,
+                            σ, X_hansen[ikk], ρ_seg, r_seg,
                             η_seg, μc_seg[:, i], κ_seg, ϕ_seg;
                             ncalc, n, visc_l, bulk_l,
                             permea, porosity_thresh
@@ -384,8 +391,9 @@ module Obliqua
                     elseif module_fluid=="fluid1d" && strain==true
                         prf_seg[i,:], kT, kL = run_fluid1d_strain(
                             σ, ρ_seg, r_seg, 
-                            g_seg, ρ_mean_lower;
-                            n=n, 
+                            g_seg, ρ_mean_lower,
+                            S_mass, sma,
+                            X_hansen[ikk]; n=n, 
                             sigma_R=sigma_R
                         ) 
                     else
@@ -750,7 +758,7 @@ module Obliqua
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency range.
-    - `ecc::prec`                       : Eccentricity of the orbit.
+    - `X_hansen::prec`                  : Hansen coefficient.
     - `rho::Array{prec,1}`              : Density profile of the planet.
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
@@ -767,7 +775,7 @@ module Obliqua
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
     function run_solid1d_strain( omega::Float64,
-                        ecc::prec,
+                        X_hansen::prec,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
@@ -811,7 +819,7 @@ module Obliqua
         # Get profile power output (W m-3), converted to W/kg
         (Eμ, Eκ) = Love.get_heating_profile(tidal_solution_T,
                                rr, ρ, g, μc, κ,
-                               omega, ecc)
+                               omega, X_hansen)
 
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
@@ -893,7 +901,7 @@ module Obliqua
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency range.
-    - `ecc::prec`                       : Eccentricity of the orbit.
+    - `X_hansen::prec`                  : Hansen coefficient.
     - `rho::Array{prec,1}`              : Density profile of the planet.
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
@@ -915,7 +923,7 @@ module Obliqua
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
     function run_solid1d_mush_strain( omega::Float64,
-                        ecc::prec,
+                        X_hansen::prec,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
@@ -994,7 +1002,7 @@ module Obliqua
         (Eμ, Eκ, El) = Love.get_heating_profile(tidal_solution_T,
                                rr, ρs, g, μc, κs,
                                omega, ρl, κl, κd, 
-                               α, ηl, ϕ, k, ecc)
+                               α, ηl, ϕ, k, X_hansen)
 
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
@@ -1223,7 +1231,10 @@ module Obliqua
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         gravity::Array{prec,1},
-                        ρ_mean_lower::prec;
+                        ρ_mean_lower::prec, 
+                        S_mass::Float64,
+                        sma::Float64,
+                        X_hansen::prec;
                         n::Int64=2,
                         sigma_R::Float64=1e-3,
                         sigma_R_prf::String="exp",
@@ -1234,6 +1245,8 @@ module Obliqua
         r = convert(Vector{prec}, radius)
         g = convert(Vector{prec}, gravity)
         
+        R = max(r)
+
         # calculate density contrast
         ρs = vcat(ρ_mean_lower, ρ)
         ρ_ratios = ρs[2:end]./ρs[1:end-1]
@@ -1264,23 +1277,29 @@ module Obliqua
             σ_R_prf .= sigma_R .* max.(0.0, 1 .- z ./ H_R).^2
         end
 
-        # obtain unscaled heating profile
+        # obtain heating profile and Imk2 Love and load numbers
         power_prf = zeros(prec, length(r)-1)
+        k2_T = zeros(precc, length(r)-1)
+        k2_L = zeros(precc, length(r)-1)
         for (is, s) in pairs(r)
             # get k2 Lovenumbers
-            k2_T, k2_L = Fluid.compute_fluid_lovenumbers(
+            k2_T[is], k2_L[is] = Fluid.compute_fluid_lovenumbers(
                 omega, r[is+1], H_magma[is], 
                 g[is], ρ_ratios[is], n, σ_R_prf[is]
             )
 
+            A_22k_e = sqrt(6π/5) * X_hansen
+            U_22k_e = (G*S_mass/sma) * (R/sma)^2 * A_22k_e
+
             # calculate prefactor and total availible heat
             prefactor = 5 * r[is+1] * omega / (8π*G)
+            U2 = abs2(U_22k_e[ikk])
 
-            # calculate unscaled total heat input at forcing frequency, still requires hansen renorm
-            power_prf[is] = prefactor * imag(k2_T)
+            # calculate total heat input at forcing frequency
+            power_prf[is] = prefactor * imag(k2_T) * U2
         end
 
-        return power_prf, k2_T, k2_L
+        return power_prf, sum(k2_T), sum(k2_L)
 
     end
 

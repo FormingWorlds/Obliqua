@@ -1468,7 +1468,7 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear 
     and compaction, as well as the power dissipated in each primary layer in W/m^3.
     """
-    function get_heating_profile(y, r, ρ, g, μ, κ, ω, ecc; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, κ, ω, X_hansen; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
@@ -1485,9 +1485,8 @@ module Love
         ϵ = zeros(ComplexF64, nlats, nlons, 6, nsublay, nlay)
         ϵs = zero(ϵ)
 
-        n = 2
-        ms = [-2, 0, 2]
-        forcing = [-1/8, -3/2, 7/8] * ω^2*R^2*ecc 
+        forcing = ω^2 * R^2 * X_hansen
+        ms = [2]
 
         # Retrieve stain tensor 
         for x in eachindex(ms)
@@ -1569,7 +1568,7 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, 
     compaction and Darcy flow, as well as the total power dissipated in each primary layer.
     """
-    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, ecc; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, X_hansen; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
@@ -1592,8 +1591,8 @@ module Love
         ps = zero(p)
 
         n = 2
-        ms = [-2, 0, 2]
-        forcing = [-1/8, -3/2, 7/8] * ω^2*R^2*ecc 
+        ms = [2]
+        forcing = ω^2*R^2*X_hansen
         for x in eachindex(ms)
             m = ms[x]
 
