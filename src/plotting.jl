@@ -31,6 +31,12 @@ module plotting
             return (major, major_labels), minor
         end
 
+        # keep only positive forcing frequencies
+        mask = σ_range .> 0
+
+        σ_range = σ_range[mask]
+        imag_k2 = imag_k2[mask]
+
         # axis limits with padding
         xmin_raw, xmax_raw = minimum(σ_range), maximum(σ_range)
         ymin_raw, ymax_raw = minimum(abs.(imag_k2[imag_k2 .!= 0])), maximum(abs.(imag_k2))
@@ -68,7 +74,7 @@ module plotting
             minorticks = :auto,
         )
 
-        # keep only positive Imag(k2), as in your code
+        # keep only positive Imag(k2)
         mask = imag_k2 .> 0
 
         plot!(
@@ -102,20 +108,37 @@ module plotting
                             power_prf::AbstractVector;
                             filename::String = "heat_profile.png")
 
-        # Filter out zero values (and negative ones, if they ever occur)
+        # Keep only positive values (required for log scale)
         mask = power_prf .> 0
-        r_nonzero = radius[mask]
-        p_nonzero = power_prf[mask]
+        r = radius[mask]
+        p = power_prf[mask]
+
+        @assert !isempty(p) "No positive heating values to plot."
+
+        # raw limits
+        xmin_raw, xmax_raw = minimum(r), maximum(r)
+        ymin_raw, ymax_raw = minimum(p), maximum(p)
+
+        # multiplicative padding
+        pad_low  = 0.8
+        pad_high = 1.2
+
+        xmin = xmin_raw * pad_low
+        xmax = xmax_raw * pad_high
+        ymin = max(ymin_raw * pad_low, 1e-11)  # safe floor for log scale
+        ymax = ymax_raw * pad_high
 
         plt = plot(
-            r_nonzero,
-            p_nonzero,
+            r,
+            p,
             xlabel = "Radius (m)",
             ylabel = "Power per shell (W/kg)",
             title  = "Tidal Heating Profile",
             lw     = 2,
             legend = false,
             yscale = :log10,
+            xlims  = (xmin, xmax),
+            ylims  = (ymin, ymax),
             minorgrid = true,
         )
 

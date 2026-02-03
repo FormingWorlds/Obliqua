@@ -44,16 +44,18 @@ version = "1.0"                 # Version of this configuration file
         visc_sus    = 5e13      # Solidus viscosity to use [Pa s]
         n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
         m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
-        N_sigma     = 10        # Number probe frequencies to evaluate k2 at
-        k_min       = -30       # Minimum tidal mode range (k is the Fourier index in mean anomaly)
-        k_max       = 40        # Maximum tidal mode range (k is the Fourier index in mean anomaly)
+        N_sigma     = 50        # Number probe frequencies to evaluate k2 at
+        k_min       = -30       # -30 Minimum tidal mode range (k is the Fourier index in mean anomaly)
+        k_max       = 40        # 40 Maximum tidal mode range (k is the Fourier index in mean anomaly)
         p_min       = -20       # Minimum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over minimal 1e-17 yr interval
         p_max       = 6         # Maximum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over maximal 1e9   yr interval
         material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
         alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
         strain      = true      # Strategy for obtaining heating profile
 
-        module_solid = "solid1d" # Options: ("none", "solid0d", "solid1d", "solid1d-mush")
+        module_solid = "solid1d-mush" # Options: ("none", "solid0d", "solid1d", "solid1d-mush")
+
+        module_fluid = "fluid1d" # Options: ("none", "fluid0d", "fluid1d")
 
         [orbit.obliqua.solid]
             ncalc       = 1000      # Number of sublayers to use for dim=1 solid tides
@@ -61,10 +63,11 @@ version = "1.0"                 # Version of this configuration file
             permea      = 1e-7      # Permeability [m^2]
             porosity_thresh = 1e-5  # Porosity threshold, below this value no mush. [dimensionless]
 
-        module_fluid = "fluid0d" # Options: ("none", "fluid0d", "fluid1d")
-
         [orbit.obliqua.fluid]
             sigma_R     = 1e-3      # Rayleigh drag coefficient [dimensionless]
+            sigma_R_prf = "exp" # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic")
+            H_R         = 1e4       # Rayleigh drag scale height [m]
+            efficiency  = 0.3       # Mixing-length efficiency [dimensionless]
 
 # Planetary structure - physics table
 [struct]

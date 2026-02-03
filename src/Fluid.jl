@@ -19,7 +19,7 @@ module Fluid
     Calculate k2 lovenumbers in fluid.
 
     # Arguments
-    - `omega::Float64`                  : Forcing frequency range.
+    - `omega::prec`                     : Forcing frequency range.
     - `R::prec`                         : Outer radius of fluid segment in mantle.
     - `H_magma::prec`                   : Height of fluid segment in mantle.
     - `g::prec`                         : Surface gravity at top of fluid segment in mantle.

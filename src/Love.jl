@@ -1468,12 +1468,14 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear 
     and compaction, as well as the power dissipated in each primary layer in W/m^3.
     """
-    function get_heating_profile(y, r, ρ, g, μ, κ, ω, X_hansen; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, κ, ω; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
         @views clats = Love.clats[:]
         @views lons = Love.lons[:]
+
+        #
 
         nsublay = size(r)[1]
         nlay = size(r)[2]
@@ -1482,10 +1484,10 @@ module Love
 
         cosTheta = cos.(clats)
 
-        ϵ = zeros(ComplexF64, nlats, nlons, 6, nsublay, nlay)
-        ϵs = zero(ϵ)
+        ϵ       = zeros(ComplexF64, nlats, nlons, 6, nsublay, nlay)
+        ϵs      = zero(ϵ)
 
-        forcing = ω^2 * R^2 * X_hansen
+        forcing = ω^2 * R^2 # * X_hansen
         ms = [2]
 
         # Retrieve stain tensor 
@@ -1507,10 +1509,12 @@ module Love
                 end
             end
 
-            ϵs .+= forcing[x]*ϵ
+            #ϵs      .+= forcing*ϵ
+            ϵs      .+= ϵ
         end
 
-        Eμ     = zeros(  (nlats, nlons, nsublay-1, nlay) )
+        Eμ      = zeros(  (nlats, nlons, nsublay-1, nlay) )
+
         Eμ_tot = zeros(  (nlay) )     # Total heating rate (W)
         Eμ_vol = zeros(  size(r) )    # Spherical avg. volumetric heating rate in each layer (W/m^3)
 
@@ -1542,6 +1546,7 @@ module Love
                 # Angular integration to get volumetric heating
                 Eμ_vol[i,j] = sum(sin.(clats) .* Eμ[:,:,i,j] * dres^2) * r[i,j]^2.0 * dr / dvol
                 Eκ_vol[i,j] = sum(sin.(clats) .* Eκ[:,:,i,j] * dres^2) * r[i,j]^2.0 * dr / dvol
+                
             end
 
             # Average over sublayers to get layer volumetric heating (W/m^3)
@@ -1568,7 +1573,7 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, 
     compaction and Darcy flow, as well as the total power dissipated in each primary layer.
     """
-    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, X_hansen; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
@@ -1592,7 +1597,7 @@ module Love
 
         n = 2
         ms = [2]
-        forcing = ω^2*R^2*X_hansen
+        forcing = ω^2*R^2
         for x in eachindex(ms)
             m = ms[x]
 
@@ -1629,9 +1634,9 @@ module Love
                 end
             end
 
-            ϵs .+= forcing[x]*ϵ
-            d_disps .+= forcing[x]*d_disp
-            ps .+= forcing[x]*p
+            ϵs .+= ϵ
+            d_disps .+= d_disp
+            ps .+= p
 
         end
 
@@ -1674,15 +1679,12 @@ module Love
 
                 # Integrate across r to find dissipated energy per unit area
                 @views Eμ_vol[i,j] = sum(sin.(clats) .* (Eμ[:,:,i,j])  * dres^2) * r[i,j]^2.0 * dr / dvol
-                Eμ_tot[j] += Eμ_vol[i,j]*dvol
 
                 @views Eκ_vol[i,j] = sum(sin.(clats) .* (Eκ[:,:,i,j])  * dres^2) * r[i,j]^2.0 * dr / dvol
-                Eκ_tot[j] += Eκ_vol[i,j]*dvol
         
                 if ϕ[j] > 0            
                     @views El[:,:,i, j] = 0.5 *  ϕ[j]^2 * ω^2 * ηl[j]/k[j] * (abs.(d_disps[:,:,1,i,j]).^2 + abs.(d_disps[:,:,2,i,j]).^2 + abs.(d_disps[:,:,3,i,j]).^2)
                     @views El_vol[i,j] = sum(sin.(clats) .* (El[:,:,i,j])  * dres^2) * r[i,j]^2.0 * dr / dvol
-                    El_tot[j] += El_vol[i,j]*dvol
 
                 end
 
