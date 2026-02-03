@@ -1669,7 +1669,9 @@ module Love
                 dr = (r[i+1, j] - r[i, j])
                 dvol = 4π/3 * (r[i+1, j]^3 - r[i, j]^3)
 
-                @views Eμ[:,:,i, j] = sum(abs.(ϵs[:,:,1:3,i,j]).^2, dims=3) .+ 2sum(abs.(ϵs[:,:,4:6,i,j]).^2, dims=3) .- 1/3 .* abs.(sum(ϵs[:,:,1:3,i,j], dims=3)).^2
+                @views Eμ[:,:,i, j] = sum(abs.(ϵs[:,:,1:3,i,j]).^2, dims=3) .+ 
+                                    2sum(abs.(ϵs[:,:,4:6,i,j]).^2, dims=3) .- 
+                                    1/3 .* abs.(sum(ϵs[:,:,1:3,i,j], dims=3)).^2
                 Eμ[:,:,i, j] .*= ω * imag(μ[j])
 
                 @views Eκ[:,:,i, j] = ω/2 *imag(Kd[j]) * abs.(sum(ϵs[:,:,1:3,i,j], dims=3)).^2
