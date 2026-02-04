@@ -242,8 +242,6 @@ module Obliqua
         # Check that config has these always-required keys
         req_keys = Dict(
             "params.out" => ["path"],
-            "star" => ["mass"],
-            "orbit" => ["semimajoraxis", "eccentricity"],
             "orbit.obliqua" => [
                 "min_frac","visc_l","visc_lus","visc_s","visc_sus",
                 "n","m","N_sigma","k_min","k_max",
