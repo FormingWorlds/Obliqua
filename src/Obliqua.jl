@@ -262,19 +262,29 @@ module Obliqua
 
             # walk down the nested Dict
             for p in path
+                if !(node isa AbstractDict)
+                    @error "Config: expected Dict at `$(join(path, "."))`, got $(typeof(node))"
+                    break
+                end
                 if !haskey(node, p)
                     @error "Config: missing required section `$(join(path, "."))`"
+                    break
                 end
                 node = node[p]
             end
 
+            @debug "Tested config section `$(join(path, "."))`"
+
             # check required keys at this level
             for k in keys
+                @debug "Testing config key `$(join(path, "."))::$k`"
                 if !haskey(node, k)
                     @error "Config: missing required key `$(join(path, "."))::$k`"
                 end
             end
         end
+
+        @debug "Config file validation complete."
 
         # collection of config params 
         min_frac = cfg["orbit"]["obliqua"]["min_frac"]
@@ -372,7 +382,7 @@ module Obliqua
         prf_total = zeros(prec, N_σ, N_layers)
 
         # arbitrary high density for bottom boundary
-        ρ_mean_lower = Float64(cfg["struct"]["core_density"])
+        ρ_mean_lower = convert(prec, cfg["struct"]["core_density"])
 
         # loop over segments, starting at CMB
         for (iseg, seg) in pairs(segments)
@@ -603,7 +613,7 @@ module Obliqua
             img_full_k22 = interp_full(σ)
 
             # calculate prefactor and total availible heat
-            prefactor = 5 * R * σ / (8π*G)
+            prefactor = 53 * 5 * R * σ / (8π*G)
             U2 = abs2(U_22k_e[ikk])
 
             # calculate total heat input at forcing frequency
@@ -616,11 +626,22 @@ module Obliqua
             else
                 # if segment wise heating profile exists, normalize it to the obtained total heating
                 if strain==true
-                    # get global heating profile from at forcing frequency
+                    U = (G*S_mass/sma) .* (r[2:end]./sma).^2 .* A_22k_e[ikk]
+                    
+                    # get global heating profile at forcing frequency
                     unorm_prf = radial_profile_at_sigma(Float64.(σ), prf_itp_shells)
-            
+
                     # Hansen renorm
-                    P_T_k_prf[ikk, :] = unorm_prf .* U2 
+                    # P_T_k_prf[ikk, :] = unorm_prf .* abs2.(U)
+                    P_T_k_prf[ikk, :] = unorm_prf * U2
+
+                    if kk == 1
+                        @info -21 / 2 * img_full_k22 * σ^5 * R^5 / G * ecc^2
+                        @info P_T_k_total[ikk]
+                        
+                        shell_volumes = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
+                        @info sum(shell_volumes .* P_T_k_prf[ikk, :])
+                    end
 
                 # if no segment wise heating profiles exist, assume 
                 # disipation propto imaginary part of the complex shear modulus.
@@ -634,6 +655,15 @@ module Obliqua
             end
         end
 
+        σ_plot = m*axial .- k_range.*omega
+        plt = plotting.plot_segment_heating(
+                            P_T_k_prf, 
+                            σ_plot, 
+                            r;
+                            mask_floor=1e-25,
+                            outpath="/home/marijn/LovePy/fwlLove.jl/out/tidal_heating_map_segment.png",
+                            title_str="Segment-wise interpolated heating")
+
         # total tidal heating
         power_blk = sum(P_T_k_total) # W
 
@@ -644,8 +674,8 @@ module Obliqua
         shell_volumes = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
         power_prf_blk = sum(shell_volumes .* power_prf)
 
-        info("Expected bulk heating: $power_blk")
-        info("Obtained bulk heating: $power_prf_blk")
+        @info("Expected bulk heating: $power_blk")
+        @info("Obtained bulk heating: $power_prf_blk")
 
         power_prf ./ ρ # convert to mass heating rate (W/kg)
 
@@ -968,9 +998,10 @@ module Obliqua
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
 
-        power_prf = 0.027 .* (Eμ_tot .+ Eκ_tot) # Compute total volumetric heating (W/m3)
+        #power_prf = 0.027 .* (Eμ_tot .+ Eκ_tot) # Compute total volumetric heating (W/m3)
+        power_prf = (Eμ_tot .+ Eκ_tot) # Compute total volumetric heating (W/m3)
 
-        power_prf[end] = power_prf[end-1]
+        #power_prf[end] = power_prf[end-1]
 
         return power_prf, k2_T, k2_L
     end
@@ -1152,9 +1183,9 @@ module Obliqua
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
         El_tot, _ = El   # fluid       (W), (W/m3)
 
-        power_prf = 0.027 .* (Eμ_tot .+ Eκ_tot .+ El_tot) # Compute total volumetric heating (W/m3)
+        power_prf = (Eμ_tot .+ Eκ_tot .+ El_tot) # Compute total volumetric heating (W/m3)
 
-        power_prf[end] = power_prf[end-1]
+        #power_prf[end] = power_prf[end-1]
 
         return power_prf, k2_T, k2_L
     end
@@ -1396,7 +1427,9 @@ module Obliqua
             l_mix .= max.(l_mix, 1e-12)
 
             # Rayleigh-drag profile
-            σ_R_prf .= sigma_R .* exp.(-z ./ l_mix)
+            σ_inf = 1e-7  # desired asymptotic floor
+            σ_R_prf .= σ_inf .+ (sigma_R .- σ_inf) .* exp.(-z ./ l_mix)
+
         end
 
         # obtain heating profile and Imk2 Love and load numbers
@@ -1411,7 +1444,7 @@ module Obliqua
             )
             
             # calculate prefactor and total availible heat
-            prefactor = 5 * r[is+1] * omega / (8π*G)
+            prefactor = 53 * 5 * r[is+1] * omega / (8π*G)
 
             # calculate total heat input at forcing frequency
             power_prf[is] = prefactor * -imag(k2_T[is]) / Vs[is]

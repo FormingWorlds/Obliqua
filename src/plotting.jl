@@ -146,4 +146,53 @@ module plotting
         return plt
     end
    
+    function plot_segment_heating(H::AbstractMatrix, σ_range::AbstractVector,
+                                r::AbstractVector; mask_floor=0.,
+                                outpath="/home/marijn/LovePy/fwlLove.jl/out/tidal_heating_map_segment.png",
+                                title_str="Hansen based heating")
+
+        # radial shell midpoints
+        r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
+        R = maximum(r_mid)
+
+        # convert to Float64 for Plots.jl
+        H_f64 = Float64.(H')
+        r_mid_f64 = Float64.(r_mid)
+        σ_range_f64 = Float64.(σ_range)
+
+        # mask low heating (set to mask_floor)
+        H_f64 .= max.(H_f64, mask_floor)
+
+        # ensure strictly positive σ
+        pos_idx = findall(σ_range_f64 .> 0)
+        σ_plot = σ_range_f64[pos_idx]
+        H_plot = H_f64[:, pos_idx]
+
+        # ensure ascending σ
+        inds = sortperm(σ_plot)
+        σ_sorted = σ_plot[inds]
+        H_sorted = H_plot[:, inds]
+
+        # plot heatmap (rows = radius, columns = σ)
+        plt = heatmap(
+            σ_sorted,
+            r_mid_f64 ./ R,
+            log10.(H_sorted);
+            xscale = :log10,
+            xlabel = "σ [rad s-1]",
+            ylabel = "Radius r / R",
+            colorbar_title = "log(tidal heating)",
+            title = title_str,
+            aspect_ratio = :auto
+        )
+
+        # save figure
+        savefig(plt, outpath)
+        @info "Saved heating heatmap to $outpath"
+
+        return plt
+    end
+
+
+
 end

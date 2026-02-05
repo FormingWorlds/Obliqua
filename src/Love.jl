@@ -1487,7 +1487,9 @@ module Love
         ϵ       = zeros(ComplexF64, nlats, nlons, 6, nsublay, nlay)
         ϵs      = zero(ϵ)
 
-        forcing = ω^2 * R^2 # * X_hansen
+        # ms = [-2, 2]
+        # forcing = [-1/8, 7/8] #* ω^2*R^2*ecc 
+
         ms = [2]
 
         # Retrieve stain tensor 
@@ -1509,7 +1511,7 @@ module Love
                 end
             end
 
-            #ϵs      .+= forcing*ϵ
+            #ϵs      .+= forcing[x]*ϵ
             ϵs      .+= ϵ
         end
 
@@ -1634,7 +1636,7 @@ module Love
                 end
             end
 
-            ϵs .+= ϵ
+            ϵs .+= 7/8* ϵ
             d_disps .+= d_disp
             ps .+= p
 
