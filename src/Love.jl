@@ -1015,17 +1015,17 @@ module Love
         return M, y1_4
     end
 
-    function compute_y_mush(r, g, M, y1_4; load=false)
+    function compute_y_1d_mush(r, g, M, R, y1_4; load=false)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
         b = zeros(precc, 4)
         if load
-            b[1] = -(2n+1)*g[end,end]/(4π*(r[end,end])^2)
-            b[3] = -(2n+1)*G/(r[end,end])^2
+            b[1] = -(2n+1)*g[end,end]/(4π*(R)^2)
+            b[3] = -(2n+1)*G/(R)^2
         else
-            b[3] = (2n+1)/r[end,end] 
+            b[3] = (2n+1)/R 
         end
 
         C = M \ b
@@ -1141,17 +1141,17 @@ module Love
         return M, y1_4
     end
 
-    function compute_y(r, g, M, y1_4; load=false)
+    function compute_y_1d(r, g, M, R, y1_4; load=false)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
         b = zeros(precc, 3)
         if load
-            b[1] = -(2n+1)*g[end,end]/(4π*(r[end,end])^2)
-            b[3] = -(2n+1)*G/(r[end,end])^2
+            b[1] = -(2n+1)*g[end,end]/(4π*(R)^2) ## Fix g[end,end] !!!!!
+            b[3] = -(2n+1)*G/(R)^2
         else
-            b[3] = (2n+1)/r[end,end] 
+            b[3] = (2n+1)/R 
         end
 
         C = M \ b
@@ -1468,14 +1468,12 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear 
     and compaction, as well as the power dissipated in each primary layer in W/m^3.
     """
-    function get_heating_profile(y, r, ρ, g, μ, κ, ω; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, κ, ω, m; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
         @views clats = Love.clats[:]
         @views lons = Love.lons[:]
-
-        #
 
         nsublay = size(r)[1]
         nlay = size(r)[2]
@@ -1487,33 +1485,27 @@ module Love
         ϵ       = zeros(ComplexF64, nlats, nlons, 6, nsublay, nlay)
         ϵs      = zero(ϵ)
 
-        # ms = [-2, 2]
-        # forcing = [-1/8, 7/8] #* ω^2*R^2*ecc 
-
-        ms = [2]
+        ms = [-2, 2]
+        weight = [-1/8, 7/8]
 
         # Retrieve stain tensor 
-        for x in eachindex(ms)
-            m = ms[x]
 
-            for i in 2:nlay # Loop of layers
-                ρr = ρ[i]
-                κr = κ[i]
-                μr = μ[i]
+        for i in 2:nlay # Loop of layers
+            ρr = ρ[i]
+            κr = κ[i]
+            μr = μ[i]
 
-                for j in 1:nsublay-1 # Loop over sublayers 
-                    @views yrr = y[1:6,j,i]
-                    
-                    rr = r[j,i]
-                    gr = g[j,i]
+            for j in 1:nsublay-1 # Loop over sublayers 
+                @views yrr = y[1:6,j,i]
+                
+                rr = r[j,i]
+                gr = g[j,i]
 
-                    compute_strain_ten!(@view(ϵ[:,:,:,j,i]), yrr, m, rr, ρr, gr, μr, κr)
-                end
+                compute_strain_ten!(@view(ϵ[:,:,:,j,i]), yrr, m, rr, ρr, gr, μr, κr)
             end
-
-            #ϵs      .+= forcing[x]*ϵ
-            ϵs      .+= ϵ
         end
+
+        ϵs      .+= ϵ
 
         Eμ      = zeros(  (nlats, nlons, nsublay-1, nlay) )
 
@@ -1575,7 +1567,7 @@ module Love
     Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, 
     compaction and Darcy flow, as well as the total power dissipated in each primary layer.
     """
-    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k; lay=nothing)
+    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, m; lay=nothing)
         dres = deg2rad(res)
         R = r[end,end]
 
@@ -1597,50 +1589,47 @@ module Love
         d_disps = zero(d_disp)
         ps = zero(p)
 
-        n = 2
-        ms = [2]
-        forcing = ω^2*R^2
-        for x in eachindex(ms)
-            m = ms[x]
+        ms = [-2, 0, 2]
+        weight = [-1/8, 3/2,  7/8]
 
-            @views Y    = Love.Y[x,:,:]
+        # # Retrieve stain tensor 
+        x = 3
+        @views Y    = Love.Y[x,:,:]
 
-            for i in 2:nlay # Loop of layers
-                ρr = ρ[i]
-                Ksr = Ks[i]
-                μr = μ[i]
-                ρlr = ρl[i]
-                Klr = Kl[i]
-                Kdr = Kd[i]
-                αr = α[i]
-                ηlr = ηl[i]
-                ϕr = ϕ[i]
-                kr = k[i]
+        for i in 2:nlay # Loop of layers
+            ρr = ρ[i]
+            Ksr = Ks[i]
+            μr = μ[i]
+            ρlr = ρl[i]
+            Klr = Kl[i]
+            Kdr = Kd[i]
+            αr = α[i]
+            ηlr = ηl[i]
+            ϕr = ϕ[i]
+            kr = k[i]
 
-                for j in 1:nsublay-1 # Loop over sublayers 
-                    @views yrr = y[:,j,i]
-                    (y1, y2, y3, y4, y5, y6, y7, y8) = yrr
-                    
-                    rr = r[j,i]
-                    gr = g[j,i]
+            for j in 1:nsublay-1 # Loop over sublayers 
+                @views yrr = y[:,j,i]
+                (y1, y2, y3, y4, y5, y6, y7, y8) = yrr
+                
+                rr = r[j,i]
+                gr = g[j,i]
 
-                    compute_strain_ten!(@view(ϵ[:,:,:,j,i]), yrr, m, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
-                    
-                    if ϕ[i] > 0 
-                        compute_darcy_displacement!(@view(d_disp[:,:,:,j,i]), yrr, m, rr, ω, ϕr, ηlr, kr, gr, ρlr)
-                        compute_pore_pressure!(@view(p[:,:,j,i]), yrr, m)
-                    end
-
-                    p[:,:,j,i] .= y7 * Y    # pore pressure
-
+                compute_strain_ten!(@view(ϵ[:,:,:,j,i]), yrr, m, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
+                
+                if ϕ[i] > 0 
+                    compute_darcy_displacement!(@view(d_disp[:,:,:,j,i]), yrr, m, rr, ω, ϕr, ηlr, kr, gr, ρlr)
+                    compute_pore_pressure!(@view(p[:,:,j,i]), yrr, m)
                 end
+
+                p[:,:,j,i] .= y7 * Y    # pore pressure
+
             end
-
-            ϵs .+= 7/8* ϵ
-            d_disps .+= d_disp
-            ps .+= p
-
         end
+
+        ϵs .+= ϵ
+        d_disps .+= d_disp
+        ps .+= p
 
         # Shear heating in the solid
         Eμ = zeros(  (size(ϵ)[1], size(ϵ)[2], size(ϵ)[4], size(ϵ)[5]) )

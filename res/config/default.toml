@@ -53,9 +53,11 @@ version = "1.0"                 # Version of this configuration file
         alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
         strain      = true      # Strategy for obtaining heating profile
 
-        module_solid = "solid1d" # Options: ("none", "solid0d", "solid1d", "solid1d-mush")
+        module_solid = "solid1d"        # Options: ("none", "solid0d", "solid1d", "solid1d-mush")
         
-        module_fluid = "fluid1d" # Options: ("none", "fluid0d", "fluid1d")
+        module_mushy = "interp"         # Options: ("none", "interp")
+
+        module_fluid = "fluid1d"        # Options: ("none", "fluid0d", "fluid1d")
 
         [orbit.obliqua.solid]
             ncalc       = 1000      # Number of sublayers to use for dim=1 solid tides
@@ -64,10 +66,11 @@ version = "1.0"                 # Version of this configuration file
             porosity_thresh = 1e-5  # Porosity threshold, below this value no mush. [dimensionless]
 
         [orbit.obliqua.fluid]
-            sigma_R     = 1e-3      # Rayleigh drag coefficient [dimensionless]
-            sigma_R_prf = "exp"     # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic")
-            H_R         = 1e4       # Rayleigh drag scale height [m]
-            efficiency  = 0.3       # Mixing-length efficiency [dimensionless]
+            sigma_R     = 1e-4      # Rayleigh drag coefficient at interface [dimensionless]
+            sigma_R_inf = 1e-7      # Rayleigh drag coefficient in pure fluid [dimensionless]
+            sigma_R_prf = "dynamic" # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic")
+            H_R         = 1e5       # Rayleigh drag scale height [m]
+            efficiency  = 1e-2      # Rayleigh drag efficiency at core interface [dimensionless]
 
 # Planetary structure - physics table
 [struct]

@@ -125,8 +125,8 @@ module plotting
 
         xmin = xmin_raw * pad_low
         xmax = xmax_raw * pad_high
-        ymin = max(ymin_raw * pad_low, 1e-11)  # safe floor for log scale
         ymax = ymax_raw * pad_high
+        ymin = max(ymax / 1e8, ymin_raw * pad_low)
 
         plt = plot(
             r,
@@ -148,8 +148,8 @@ module plotting
    
     function plot_segment_heating(H::AbstractMatrix, σ_range::AbstractVector,
                                 r::AbstractVector; mask_floor=0.,
-                                outpath="/home/marijn/LovePy/fwlLove.jl/out/tidal_heating_map_segment.png",
-                                title_str="Hansen based heating")
+                                filename="tidal_heating_map.png",
+                                title_str="Hansen norm heating")
 
         # radial shell midpoints
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
@@ -179,7 +179,7 @@ module plotting
             r_mid_f64 ./ R,
             log10.(H_sorted);
             xscale = :log10,
-            xlabel = "σ [rad s-1]",
+            xlabel = "σ [s-1]",
             ylabel = "Radius r / R",
             colorbar_title = "log(tidal heating)",
             title = title_str,
@@ -187,8 +187,8 @@ module plotting
         )
 
         # save figure
-        savefig(plt, outpath)
-        @info "Saved heating heatmap to $outpath"
+        savefig(plt, filename)
+        @info "Saved heating heatmap to $filename"
 
         return plt
     end
