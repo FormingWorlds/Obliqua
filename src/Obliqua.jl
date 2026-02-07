@@ -464,8 +464,8 @@ module Obliqua
                         # calculate tides in solid region 
                         kT, kL = run_solid1d( 
                             ρ_seg, r_seg, η_seg,                               
-                            μc_seg[:, ikk], κ_seg; 
-                            ncalc=ncalc
+                            μc_seg[:, ikk], κ_seg,
+                            R; ncalc=ncalc
                         )
                     # elseif 1D interior with mush interface and heating profile from strain tensor
                     elseif module_solid=="solid1d-mush" && strain==true
@@ -481,7 +481,8 @@ module Obliqua
                     elseif module_solid=="solid1d-mush" && strain==false
                         kT, kL = run_solid1d_mush(
                             σ, ρ_seg, r_seg,
-                            η_seg, μc_seg[:, ikk], κ_seg, ϕ_seg;
+                            η_seg, μc_seg[:, ikk], 
+                            κ_seg, ϕ_seg, R;
                             ncalc, n, visc_l, bulk_l,
                             permea, porosity_thresh
                         )
