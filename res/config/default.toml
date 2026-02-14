@@ -72,6 +72,10 @@ version = "1.0"                 # Version of this configuration file
             H_R         = 1e5       # Rayleigh drag scale height [m]
             efficiency  = 1e-2      # Rayleigh drag efficiency at core interface [dimensionless]
 
+        [orbit.obliqua.mushy]
+            b_width     = 1e-2      # Fraction of segment height as standard deviation for lower dissipation peak
+            t_width     = 1e-2      # Fraction of segment height as standard deviation for upper dissipation peak
+
 # Planetary structure - physics table
 [struct]
     mass_tot     = 1.0          # M_earth

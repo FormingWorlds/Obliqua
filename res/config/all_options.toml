@@ -39,7 +39,7 @@ version = "1.0"                 # Version of this configuration file
     [orbit.obliqua]
         min_frac    = 0.02      # Minimal segment radius fraction before smoothing [dimensionless]
         visc_l      = 1e2       # Pure liquid viscosity [Pa s]
-        visc_lus    = 5e2       # Liquidus viscosity to use [Pa s]
+        visc_lus    = 5e5       # Liquidus viscosity to use [Pa s]
         visc_s      = 1e22      # Pure solid visosity [Pa s]
         visc_sus    = 5e13      # Solidus viscosity to use [Pa s]
         n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
@@ -71,6 +71,10 @@ version = "1.0"                 # Version of this configuration file
             sigma_R_prf = "dynamic" # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic")
             H_R         = 1e5       # Rayleigh drag scale height [m]
             efficiency  = 1e-2      # Rayleigh drag efficiency at core interface [dimensionless]
+
+        [orbit.obliqua.mushy]
+            b_width     = 1e-2      # Fraction of segment height as standard deviation for lower dissipation peak
+            t_width     = 1e-2      # Fraction of segment height as standard deviation for upper dissipation peak
 
 # Planetary structure - physics table
 [struct]

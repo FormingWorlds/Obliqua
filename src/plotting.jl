@@ -96,6 +96,84 @@ module plotting
     end
 
 
+    function plot_k2_spectrum(σ_range, k22_T, segments; outpath::Union{Nothing,String}=nothing)
+
+        # helper for scientific-notation log ticks
+        function logticks_labeled(min_exp, max_exp)
+            major = [10.0^e for e in min_exp:max_exp]
+            minor = vcat([m * 10.0^e for e in min_exp:max_exp, m in 2:9]...)
+            major_labels = [@sprintf("%.0e", x) for x in major]
+            return (major, major_labels), minor
+        end
+
+        # keep only positive forcing frequencies
+        mask = σ_range .> 0
+        σ_range = σ_range[mask]
+        k22_T = k22_T[mask, :]
+
+        # axis limits with padding
+        xmin_raw, xmax_raw = minimum(σ_range), maximum(σ_range)
+        ymin_raw, ymax_raw = minimum(abs.(k22_T[k22_T .!= 0])), maximum(abs.(k22_T))
+
+        # multiplicative padding factors 
+        pad_low  = 0.8
+        pad_high = 1.2
+
+        xmin = xmin_raw * pad_low
+        xmax = xmax_raw * pad_high
+        ymin = max(ymin_raw * pad_low, 1e-7)
+        ymax = ymax_raw * pad_high
+
+        # exponent ranges
+        x_exp_min = floor(Int, log10(xmin))
+        x_exp_max = ceil(Int,  log10(xmax))
+        y_exp_min = floor(Int, log10(ymin))
+        y_exp_max = ceil(Int,  log10(ymax))
+
+        (x_major, x_major_labels), x_minor = logticks_labeled(x_exp_min, x_exp_max)
+        (y_major, y_major_labels), y_minor = logticks_labeled(y_exp_min, y_exp_max)
+
+        # initialize plot
+        plt = plot(
+            title = "k₂ Spectrum",
+            xlabel = "σ [Hz]",
+            ylabel = "k₂",
+            xscale = :log10,
+            yscale = :log10,
+            xlims = (xmin, xmax),
+            ylims = (ymin, ymax),
+            xticks = (x_major, x_major_labels),
+            yticks = (y_major, y_major_labels),
+            minorgrid = true,
+            minorticks = :auto,
+        )
+
+        # assign colors for segments
+        colors = distinguishable_colors(length(segments))
+
+        # plot each segment
+        for (iseg, seg) in pairs(segments)
+            plot!(
+                plt,
+                σ_range,
+                k22_T[:, iseg],
+                label = seg,
+                lw = 2,
+                color = colors[iseg],
+                marker = :circle,
+                markersize = 3
+            )
+        end
+
+        # optional saving
+        if outpath !== nothing
+            savefig(plt, outpath)
+        end
+
+        return plt
+    end
+
+
     """
         save_heat_profile(radius, power_prf; filename="heat_profile.png")
 

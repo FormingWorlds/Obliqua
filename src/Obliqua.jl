@@ -15,6 +15,7 @@ module Obliqua
     using Interpolations
     using LinearAlgebra
     using DoubleFloats
+    using Statistics
 
     # Include local jl files (order matters)
     include("Love.jl")
@@ -246,7 +247,7 @@ module Obliqua
                 "min_frac","visc_l","visc_lus","visc_s","visc_sus",
                 "n","m","N_sigma","k_min","k_max",
                 "p_min","p_max","material","strain",
-                "module_solid", "module_fluid"
+                "module_solid", "module_fluid", "module_mushy"
             ],
             "orbit.obliqua.solid" => [
                 "ncalc"
@@ -320,11 +321,18 @@ module Obliqua
         H_R          = cfg["orbit"]["obliqua"]["fluid"]["H_R"]
         efficiency   = cfg["orbit"]["obliqua"]["fluid"]["efficiency"]
 
+        module_mushy = cfg["orbit"]["obliqua"]["module_mushy"]
+        if module_mushy == "interp"
+            b_width  = cfg["orbit"]["obliqua"]["mushy"]["b_width"]
+            t_width  = cfg["orbit"]["obliqua"]["mushy"]["t_width"]
+        end
+
         mass_tot = cfg["struct"]["mass_tot"]*M_Earth
 
         # convert "none" to nothing
         module_solid = nothing_if_none(module_solid)
         module_fluid = nothing_if_none(module_fluid)
+        module_mushy = nothing_if_none(module_mushy)
 
         # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
@@ -384,13 +392,22 @@ module Obliqua
         # initiate forcing frequency dependent heating profile 
         prf_total = zeros(prec, N_σ, N_layers)
 
-        # Core density for bottom boundary
+        # core density for bottom boundary
         ρ_mean_lower = convert(prec, cfg["struct"]["core_density"])
         # Rayleigh drag efficiency at fluid core
         efficiency_seg = efficiency
 
+        # interpolation activity boolean
+        interp_active = false
+        interp_previous = false
+
         # loop over segments, starting at CMB
         for (iseg, seg) in pairs(segments)
+            # check if interpolation is active
+            if interp_active
+                interp_previous = true
+                interp_active = false
+            end
 
             # preallocate (complex for viscoelastic)
             #  (T)idal love number
@@ -521,8 +538,27 @@ module Obliqua
                 
                 # if segment is mush
                 elseif seg == "mush"
-                    # calculate mush tides in mush region 
-                    kT, kL = 0., 0. # no expression for this yet
+                    # don't model mush tides
+                    if module_fluid===nothing
+                        kT, kL = 0., 0.
+                    # elseif heating profile from neighbouring segments
+                    elseif module_mushy=="interp"
+                        # turn on interpolation mode
+                        interp_active = true
+
+                        # get heating in previous layers
+                        if i_start > 1
+                            i_sp, i_ep = is_seg[iseg-1]
+                            P_b = median(prf_total[ikk, i_sp:i_ep])
+                            # first solve heating spectrum for lower interface
+                            prf_seg[ikk,:], kT, kL = run_interp(
+                                σ, r_seg, R, 0., P_b;
+                                t_width=t_width, b_width=b_width
+                            )
+                        end
+
+                        # Then model next segment to get heating at the upper interface P_t
+                    end
 
                 # if segment is ice
                 elseif seg == "ice"
@@ -533,12 +569,25 @@ module Obliqua
                 elseif seg == "water"
                     # calculate water tides in water region 
                     kT, kL = 0., 0. # no expression for this yet
-                          
+                        
                 end
 
                 # update k2 spectrum for segment
                 k22_T_seg[ikk] = kT
                 k22_L_seg[ikk] = kL
+
+                if interp_previous
+                    # Solve heating spectrum for upper interface in previous segment
+                    P_t = prf_seg[ikk,1] # get heating in bottom layer of current segment
+                    i_sp, i_ep = is_seg[iseg-1]
+                    Δprf, ΔkT, ΔkL = run_interp(
+                        σ, r[i_sp-1:i_ep], R, P_t, 0.;
+                        t_width=t_width, b_width=b_width
+                    )
+                    prf_total[ikk, i_sp:i_ep]  .+= Δprf
+                    k22_T[ikk, iseg-1]          += ΔkT
+                    k22_L[ikk, iseg-1]          += ΔkL
+                end
 
             # repeat for all probe forcing frequencies
             end
@@ -555,8 +604,14 @@ module Obliqua
             # append segment heating profile to global heating profile
             prf_total[:, i_start:i_end] .= prf_seg[:, :]
 
+            # turn off interpolator after completion
+            interp_previous = false
+
             # step to next segment
         end
+
+        # plot segment k2 spectra
+        plt = plotting.plot_k2_spectrum(σ_range, abs.(.-imag.(k22_T)), segments; outpath="/home/marijn/LovePy/fwlLove.jl/out/all_layers_k2.png") 
 
         # initialize total k2 with the contribution from the top layer
         k22_total = copy(k22_T[:, end])  
@@ -684,6 +739,15 @@ module Obliqua
             end
         end
 
+        σ_plot = m*axial .- k_range.*omega
+        plt = plotting.plot_segment_heating(
+                            P_T_k_prf, 
+                            σ_plot, 
+                            r;
+                            mask_floor=1e-25,
+                            filename="/home/marijn/LovePy/fwlLove.jl/out/tidal_heating_map_segment.png",
+                            title_str="Segment-wise interpolated heating")
+
         # total tidal heating
         power_blk = sum(P_T_k_total) # W
 
@@ -693,8 +757,8 @@ module Obliqua
         # determine the total heat input from heating profile
         power_prf_blk = sum(dv .* power_prf)
 
-        @debug("Expected bulk heating: $power_blk")
-        @debug("Obtained bulk heating: $power_prf_blk")
+        @info("Expected bulk heating: $power_blk")
+        @info("Obtained bulk heating: $power_prf_blk")
 
         power_prf ./ ρ # convert to mass heating rate (W/kg)
 
@@ -1388,7 +1452,7 @@ module Obliqua
     - `ρ_mean_lower::prec`              : Mean density of lower (non-fluid) layer.
     - `S_mass::prec`                    : Stellar mass.
     - `sma::prec`                       : Semimajor axis.
-    - `R::prec`                         : Planet Radius
+    - `R::prec`                         : Planet Radius.
 
     # Keyword Arguments
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
@@ -1468,7 +1532,6 @@ module Obliqua
 
         # obtain heating profile and Imk2 Love and load numbers
         power_prf = zeros(prec, length(r)-1)
-        power_prf_blk = zeros(prec, length(r)-1)
         k2_T = zeros(precc, length(r)-1)
         k2_L = zeros(precc, length(r)-1)
 
@@ -1484,13 +1547,88 @@ module Obliqua
             
             # calculate total heat input at forcing frequency
             power_prf[is] = prefactor * -imag(k2_T[is]) / Vs[is]
-
-            power_prf_blk[is] = prefactor * -imag(k2_T[is]) 
         end
 
         return power_prf, sum(k2_T), sum(k2_L)
 
     end
+
+
+    """
+        run_interp(omega, radius, P_t, P_b; t_width=0.1, b_width=0.1)
+
+    Interpolate dissipation and k2 Lovenumbers in a 1D region without active tides.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `R::prec`                         : Planet Radius.
+    - `P_t::prec`                       : Heating at upper interface.
+    - `P_b::prec`                       : Heating at lower interface.
+    
+    # Keyword Arguments
+    - `t_width::Float64=0.1`            : Fraction of segment height as standard deviation for upper dissipation peak.
+    - `b_width::Float64=0.1`            : Fraction of segment height as standard deviation for lower dissipation peak.
+
+    # Returns
+    - `power_prf::Array{prec,1}`        : Heating profile.
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
+    function run_interp(omega::Float64,
+                        radius::Vector{prec},
+                        R::prec,
+                        P_t::Real,
+                        P_b::Real;
+                        t_width::Real = 0.1,
+                        b_width::Real = 0.1
+                    )::Tuple{Vector{prec}, precc, precc}
+
+        # radial grid
+        r = convert(Vector{prec}, radius)
+        r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
+
+        # shell volumes
+        Vs = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3)
+
+        # interface locations
+        r_top = r[end]
+        r_bot = r[1]
+
+        # decay lengths
+        l_t = t_width * (r[end] - r[1])
+        l_b = b_width * (r[end] - r[1])
+
+        # exponential decay profiles
+        G_top = exp.(-abs.(r_mid .- r_top) ./ l_t)
+        G_bot = exp.(-abs.(r_mid .- r_bot) ./ l_b)
+
+        # normalize peaks to unity
+        if maximum(G_top) > 0
+            G_top ./= maximum(G_top)
+        end
+        if maximum(G_bot) > 0
+            G_bot ./= maximum(G_bot)
+        end
+
+        # total power profile
+        power_prf = P_t .* G_top .+ P_b .* G_bot
+
+        # allocate Love numbers
+        k2_T = zeros(precc, length(r_mid))
+        k2_L = zeros(precc, length(r_mid))
+
+        # tidal prefactor
+        prefactor = 5 * R * omega / (8π * G)
+
+        # infer complex k2 from dissipation
+        @inbounds for is in eachindex(r_mid)
+            k2_T[is] = -im * power_prf[is] * Vs[is] / prefactor
+        end
+
+        return power_prf, sum(k2_T), sum(k2_L)
+    end
+
 
 
     """
