@@ -96,7 +96,7 @@ module plotting
     end
 
 
-    function plot_k2_spectrum(σ_range, k22_T, segments; outpath::Union{Nothing,String}=nothing)
+    function plot_imagk2_spectra(σ_range, imag_k2, segments; outpath::Union{Nothing,String}=nothing)
 
         # helper for scientific-notation log ticks
         function logticks_labeled(min_exp, max_exp)
@@ -106,14 +106,18 @@ module plotting
             return (major, major_labels), minor
         end
 
-        # keep only positive forcing frequencies
-        mask = σ_range .> 0
-        σ_range = σ_range[mask]
-        k22_T = k22_T[mask, :]
+        # clean x data (must be positive + finite for log scale)
+        σ_clean = filter(x -> isfinite(x) && x > 0, σ_range)
 
-        # axis limits with padding
-        xmin_raw, xmax_raw = minimum(σ_range), maximum(σ_range)
-        ymin_raw, ymax_raw = minimum(abs.(k22_T[k22_T .!= 0])), maximum(abs.(k22_T))
+        # clean y data (abs for magnitude, remove 0 + non-finite)
+        kabs = abs.(imag_k2)
+        k_clean = filter(x -> isfinite(x) && x > 0, kabs)
+
+        isempty(σ_clean) && error("No valid σ values for log scale")
+        isempty(k_clean) && error("No valid imag_k2 values for log scale")
+
+        xmin_raw, xmax_raw = minimum(σ_clean), maximum(σ_clean)
+        ymin_raw, ymax_raw = minimum(k_clean), maximum(k_clean)
 
         # multiplicative padding factors 
         pad_low  = 0.8
@@ -124,7 +128,7 @@ module plotting
         ymin = max(ymin_raw * pad_low, 1e-7)
         ymax = ymax_raw * pad_high
 
-        # exponent ranges
+        # exponent ranges (now guaranteed safe)
         x_exp_min = floor(Int, log10(xmin))
         x_exp_max = ceil(Int,  log10(xmax))
         y_exp_min = floor(Int, log10(ymin))
@@ -135,9 +139,9 @@ module plotting
 
         # initialize plot
         plt = plot(
-            title = "k₂ Spectrum",
+            title = "Imag(k₂) Spectrum",
             xlabel = "σ [Hz]",
-            ylabel = "k₂",
+            ylabel = "Imag(k₂)",
             xscale = :log10,
             yscale = :log10,
             xlims = (xmin, xmax),
@@ -156,7 +160,7 @@ module plotting
             plot!(
                 plt,
                 σ_range,
-                k22_T[:, iseg],
+                imag_k2[:, iseg],
                 label = seg,
                 lw = 2,
                 color = colors[iseg],
@@ -224,47 +228,46 @@ module plotting
         return plt
     end
    
-    function plot_segment_heating(H::AbstractMatrix, σ_range::AbstractVector,
-                                r::AbstractVector; mask_floor=0.,
-                                filename="tidal_heating_map.png",
-                                title_str="Hansen norm heating")
+    function plot_segment_heating(
+        H::AbstractMatrix,
+        k_range::AbstractVector,
+        r::AbstractVector;
+        mask_floor = 0.0,
+        filename = "tidal_heating_map.png",
+        title_str = "Hansen norm heating"
+    )
 
         # radial shell midpoints
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
         R = maximum(r_mid)
 
-        # convert to Float64 for Plots.jl
+        # convert to Float64 for plotting
         H_f64 = Float64.(H')
         r_mid_f64 = Float64.(r_mid)
-        σ_range_f64 = Float64.(σ_range)
 
-        # mask low heating (set to mask_floor)
+        # mask low heating
         H_f64 .= max.(H_f64, mask_floor)
 
-        # ensure strictly positive σ
-        pos_idx = findall(σ_range_f64 .> 0)
-        σ_plot = σ_range_f64[pos_idx]
-        H_plot = H_f64[:, pos_idx]
+        # remove non-finite σ columns
+        k_f64 = Float64.(k_range)
+        valid = findall(isfinite, k_f64)
 
-        # ensure ascending σ
-        inds = sortperm(σ_plot)
-        σ_sorted = σ_plot[inds]
-        H_sorted = H_plot[:, inds]
+        isempty(valid) && error("No valid forcing frequencies.")
 
-        # plot heatmap (rows = radius, columns = σ)
+        H_valid = H_f64[:, valid]
+
+        # plot heatmap
         plt = heatmap(
-            σ_sorted,
+            k_f64,
             r_mid_f64 ./ R,
-            log10.(H_sorted);
-            xscale = :log10,
-            xlabel = "σ [s-1]",
+            log10.(H_valid);
+            xlabel = "Forcing frequency index",
             ylabel = "Radius r / R",
-            colorbar_title = "log(tidal heating)",
+            colorbar_title = "log10(tidal heating)",
             title = title_str,
             aspect_ratio = :auto
         )
 
-        # save figure
         savefig(plt, filename)
         @info "Saved heating heatmap to $filename"
 
