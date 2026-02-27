@@ -12,6 +12,34 @@ module Hansen
     prec = BigFloat
     precc = Complex{BigFloat}
 
+
+    """
+        get_k_range(ecc, n; tol=0.01)
+
+    Compute k-range for Hansen coefficients given eccentricity e and tidal degree n.
+    
+    # Arguments
+    - `e::Float64`                      : Eccentricity of the orbit.
+    - `n::Int`                          : Tidal degree l.
+    
+    # Keyword Arguments
+    - `tol::Float64=0.01`               : Desired fractional contribution threshold for e^p.
+
+    # Returns
+    - `k_min::Int`                      : Minimum k-index for Hansen coefficients.
+    - `k_max::Int`                      : Maximum k-index for Hansen coefficients.
+    """
+    function get_k_range(e::prec, n::Int; tol::Float64=0.01)
+        # estimate maximum eccentricity power p_max
+        # power of e where contribution ~ tol
+        p_max = ceil(Int, log(tol)/log(e))
+        
+        k_min = -(n + p_max)
+        k_max =  n + p_max
+        
+        return k_min, k_max
+    end
+
     """
         get_hansen(ecc)
 
