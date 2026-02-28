@@ -474,6 +474,11 @@ module solid1d_mush
     end
 
 
+    """
+        compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid", load=false)
+
+    Compute the 4x4 M matrix, which relates the solution at the surface and porous layer interface to the core solution.
+    """
     function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid", load=false)
         porous_layer = ϕ .> 0.0
 
@@ -528,6 +533,12 @@ module solid1d_mush
     end
 
 
+    """
+        compute_y(r, g, M, R, y1_4, n; load=false)
+
+    Compute the 8x1 solution vector at the surface and porous layer interface, which is used to compute the strain, 
+    Darcy flux, and pore pressure at a particular radial level. This is given by Eq. S5.20 in Hay et al., (2025).
+    """
     function compute_y(r, g, M, R, y1_4, n; load=false)
 
         nlayers = size(r)[2]
@@ -558,7 +569,7 @@ module solid1d_mush
     """
         compute_strain_ten!(ϵ, y, m, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
 
-        Calculate the strain tensor ϵ at a particular radial level. 
+    Calculate the strain tensor ϵ at a particular radial level. 
     """
     function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
         i = 1
@@ -591,7 +602,7 @@ module solid1d_mush
     """
         compute_darcy_displacement!(dis_rel, y, m, r, ω, ϕ, ηl, k, g, ρl)
 
-        Calculate the Darcy displacement vector at a particular radial level. 
+    Calculate the Darcy displacement vector at a particular radial level. 
     """
     function compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl)
         i = 1
@@ -615,7 +626,7 @@ module solid1d_mush
     """
         compute_pore_pressure!(p, y, m)
 
-        Calculate the fluid pore pressur at a particular radial level. 
+    Calculate the fluid pore pressur at a particular radial level. 
     """
     function compute_pore_pressure!(p, y, n)
         i = 1

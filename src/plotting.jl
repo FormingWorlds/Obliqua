@@ -9,14 +9,14 @@ module plotting
     """
         plot_imagk2_spectrum(σ_range, imag_k2; outpath)
 
-    Create and save a plot of the k2 Lovenumber as function of forcing frequency.
+    Create and save a plot of the Imk2 Lovenumber as function of forcing frequency.
 
     # Arguments
     - `σ_range::Array{prec,1}`          : Forcing frequency range.
     - `imag_k2::Array{precc,1}`         : k2 Lovenumbers.
     
     # Keyword Arguments
-    - `outpathn::Union{Nothing,String}=nothing` : If provided, the figure is saved to this path using `savefig`.
+    - `outpath::Union{Nothing,String}=nothing` : If provided, the figure is saved to this path using `savefig`.
 
     # Returns
     - `plt`                             : The `Plots.Plot` object.
@@ -96,6 +96,22 @@ module plotting
     end
 
 
+    """
+        plot_imagk2_spectrum(σ_range, imag_k2, segments; outpath)
+
+    Create and save a plot of the segment wise Imk2 Lovenumber as function of forcing frequency.
+
+    # Arguments
+    - `σ_range::Array{prec,1}`          : Forcing frequency range.
+    - `imag_k2::Array{precc,1}`         : k2 Lovenumbers.
+    - `segments::Vector{String}`        : Names of segments corresponding to each column of imag_k2.
+    
+    # Keyword Arguments
+    - `outpath::Union{Nothing,String}=nothing` : If provided, the figure is saved to this path using `savefig`.
+
+    # Returns
+    - `plt`                             : The `Plots.Plot` object.
+    """
     function plot_imagk2_spectra(σ_range, imag_k2, segments; outpath::Union{Nothing,String}=nothing)
 
         # helper for scientific-notation log ticks
@@ -228,6 +244,25 @@ module plotting
         return plt
     end
    
+    
+    """
+        plot_segment_heating(H, k_range, r; mask_floor=0.0, filename="tidal_heating_map.png", title_str="Hansen norm heating")
+
+    Create and save a heatmap of the tidal heating as function of radius and forcing frequency.
+
+    # Arguments
+    - `H::AbstractMatrix`               : Tidal heating values for each radius and forcing frequency.
+    - `k_range::AbstractVector`         : Forcing frequency range corresponding to columns of H.
+    - `r::AbstractVector`               : Radius values corresponding to rows of H.
+
+    # Keyword Arguments
+    - `mask_floor::Float64=0.0`         : Minimum heating value to plot (for better color scaling).
+    - `filename::String="tidal_heating_map.png"` : Path to save the heatmap figure.
+    - `title_str::String="Hansen norm heating"` : Title for the heatmap figure.
+
+    # Returns
+    - `plt` : The `Plots.Plot` object.
+    """
     function plot_segment_heating(
         H::AbstractMatrix,
         k_range::AbstractVector,

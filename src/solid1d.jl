@@ -29,7 +29,6 @@ module solid1d
         expand_layers(r; nr::Int=80)
 
     Discretize the primary layers given by `r` into `nr` discrete secondary layers.
-    
     """
     function expand_layers(r; nr::Int=80)
         
@@ -334,7 +333,11 @@ module solid1d
         end
     end
 
+    """
+        compute_M(r, ρ, g, μ, K, n; core="liquid", load=false)
 
+    Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
+    """
     function compute_M(r, ρ, g, μ, K, n; core="liquid", load=false)
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
@@ -366,6 +369,12 @@ module solid1d
     end
 
 
+    """
+        compute_y(r, g, M, R, y1_4, n; load=false)
+
+    Compute the solution vector `y` across the entire interior, given the M matrix and the y1_4 solutions across each layer. 
+    This is used to compute the strain tensor and heating profile.
+    """
     function compute_y(r, g, M, R, y1_4, n; load=false)
 
         nlayers = size(r)[2]
@@ -396,7 +405,7 @@ module solid1d
     """
         compute_strain_ten!(ϵ, y, m, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
 
-        Calculate the strain tensor ϵ at a particular radial level. 
+    Calculate the strain tensor ϵ at a particular radial level. 
     """
     function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
         i = 1

@@ -166,7 +166,7 @@ module Obliqua
         return nothing
     end
 
-    
+
     """
         Open and validate config file.
 
@@ -250,16 +250,15 @@ module Obliqua
         req_keys = Dict(
             "params.out" => ["path"],
             "orbit.obliqua" => [
-                "min_frac","visc_l","visc_lus","visc_s","visc_sus",
-                "n","m","spectrum","N_sigma","s_min","s_max",
-                "p_min","p_max","material",
+                "min_frac","visc_l","visc_lus","visc_sus",
+                "n","m","spectrum", "material",
                 "module_solid", "module_fluid", "module_mushy"
             ],
             "orbit.obliqua.solid" => [
                 "ncalc"
             ],
             "orbit.obliqua.fluid" => [
-                "sigma_R", "sigma_R_inf", "sigma_R_prf", "H_R"
+                "sigma_R"
             ],
             "struct" => ["mass_tot","core_density"]
         )
@@ -306,14 +305,13 @@ module Obliqua
 
         spectrum = cfg["orbit"]["obliqua"]["spectrum"]
         if spectrum == "adaptive"
-            # adaptive spectrum is handled in the main loop
+            s_min    = cfg["orbit"]["obliqua"]["s_min"]
+            s_max    = cfg["orbit"]["obliqua"]["s_max"]
         elseif spectrum == "full"
             N_σ      = cfg["orbit"]["obliqua"]["N_sigma"]
             p_min    = cfg["orbit"]["obliqua"]["p_min"]
             p_max    = cfg["orbit"]["obliqua"]["p_max"]
         end
-        s_min    = cfg["orbit"]["obliqua"]["s_min"]
-        s_max    = cfg["orbit"]["obliqua"]["s_max"]
 
         material = cfg["orbit"]["obliqua"]["material"]
         alpha    = cfg["orbit"]["obliqua"]["alpha"]
@@ -383,39 +381,41 @@ module Obliqua
         # gravity at each layer radius
         g = G .* M_enc ./ r[2:end].^2
 
-        # get s range for proper convergence for given eccentricity
-        s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n; tol=0.01)
-
-        if s_min === nothing 
-            s_min = s_min_ecc
-        elseif s_min > s_min_ecc
-            @warn "Provided s_min=$s_min is larger than the estimated s_min=$s_min_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
-        end
-        if s_max === nothing
-            s_max = s_max_ecc
-        elseif s_max < s_max_ecc
-            @warn "Provided s_max=$s_max is smaller than the estimated s_max=$s_max_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
-        end
-
-        @info "Using $spectrum spectrum with s range [$s_min, $s_max] for eccentricity $(round(Float64(ecc), digits = 2)) and tidal degree $n."
-
-        # tidal mode range (s is the Fourier index in mean anomaly)
-        s_range = collect(s_min:s_max)
-
-        # get hansen coefficients
-        s_range2, X_hansen = Hansen.get_hansen(ecc, n, m, s_min, s_max)
-
         # orbital and axial frequencies
         if spectrum == "adaptive"
+            # get s range for proper convergence for given eccentricity
+            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m; tol=0.01)
+
+            if s_min === nothing 
+                s_min = s_min_ecc
+            elseif s_min > s_min_ecc
+                @warn "Provided s_min=$s_min is larger than the estimated s_min=$s_min_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
+            end
+            if s_max === nothing
+                s_max = s_max_ecc
+            elseif s_max < s_max_ecc
+                @warn "Provided s_max=$s_max is smaller than the estimated s_max=$s_max_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
+            end
+
+            @info "Using adaptive spectrum with s range [$s_min, $s_max] for eccentricity $(round(Float64(ecc), digits = 2)) and tide (n, m) = ($n, $m)."
+
+            # tidal mode range (s is the Fourier index in mean anomaly)
+            s_range = collect(s_min:s_max)
+
+            # get hansen coefficients
+            _, X_hansen = Hansen.get_hansen(ecc, n, m, s_min, s_max)
+
             # calculate forcing frequencies only for region of interest
             σ_range = m*axial .- s_range.*omega
             σ_range = Float64.(σ_range)
             N_σ = length(σ_range)
+
         elseif spectrum == "full"
             # calculate wide range of forcing frequencies (for plotting or with fixed interior)
             t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
             σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
             σ_range = reshape(σ_range, :)
+        
         end
 
         # get forcing frequency dependent complex shear modulus
@@ -540,7 +540,7 @@ module Obliqua
                         ) 
                     # elseif 1D interior and heating profile from density-contrast/Rayleigh-drag
                     elseif module_fluid=="fluid1d"
-                        prf_seg[iss,:], kT, kL = run_fluid1d_strain(
+                        prf_seg[iss,:], kT, kL = run_fluid1d(
                             σ, ρ_seg, r_seg, 
                             g_seg, ρ_mean_lower,
                             S_mass, sma, R; n=n,
@@ -702,7 +702,7 @@ module Obliqua
         # the code assumes s=1 to find a solution for the Hansen coefficients and normalization.
         if spectrum == "full"
             # Hansen coefficient at s=1
-            X = X_hansen[findfirst(==(1), s_range)] # get Hansen coefficient at s=1
+            _, X = Hansen.get_hansen(ecc, n, m, 1, 1)
 
             A = 2 * sqrt(4π * factorial(n-m) / ((2*n+1) * factorial(n+m))) * Plm.(n, m, 0.) * X
                         
@@ -872,7 +872,8 @@ module Obliqua
 
         # masks for liquid and solid regions
         mask_l = η .< η_l
-        mask_s = η .> η_s
+        #mask_s = (η_s .< η .< 1e20)
+        mask_s = η_s .< η 
 
         # total mantle thickness
         H = r[end] - r[1]
@@ -1499,7 +1500,7 @@ module Obliqua
 
 
     """
-        run_fluid1d_strain(omega, rho, radius, gravity, ρ_mean_lower, S_mass, sma; n=2, sigma_R=1e-3, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3)
+        run_fluid1d(omega, rho, radius, gravity, ρ_mean_lower, S_mass, sma; n=2, sigma_R=1e-3, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3)
 
     Calculate k2 Lovenumbers in the 1D fluid, and compute 1d heating profile from density-contrast and Rayleigh-drag.
 
@@ -1526,7 +1527,7 @@ module Obliqua
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
-    function run_fluid1d_strain( omega::Float64,
+    function run_fluid1d( omega::Float64,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         gravity::Array{prec,1},
