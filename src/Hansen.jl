@@ -21,6 +21,7 @@ module Hansen
     # Arguments
     - `e::Float64`                      : Eccentricity of the orbit.
     - `n::Int`                          : Tidal degree l.
+    - `m::Int`                          : Tidal order m.
     
     # Keyword Arguments
     - `tol::Float64=0.01`               : Desired fractional contribution threshold for e^p.
@@ -29,7 +30,7 @@ module Hansen
     - `k_min::Int`                      : Minimum k-index for Hansen coefficients.
     - `k_max::Int`                      : Maximum k-index for Hansen coefficients.
     """
-    function get_k_range(e::prec, n::Int; tol::Float64=0.01)
+    function get_k_range(e::prec, n::Int, m::Int; tol::Float64=0.01)
         # estimate maximum eccentricity power p_max
         # power of e where contribution ~ tol
         p_max = ceil(Int, log(tol)/log(e))
@@ -37,6 +38,10 @@ module Hansen
         k_min = -(n + p_max)
         k_max =  n + p_max
         
+        if m == 0
+            k_min = 0
+        end
+
         return k_min, k_max
     end
 
