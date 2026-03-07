@@ -1,0 +1,103 @@
+# This is the default configuration file.
+# The variables are explained below. If you want to model your own conditions,
+# try making a copy of this file and then modifying it.
+
+# The general structure is:
+#   [params]        parameters for code execution, output files, time-stepping, convergence
+#   [star]          stellar parameters, model selection
+#   [orbit]         planetary orbital parameters
+#   [struct]        planetary structure (mass, radius)
+
+# ----------------------------------------------------
+
+title = "Default"               # Name for this configuration file
+version = "1.0"                 # Version of this configuration file
+
+# Parameters
+[params]
+    # output files
+    [params.out]
+        path        = "default"
+        logging     = "INFO"
+        plot_fmt    = "png"     # Plotting image file format, "png" or "pdf" recommended
+
+# ----------------------------------------------------
+# Star
+[star]
+    # Physical parameters
+    mass    = 1.0               # stellar mass [M_sun]
+
+# Orbital system
+[orbit]
+    semimajoraxis = 1.0         # initial semi-major axis of planet's orbit [AU]
+    eccentricity = 0.0          # initial eccentricity of planet's orbit [dimensionless]
+
+    satellite = false           # include satellite (moon)?
+    mass_sat = 7.347e+22        # mass of satellite [kg]
+    semimajoraxis_sat = 3e8     # initial SMA of satellite's orbit [m]
+
+    [orbit.obliqua]
+        min_frac    = 0.02      # Minimal segment radius fraction before smoothing [dimensionless]
+        visc_l      = 1e2       # Pure liquid viscosity [Pa s]
+        visc_lus    = 5e5       # Liquidus viscosity to use [Pa s]
+        visc_s      = 1e22      # Pure solid visosity [Pa s]
+        visc_sus    = 5e13      # Solidus viscosity to use [Pa s]
+        n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
+        m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
+        spectrum    = "adaptive"# Obtain k2 spectrum for whole spectrum (<"full">) or region of interest (<"adaptive">)
+        s_min       = 1         # -30 Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        s_max       = 1         # 40 Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        
+        material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
+        alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
+
+        # Solid interior model
+        # Controls how the solid portion of the interior responds to tidal forcing.
+        # - "none"          : No solid interior model.
+        # - "solid0d"       : Zero-dimensional solid model. The solid region is treated as a single
+        #                     effective layer with averaged mechanical properties. Fast but cannot
+        #                     resolve radial structure in deformation or dissipation.
+        # - "solid1d"       : Radially resolved solid model. Solves the tidal response through a
+        #                     layered solid interior. Allows realistic rigidity, density, and
+        #                     rheology profiles.
+        # - "solid1d-mush"  : Same as solid1d but includes a partially molten/porous ("mushy") region
+        #                     with evolving rheology between solid and liquid behavior.
+        module_solid = "solid1d"
+
+        # Mushy layer model
+        # Controls how partially molten regions are treated.
+        # - "none"          : No explicit mush layer treatment.
+        # - "interp"        : Rheological properties transition smoothly between solid and fluid
+        #                     regimes using interpolation across the melt fraction range.
+        module_mushy = "interp"
+
+        # Fluid layer model
+        # Controls how the fluid (e.g., magma ocean or atmosphere) responds to tidal forcing.
+        # - "none"          : No fluid layer.
+        # - "fluid0d"       : Zero-dimensional fluid model. The fluid region is treated as a single
+        #                     effective layer with averaged mechanical properties. Fast but cannot
+        #                     resolve radial structure in deformation or dissipation.
+        # - "fluid1d"       : Same as fluid0d but allows for user specified heating distribution.
+        module_fluid = "fluid1d"
+        
+        [orbit.obliqua.solid]
+            ncalc       = 1000      # Number of sublayers to use for dim=1 solid tides
+            bulk_l      = 1e9       # Liquid bulk modulus [Pa]
+            permea      = 1e-7      # Permeability [m^2]
+            porosity_thresh = 1e-5  # Porosity threshold, below this value no mush. [dimensionless]
+
+        [orbit.obliqua.fluid]
+            sigma_R     = 1e-4      # Rayleigh drag coefficient at interface [dimensionless]
+            sigma_R_inf = 1e-7      # Rayleigh drag coefficient in pure fluid [dimensionless]
+            sigma_R_prf = "dynamic" # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic")
+            H_R         = 1e5       # Rayleigh drag scale height [m]
+            efficiency  = 1e-2      # Rayleigh drag efficiency at core interface [dimensionless]
+
+        [orbit.obliqua.mushy]
+            b_width     = 1e-2      # Fraction of segment height as standard deviation for lower dissipation peak
+            t_width     = 1e-2      # Fraction of segment height as standard deviation for upper dissipation peak
+
+# Planetary structure - physics table
+[struct]
+    mass_tot     = 1.0          # M_earth
+    core_density = 10738.33     # Core density [kg m-3]
