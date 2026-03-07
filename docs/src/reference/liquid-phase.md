@@ -39,4 +39,67 @@ the eigenvalue of the nth degree spherical harmonic, and
 \tilde{\sigma} = \sigma - i \sigma_R.
 ```
 
+## Radially resolved dissipation
+
+Given that there is no consensus on where in a fluid layer most tidal energy is dissipated, we provide several parameterized radial dissipation profiles. These profiles represent different physical assumptions about how turbulent mixing, wave breaking, or viscous damping distribute tidal energy with depth. The available profiles should be interpreted as idealized parameterizations of where energy is dissipated within the fluid layer.
+
+### Uniform dissipation
+
+The uniform profile assumes dissipation is constant throughout the layer.
+
+This corresponds to the simplest assumption that turbulence or small-scale mixing distributes energy evenly with depth. It is useful as a baseline case when no information about the dissipation structure is available.
+
+### Exponential dissipation
+
+The exponential profile concentrates dissipation near the lower boundary and decreases with height:
+
+[
+D(z) \propto e^{-z/H_R}
+]
+
+This can approximate scenarios where dissipation is strongest near the interface with the underlying solid layer, for example when tidal flows interact with boundary roughness or generate shear-driven turbulence.
+
+### Linear dissipation
+
+The linear profile decreases linearly with height and reaches zero at a characteristic scale (H_R).
+
+This provides a simple way to model dissipation that is concentrated toward the bottom of the fluid layer but not as strongly localized as an exponential profile.
+
+### Quadratic dissipation
+
+The quadratic profile falls off more steeply with height:
+
+[
+D(z) \propto (1 - z/H_R)^2
+]
+
+This concentrates dissipation even more strongly toward the base of the layer. It can approximate cases where turbulence is primarily generated near the boundary and decays rapidly away from it.
+
+### Dynamic dissipation
+
+The dynamic profile introduces a depth-dependent mixing length
+
+[
+\ell_{\text{mix}} = \min(z, H_R)
+]
+
+so that the dissipation scale adjusts with distance from the boundary.
+
+This mimics mixing-length arguments commonly used in geophysical and astrophysical fluid dynamics, where turbulence intensity depends on the available eddy size.
+
+### Choosing a dissipation profile
+
+Since the physical location of tidal energy dissipation is uncertain in many systems, these profiles should be viewed as parameterized hypotheses. Comparing results across multiple profiles is often more informative than adopting a single choice.
+
+In practice:
+
+| Profile     | Physical assumption                           |
+| ----------- | --------------------------------------------- |
+| Uniform     | Energy dissipated evenly throughout the layer |
+| Exponential | Strong boundary-layer dissipation             |
+| Linear      | Mild bottom-enhanced dissipation              |
+| Quadratic   | Strongly localized bottom dissipation         |
+| Dynamic     | Mixing-length controlled turbulence           |
+
+
 ---
