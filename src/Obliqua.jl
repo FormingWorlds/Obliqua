@@ -15,7 +15,6 @@ module Obliqua
     using Interpolations
     using LinearAlgebra
     using DoubleFloats
-    using Statistics
     using AssociatedLegendrePolynomials
 
     # Include local jl files
@@ -48,6 +47,7 @@ module Obliqua
     export run_tides
 
     const ROOT_DIR::String = abspath(dirname(abspath(@__FILE__)), "../")
+    const RES_DIR::String  = joinpath(ROOT_DIR,"res/")
     const OUT_DIR::String  = joinpath(ROOT_DIR,"out/")
 
     prec  = BigFloat
@@ -384,7 +384,7 @@ module Obliqua
         # orbital and axial frequencies
         if spectrum == "adaptive"
             # get s range for proper convergence for given eccentricity
-            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m; tol=0.01)
+            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m; tol=1e-3)
 
             if s_min === nothing 
                 s_min = s_min_ecc
@@ -582,12 +582,13 @@ module Obliqua
                 elseif seg == "ice"
                     # calculate ice tides in ice region 
                     kT, kL = 0., 0. # no expression for this yet
-                           
+                    @warn "Ice layers are currently not supported. Skipping this segment..."
+                    
                 # if segment is water
                 elseif seg == "water"
                     # calculate water tides in water region 
                     kT, kL = 0., 0. # no expression for this yet
-                        
+                    @warn "Water layers are currently not supported. Skipping this segment..."    
                 end
 
                 # update k2 spectrum for segment
@@ -1089,7 +1090,7 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers.
+    - `ncalc::Int=2000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
 
@@ -1128,7 +1129,7 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(rr, ρ, g, μc, κ, n)
+        M, y1_4 = solid1d.compute_M(rr, ρ, g, μc, κ, n; core="liquid")
         #   Tidal
         tidal_solution_T = solid1d.compute_y(rr, g, M, R, y1_4, n; load=false)
         #   Load
@@ -1221,7 +1222,7 @@ module Obliqua
     
 
     """
-        run_solid1d_mush(omega, ecc, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, phi, R; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
 
     Use 1D solid tides model with mush interface to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
@@ -1236,7 +1237,7 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     
     # Keyword Arguments
-    - `ncalc::Int=1000`                 : Number of sublayers.
+    - `ncalc::Int=2000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `visc_l::Float64=1e2`             : Liquid viscosity.
@@ -1315,7 +1316,7 @@ module Obliqua
         solid1d_mush.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d_mush.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n; core="liquid", load=false)
+        M, y1_4 = solid1d_mush.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n; core="liquid")
         #   Tidal
         tidal_solution_T = solid1d_mush.compute_y(rr, g, M, R, y1_4, n; load=false)
         #   Load

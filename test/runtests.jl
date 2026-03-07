@@ -135,6 +135,8 @@ if suite > 2
     cfg["orbit"]["obliqua"]["module_fluid"] = "none"
     cfg["orbit"]["obliqua"]["module_mushy"] = "none"
 
+    cfg["orbit"]["obliqua"]["material"]     = "andrade"
+
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
         load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
 
@@ -146,8 +148,6 @@ if suite > 2
         omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, cfg
     )
     test_pass = true
-
-    println(power_prf)
 
     test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
     test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
@@ -173,7 +173,7 @@ if suite > 2
     @info "Testing solid1d module with maxwell rheology"
 
     # update config to use maxwell rheology
-    cfg["orbit"]["obliqua"]["material"] = "maxwell"
+    cfg["orbit"]["obliqua"]["material"]     = "maxwell"
 
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
         load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
@@ -212,7 +212,7 @@ end
 if suite > 4
     # test solid1d module with andrade rheology
     @info " "
-    @info "Testing solid1d module with andrade rheology"
+    @info "Testing solid1d-mush module with andrade rheology"
 
     # update config to use only solid1d
     cfg["orbit"]["obliqua"]["module_solid"] = "solid1d-mush"

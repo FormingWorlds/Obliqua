@@ -97,7 +97,7 @@ module plotting
 
 
     """
-        plot_imagk2_spectrum(σ_range, imag_k2, segments; outpath)
+        plot_imagk2_spectra(σ_range, imag_k2, segments; outpath)
 
     Create and save a plot of the segment wise Imk2 Lovenumber as function of forcing frequency.
 
@@ -116,26 +116,32 @@ module plotting
 
         # helper for scientific-notation log ticks
         function logticks_labeled(min_exp, max_exp)
-            major = [10.0^e for e in min_exp:max_exp]
-            minor = vcat([m * 10.0^e for e in min_exp:max_exp, m in 2:9]...)
-            major_labels = [@sprintf("%.0e", x) for x in major]
-            return (major, major_labels), minor
+            major = 10.0 .^ (min_exp:max_exp)
+            minor = vec([m * 10.0^e for e in min_exp:max_exp for m in 2:9])
+            labels = [@sprintf("%.0e", x) for x in major]
+            return (major, labels), minor
         end
 
-        # clean x data (must be positive + finite for log scale)
-        σ_clean = filter(x -> isfinite(x) && x > 0, σ_range)
-
-        # clean y data (abs for magnitude, remove 0 + non-finite)
+        # mask for log-scale safety 
         kabs = abs.(imag_k2)
-        k_clean = filter(x -> isfinite(x) && x > 0, kabs)
 
-        isempty(σ_clean) && error("No valid σ values for log scale")
-        isempty(k_clean) && error("No valid imag_k2 values for log scale")
+        σ_mask = isfinite.(σ_range) .& (σ_range .> 0)
+        k_mask = isfinite.(kabs) .& (kabs .> 0)
 
-        xmin_raw, xmax_raw = minimum(σ_clean), maximum(σ_clean)
-        ymin_raw, ymax_raw = minimum(k_clean), maximum(k_clean)
+        # require σ valid AND at least one segment valid
+        combined_mask = σ_mask .& vec(any(k_mask, dims=2))
 
-        # multiplicative padding factors 
+        if !any(combined_mask)
+            error("No valid data for log-scale plotting.")
+        end
+
+        σ = σ_range[combined_mask]
+        k = kabs[combined_mask, :]
+
+        # --- limits ---
+        xmin_raw, xmax_raw = extrema(σ)
+        ymin_raw, ymax_raw = extrema(k[k .> 0])
+
         pad_low  = 0.8
         pad_high = 1.2
 
@@ -144,16 +150,16 @@ module plotting
         ymin = max(ymin_raw * pad_low, 1e-7)
         ymax = ymax_raw * pad_high
 
-        # exponent ranges (now guaranteed safe)
+        # exponent ranges
         x_exp_min = floor(Int, log10(xmin))
         x_exp_max = ceil(Int,  log10(xmax))
         y_exp_min = floor(Int, log10(ymin))
         y_exp_max = ceil(Int,  log10(ymax))
 
-        (x_major, x_major_labels), x_minor = logticks_labeled(x_exp_min, x_exp_max)
-        (y_major, y_major_labels), y_minor = logticks_labeled(y_exp_min, y_exp_max)
+        (x_major, x_labels), _ = logticks_labeled(x_exp_min, x_exp_max)
+        (y_major, y_labels), _ = logticks_labeled(y_exp_min, y_exp_max)
 
-        # initialize plot
+        # --- initialize plot ---
         plt = plot(
             title = "Imag(k₂) Spectrum",
             xlabel = "σ [Hz]",
@@ -162,21 +168,20 @@ module plotting
             yscale = :log10,
             xlims = (xmin, xmax),
             ylims = (ymin, ymax),
-            xticks = (x_major, x_major_labels),
-            yticks = (y_major, y_major_labels),
+            xticks = (x_major, x_labels),
+            yticks = (y_major, y_labels),
             minorgrid = true,
             minorticks = :auto,
         )
 
-        # assign colors for segments
         colors = distinguishable_colors(length(segments))
 
-        # plot each segment
+        # --- plot segments ---
         for (iseg, seg) in pairs(segments)
             plot!(
                 plt,
-                σ_range,
-                imag_k2[:, iseg],
+                σ,
+                k[:, iseg],
                 label = seg,
                 lw = 2,
                 color = colors[iseg],
@@ -185,7 +190,6 @@ module plotting
             )
         end
 
-        # optional saving
         if outpath !== nothing
             savefig(plt, outpath)
         end
@@ -206,7 +210,7 @@ module plotting
                             power_prf::AbstractVector;
                             filename::String = "heat_profile.png")
 
-        # Keep only positive values (required for log scale)
+        # Keep only values greater than zero (required for log scale)
         mask = power_prf .> 0
         r = radius[mask]
         p = power_prf[mask]
@@ -276,27 +280,40 @@ module plotting
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
         R = maximum(r_mid)
 
-        # convert to Float64 for plotting
-        H_f64 = Float64.(H')
+        # convert axes to Float64
         r_mid_f64 = Float64.(r_mid)
+        k_f64 = Float64.(k_range)
+
+        # ensure H orientation matches (Nr × Nk)
+        Nr = length(r_mid)
+        Nk = length(k_range)
+
+        if size(H) == (Nr, Nk)
+            H_mat = H
+        elseif size(H) == (Nk, Nr)
+            H_mat = permutedims(H)
+        else
+            error("H has incompatible dimensions. Expected ($Nr,$Nk) or ($Nk,$Nr), got $(size(H)).")
+        end
+
+        H_f64 = Float64.(H_mat)
 
         # mask low heating
         H_f64 .= max.(H_f64, mask_floor)
 
-        # remove non-finite σ columns
-        k_f64 = Float64.(k_range)
+        # remove non-finite frequencies
         valid = findall(isfinite, k_f64)
-
         isempty(valid) && error("No valid forcing frequencies.")
 
+        k_valid = k_f64[valid]
         H_valid = H_f64[:, valid]
 
-        # plot heatmap
+        # heatmap
         plt = heatmap(
-            k_f64,
+            k_valid,
             r_mid_f64 ./ R,
             log10.(H_valid);
-            xlabel = "Forcing frequency index",
+            xlabel = "Forcing frequency",
             ylabel = "Radius r / R",
             colorbar_title = "log10(tidal heating)",
             title = title_str,

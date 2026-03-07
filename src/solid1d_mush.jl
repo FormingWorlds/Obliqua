@@ -13,8 +13,6 @@ module solid1d_mush
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
-    M = 8
-
     clats = 0.0
     lons  = 0.0
     Y     = 0.0
@@ -29,7 +27,15 @@ module solid1d_mush
         expand_layers(r; nr::Int=80)
 
     Discretize the primary layers given by `r` into `nr` discrete secondary layers.
-    
+
+    # Arguments
+    - `r::Array{Float64,2}`               : 2D array of primary layer boundaries.
+
+    # Keyword Arguments
+    - `nr::Int=80`                        : Number of secondary layers to discretize.
+
+    # Returns
+    - `rs::Array{Float64,2}`              : 2D array of secondary layer boundaries/
     """
     function expand_layers(r; nr::Int=80)
         
@@ -49,6 +55,14 @@ module solid1d_mush
 
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
+    # Arguments
+    - `r::Array{Float64,2}`               : 2D array of layer boundaries. 
+    - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+
+    # Returns
+    - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+
+    # Notes
     `r` must be be a 2D array, with index 1 representing the top radius of secondary layers, and index 2
     representing the top radius of primary layers. 
     """
@@ -67,6 +81,20 @@ module solid1d_mush
     end
 
 
+    """
+        Ynm(n, m, theta, phi)
+
+    Compute the spherical harmonic Ynm for given n, m, theta, and phi.
+
+    # Arguments
+    - `n::Int`                          : Tidal degree.
+    - `m::Int`                          : Tidal order.
+    - `theta::Array{Float64,1}`         : Array of colatitudes in radians.
+    - `phi::Array{Float64,1}`           : Array of longitudes in radians.
+
+    # Returns
+    - `Ynm::Array{ComplexF64,2}`        : 2D array of spherical harmonic values for each combination of theta and phi.
+    """
     function Ynm(n, m, theta, phi)
         return Plm.(n, m, cos.(theta)) .* exp.(1im * m .* phi)
     end
@@ -79,10 +107,16 @@ module solid1d_mush
     numerical integrations over solid angle. A new grid can easily be defined by 
     recalling the function with a new `res`.
 
-    The grid is internal to solid1d_mush, but can be accessed with 
+    # Arguments
+    - `res::Float64`                     : Desired angular resolution in degrees.
+    - `n::Int`                           : Tidal degree.
+    - `m::Int`                           : Tidal order.
 
-        solid1d_mush.clats[:] # colatitude grid
-        solid1d_mush.lons[:]  # longitude grid
+    # Notes
+    The grid is internal to solid1d, but can be accessed with 
+
+        solid1d.clats[:] # colatitude grid
+        solid1d.lons[:]  # longitude grid
     """
     function define_spherical_grid(res, n, m)
         solid1d_mush.res = res
@@ -146,7 +180,28 @@ module solid1d_mush
     end
 
 
-    "Convert input parameters into the required precision."
+    """
+        convert_params_to_prec(r, ρ, g, μ, κs, ω, ρl, κl, κd, α, ηl, ϕ, k)
+
+    Convert input parameters into the required precision.
+    # Arguments
+    - `r::Array{Float64,2}`               : 2D array of layer boundaries.
+    - `ρ::Array{Float64,1}`               : 1D array of layer densities. 
+    - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. 
+    - `μ::Array{Float64,1}`               : 1D array of layer shear moduli.
+    - `κs::Array{Float64,1}`              : 1D array of layer bulk moduli. 
+    - `ω::Float64`                        : Forcing frequency.
+    - `ρl::Array{Float64,1}`              : 1D array of layer liquid densities.
+    - `κl::Array{Float64,1}`              : 1D array of layer liquid bulk moduli.
+    - `κd::Array{Float64,1}`              : 1D array of layer drained bulk moduli.
+    - `α::Array{Float64,1}`               : 1D array of layer Biot coefficients.
+    - `ηl::Array{Float64,1}`              : 1D array of layer liquid viscosities.
+    - `ϕ::Array{Float64,1}`               : 1D array of layer porosities.
+    - `k::Array{Float64,1}`               : 1D array of layer permeabilities.
+
+    # Returns
+    Tuple of converted parameters in the required precision.
+    """
     function convert_params_to_prec(r, ρ, g, μ, κs, ω, ρl, κl, κd, α, ηl, ϕ, k)
         r_prec = convert(Array{prec}, r)
         ρ_prec = convert(Array{prec}, ρ)
@@ -166,8 +221,27 @@ module solid1d_mush
     end
 
 
-    "Get the core solution vector"
-    function get_Ic(r, ρ, g, μ, type, n; M=6, N=3)
+    """
+        get_Ic(r, ρ, g, μ, type, n; M=8, N=4)
+            
+    Get the core solution vector.
+    
+    # Arguments
+    - `r::prec`                          : Radius of the core boundary.
+    - `ρ::prec`                          : Density of the core.
+    - `g::prec`                          : Gravity at the core boundary.
+    - `μ::prec`                          : Shear modulus of the core.
+    - `type::String`                     : Type of core, either "liquid" or "solid".
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `M::Int=8`                         : Number of rows in the Ic matrix. This should be 8 for the two-phase problem.
+    - `N::Int=4`                         : Number of linearly independent solutions to compute. This should be 4 for the two-phase problem.
+
+    # Returns
+    - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
+    """
+    function get_Ic(r, ρ, g, μ, type, n; M=8, N=4)
         Ic = zeros(precc, M, N)
 
         if type=="liquid"
@@ -209,6 +283,18 @@ module solid1d_mush
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
 
+    # Arguments
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Returns
+    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
+
+    # Notes
     See also [`get_A!`](@ref)
     """
     function get_A(r, ρ, g, μ, K, n)
@@ -219,10 +305,29 @@ module solid1d_mush
 
 
     """
-        get_A(A::Matrix, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
+        get_A(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
 
     Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025).
+
+    # Arguments
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::prec`                          : Liquid density at radius r.
+    - `Kl::prec`                         : Liquid bulk modulus at radius r.
+    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `α::prec`                          : Biot coefficient at radius r.
+    - `ηₗ::prec`                          : Liquid viscosity at radius r.
+    - `ϕ::prec`                          : Porosity at radius r.
+    - `k::prec`                          : Permeability at radius r.    
+    - `n::Int`                           : Tidal degree.
+
+    # Returns
+    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
 
     See also [`get_A!`](@ref)
     """
@@ -234,12 +339,25 @@ module solid1d_mush
 
 
     """
-        get_A!(r, ρ, g, μ, K, n; λ=nothing)
+        get_A!(A, r, ρ, g, μ, K, n; λ=nothing)
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
     (2016) Eq. 1.95.
 
+    # Arguments
+    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
+
+    # Notes
     See also [`get_A`](@ref)
     """
     function get_A!(A::Matrix, r, ρ, g, μ, K, n; λ=nothing)
@@ -283,11 +401,29 @@ module solid1d_mush
 
 
     """
-        get_A!(A::Matrix, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
+        get_A!(A, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
 
     Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025).
 
+    # Arguments
+    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::prec`                          : Liquid density at radius r.
+    - `Kl::prec`                         : Liquid bulk modulus at radius r.
+    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `α::prec`                          : Biot coefficient at radius r.
+    - `ηₗ::prec`                          : Liquid viscosity at radius r.
+    - `ϕ::prec`                          : Porosity at radius r.
+    - `k::prec`                          : Permeability at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Notes
     See also [`get_A`](@ref)
     """
     function get_A!(A::Matrix, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
@@ -337,7 +473,27 @@ module solid1d_mush
     end
 
 
-    "See 'get_B!' for definition."
+    """
+        get_B(r1, r2, g1, g2, ρ, μ, K, n)
+
+    Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
+
+    # Arguments
+    - `r1::prec`                         : Starting radius for integration.
+    - `r2::prec`                         : Ending radius for integration.
+    - `g1::prec`                         : Gravity at radius r1.
+    - `g2::prec`                         : Gravity at radius r2.
+    - `ρ::prec`                          : Density at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Returns
+    - `B::Array{precc,2}`               : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
+
+    # Notes
+    See 'get_B!' for definition.
+    """ 
     function get_B(r1, r2, g1, g2, ρ, μ, K, n)
         B = zeros(precc, 6, 6)
         get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
@@ -349,9 +505,20 @@ module solid1d_mush
         get_B!(B, r1, r2, g1, g2, ρ, μ, K)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
-
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
 
+    # Arguments
+    - `B::Array{precc,2}`                : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
+    - `r1::prec`                         : Starting radius for integration.
+    - `r2::prec`                         : Ending radius for integration.
+    - `g1::prec`                         : Gravity at radius r1.
+    - `g2::prec`                         : Gravity at radius r2.
+    - `ρ::prec`                          : Density at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Notes
     See also [`get_B`](@ref)
     """
     function get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
@@ -379,7 +546,35 @@ module solid1d_mush
     end
 
 
-    "See 'get_B!' for definition."
+    """
+        get_B(r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
+
+    Compute the 8x8 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the two-phase problem.
+
+    # Arguments
+    - `r1::prec`                         : Starting radius for integration.
+    - `r2::prec`                         : Ending radius for integration.
+    - `g1::prec`                         : Gravity at radius r1.
+    - `g2::prec`                         : Gravity at radius r2.
+    - `ρ::prec`                          : Density at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::prec`                          : Liquid density at radius r.
+    - `Kl::prec`                         : Liquid bulk modulus at radius r.
+    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `α::prec`                          : Biot coefficient at radius r.
+    - `ηₗ::prec`                          : Liquid viscosity at radius r.
+    - `ϕ::prec`                          : Porosity at radius r.
+    - `k::prec`                          : Permeability at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Returns
+    - `B::Array{precc,2}`               : 8x8 numerical integrator matrix for integrating dy/dr from r1 to r2 for the two-phase problem.
+
+    # Notes
+    See 'get_B!' for definition.
+    """ 
     function get_B(r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
         B = zeros(precc, 8, 8)
         get_B!(B, r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
@@ -392,9 +587,28 @@ module solid1d_mush
         get_B!(B, r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
 
     Compute the 8x8 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the two-phase problem.
-
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
 
+    # Arguments
+    - `B::Array{precc,2}`                : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
+    - `r1::prec`                         : Starting radius for integration.
+    - `r2::prec`                         : Ending radius for integration.
+    - `g1::prec`                         : Gravity at radius r1.
+    - `g2::prec`                         : Gravity at radius r2.
+    - `ρ::prec`                          : Density at radius r.
+    - `μ::prec`                          : Shear modulus at radius r.
+    - `K::prec`                          : Bulk modulus at radius r.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::prec`                          : Liquid density at radius r.
+    - `Kl::prec`                         : Liquid bulk modulus at radius r.
+    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `α::prec`                          : Biot coefficient at radius r.
+    - `ηₗ::prec`                          : Liquid viscosity at radius r.
+    - `ϕ::prec`                          : Porosity at radius r.
+    - `k::prec`                          : Permeability at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Notes
     See also [`get_B`](@ref)
     """
     function get_B!(B, r1, r2, g1, g2, ρ, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
@@ -428,12 +642,28 @@ module solid1d_mush
 
 
     """
-        get_B_product!(Brod, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k)
+        get_B_product!(Brod, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
 
     Compute the product of the 8x8 B matrices within a primary layer. This is used to propgate the
-    y solution across a single two-phase primary layer.
+    y solution across a single two-phase primary layer. Bprod is denoted by D in Eq. S5.14 in 
+    Hay et al., (2025).
 
-    Bprod is denoted by D in Eq. S5.14 in Hay et al., (2025).
+    # Arguments
+    - `Bprod2::Array{precc,4}`           : 8x8x(nr-1)x(nlayers-1) array to store the B products across each secondary layer within each primary layer. 
+    - `r::Array{prec,2}`                 : 2D array of layer boundaries.
+    - `ρ::Array{prec,1}`                 : 1D array of layer densities. 
+    - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
+    - `μ::Array{prec,1}`                 : 1D array of layer shear moduli.
+    - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::Array{prec,1}`                 : 1D array of liquid densities at layer boundaries.
+    - `Kl::Array{prec,1}`                : 1D array of liquid bulk moduli at layer boundaries.
+    - `Kd::Array{prec,1}`                : 1D array of drained bulk moduli at layer boundaries.
+    - `α::Array{prec,1}`                 : 1D array of Biot coefficients at layer boundaries.
+    - `ηₗ::Array{prec,1}`                 : 1D array of liquid viscosities at layer boundaries.
+    - `ϕ::Array{prec,1}`                 : 1D array of porosities at layer boundaries.
+    - `k::Array{prec,1}`                 : 1D array of permeabilities at layer boundaries.
+    - `n::Int`                           : Tidal degree.    
     """
     function get_B_product!(Bprod2, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
         # Check dimensions of Bprod2
@@ -444,14 +674,14 @@ module solid1d_mush
         B = zeros(precc, 8, 8)
 
         for i in 1:6
-            Bstart[i,i,1] = 1
+            Bstart[i,i] = 1
         end
 
         # if layer is porous, 
         # don't filter out y7 and y8 components
         if ϕ>0
-            Bstart[7,7,1] = 1
-            Bstart[8,8,1] = 1  
+            Bstart[7,7] = 1
+            Bstart[8,8] = 1  
         end
 
         r1 = r[1]
@@ -475,11 +705,34 @@ module solid1d_mush
 
 
     """
-        compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid", load=false)
+        compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid")
 
     Compute the 4x4 M matrix, which relates the solution at the surface and porous layer interface to the core solution.
+     
+    # Arguments
+    - `r::Array{prec,2}`                 : 2D array of layer boundaries.
+    - `ρ::Array{prec,1}`                 : 1D array of layer densities. 
+    - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
+    - `μ::Array{prec,1}`                 : 1D array of layer shear moduli.
+    - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
+    - `ω::prec`                          : Forcing frequency.
+    - `ρₗ::Array{prec,1}`                 : 1D array of liquid densities at layer boundaries.
+    - `Kl::Array{prec,1}`                : 1D array of liquid bulk moduli at layer boundaries.
+    - `Kd::Array{prec,1}`                : 1D array of drained bulk moduli at layer boundaries.
+    - `α::Array{prec,1}`                 : 1D array of Biot coefficients at layer boundaries.
+    - `ηₗ::Array{prec,1}`                 : 1D array of liquid viscosities at layer boundaries.
+    - `ϕ::Array{prec,1}`                 : 1D array of porosities at layer boundaries.
+    - `k::Array{prec,1}`                 : 1D array of permeabilities at layer boundaries.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
+
+    # Returns
+    - `M::Array{precc,2}`               : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
+    - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid", load=false)
+    function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid")
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -538,6 +791,20 @@ module solid1d_mush
 
     Compute the 8x1 solution vector at the surface and porous layer interface, which is used to compute the strain, 
     Darcy flux, and pore pressure at a particular radial level. This is given by Eq. S5.20 in Hay et al., (2025).
+
+    # Arguments
+    - `r::Array{prec,2}`                 : 2D array of layer boundaries.
+    - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
+    - `M::Array{precc,2}`                : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
+    - `R::prec`                          : Surface radius of the body.
+    - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `load::Bool=false`                 : If true, compute the solution for a loaded problem.
+    
+    # Returns
+    - `y::Array{ComplexF64,4}`           : 4D array of the solution vector y across the interior.
     """
     function compute_y(r, g, M, R, y1_4, n; load=false)
 
@@ -567,9 +834,27 @@ module solid1d_mush
 
 
     """
-        compute_strain_ten!(ϵ, y, m, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
+        compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
 
     Calculate the strain tensor ϵ at a particular radial level. 
+
+    # Arguments
+    - `ϵ::Array{ComplexF64,4}`          : 4D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
+    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
+    - `n::Int`                          : Tidal degree.
+    - `rr::prec`                        : Radius at which to compute the strain tensor.
+    - `ρr::prec`                        : Density at radius rr.
+    - `gr::prec`                        : Gravity at radius rr.
+    - `μr::prec`                        : Shear modulus at radius rr.
+    - `Ksr::prec`                       : Bulk modulus at radius rr.
+    - `ω::prec`                         : Forcing frequency.
+    - `ρlr::prec`                       : Liquid density at radius rr.
+    - `Klr::prec`                       : Liquid bulk modulus at radius rr.
+    - `Kdr::prec`                       : Drained bulk modulus at radius rr.
+    - `αr::prec`                        : Biot coefficient at radius rr.
+    - `ηlr::prec`                       : Liquid viscosity at radius rr.
+    - `ϕr::prec`                        : Porosity at radius rr.
+    - `kr::prec`                        : Permeability at radius rr.
     """
     function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
         i = 1
@@ -600,9 +885,21 @@ module solid1d_mush
 
 
     """
-        compute_darcy_displacement!(dis_rel, y, m, r, ω, ϕ, ηl, k, g, ρl)
+        compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl)
 
     Calculate the Darcy displacement vector at a particular radial level. 
+
+    # Arguments
+    - `dis_rel::Array{ComplexF64,4}`    : 4D array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
+    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
+    - `n::Int`                          : Tidal degree. 
+    - `r::prec`                         : Radius at which to compute the Darcy displacement vector.
+    - `ω::prec`                         : Forcing frequency.
+    - `ϕ::prec`                         : Porosity at radius r.
+    - `ηl::prec`                        : Liquid viscosity at radius r.
+    - `k::prec`                         : Permeability at radius r.
+    - `g::prec`                         : Gravity at radius r.
+    - `ρl::prec`                        : Liquid density at radius r.
     """
     function compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl)
         i = 1
@@ -624,9 +921,14 @@ module solid1d_mush
 
 
     """
-        compute_pore_pressure!(p, y, m)
+        compute_pore_pressure!(p, y, n)
 
     Calculate the fluid pore pressur at a particular radial level. 
+
+    # Arguments
+    - `p::Array{ComplexF64,4}`          : 4D array to store the pore pressure at a particular radial level, with dimensions corresponding to latitude and longitude.
+    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
+    - `n::Int`                          : Tidal degree.
     """
     function compute_pore_pressure!(p, y, n)
         i = 1
@@ -642,19 +944,43 @@ module solid1d_mush
 
 
     """
-        get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, ecc; lay=nothing)
+        get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n; lay=nothing)
 
     Get the radial volumetric heating for two-phase tides and eccentricity forcing,
     assuming synchronous rotation.
     Heating rate is computed with numerical integration using the solution 
     `y` returned by [`compute_y`](@ref), 
     using Eq. 2.39a/b/c integrated over solid angle. 
-    The forcing magnitude is determined by orbital frequency `ω` and eccentricity `ecc`. 
     The heating profile for a specific layer is specified with `lay`, otherwise all 
     layers will be caclulated.
 
-    Returns the angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, 
-    compaction and Darcy flow, as well as the total power dissipated in each primary layer.
+    # Arguments
+    - `y::Array{ComplexF64,4}`           : 4D array of the solution vector y across the interior, returned by `compute_y`.
+    - `r::Array{Float64,2}`              : 2D array of layer boundaries.
+    - `ρ::Array{Float64,1}`              : 1D array of layer densities.
+    - `g::Array{Float64,2}`              : 2D array of gravity values at the layer boundaries.
+    - `μ::Array{Float64,1}`              : 1D array of layer shear moduli.
+    - `Ks::Array{Float64,1}`              : 1D array of layer bulk moduli for shear dissipation.
+    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ρl::Array{Float64,1}`             : 1D array of liquid densities at layer boundaries.
+    - `Kl::Array{Float64,1}`             : 1D array of liquid bulk moduli at layer boundaries.
+    - `Kd::Array{Float64,1}`             : 1D array of drained bulk moduli at layer boundaries.
+    - `α::Array{Float64,1}`              : 1D array of Biot coefficients at layer boundaries.
+    - `ηl::Array{Float64,1}`             : 1D array of liquid viscosities at layer boundaries.
+    - `ϕ::Array{Float64,1}`             : 1D array of porosities at layer boundaries.
+    - `k::Array{Float64,1}`              : 1D array of permeabilities at layer boundaries.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `lay::Int=nothing`                 : If specified, compute the heating profile for only the layer corresponding to this index. Otherwise, compute for all layers.
+
+    # Returns
+    - `Eμ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to shear, in W.
+    - `Eμ_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, with dimensions corresponding to the secondary layer and primary layer indices.
+    - `Eκ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to compaction, in W.
+    - `Eκ_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to compaction, with dimensions corresponding to the secondary layer and primary layer indices.
+    - `El_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to Darcy flow, in W.
+    - `El_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to Darcy flow, with dimensions corresponding to the secondary layer and primary layer indices.
     """
     function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n; lay=nothing)
         dres = deg2rad(solid1d_mush.res)
