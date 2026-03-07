@@ -51,12 +51,35 @@ version = "1.0"                 # Version of this configuration file
         material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
         alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
 
-        module_solid = "solid1d"        # Options: ("none", "solid0d", "solid1d", "solid1d-mush")
+        # Solid interior model
+        # Controls how the solid portion of the interior responds to tidal forcing.
+        # - "none"          : No solid interior model.
+        # - "solid0d"       : Zero-dimensional solid model. The solid region is treated as a single
+        #                     effective layer with averaged mechanical properties. Fast but cannot
+        #                     resolve radial structure in deformation or dissipation.
+        # - "solid1d"       : Radially resolved solid model. Solves the tidal response through a
+        #                     layered solid interior. Allows realistic rigidity, density, and
+        #                     rheology profiles.
+        # - "solid1d-mush"  : Same as solid1d but includes a partially molten/porous ("mushy") region
+        #                     with evolving rheology between solid and liquid behavior.
+        module_solid = "solid1d"
+
+        # Mushy layer model
+        # Controls how partially molten regions are treated.
+        # - "none"          : No explicit mush layer treatment.
+        # - "interp"        : Rheological properties transition smoothly between solid and fluid
+        #                     regimes using interpolation across the melt fraction range.
+        module_mushy = "interp"
+
+        # Fluid layer model
+        # Controls how the fluid (e.g., magma ocean or atmosphere) responds to tidal forcing.
+        # - "none"          : No fluid layer.
+        # - "fluid0d"       : Zero-dimensional fluid model. The fluid region is treated as a single
+        #                     effective layer with averaged mechanical properties. Fast but cannot
+        #                     resolve radial structure in deformation or dissipation.
+        # - "fluid1d"       : Same as fluid0d but allows for user specified heating distribution.
+        module_fluid = "fluid1d"
         
-        module_mushy = "interp"         # Options: ("none", "interp")
-
-        module_fluid = "fluid1d"        # Options: ("none", "fluid0d", "fluid1d")
-
         [orbit.obliqua.solid]
             ncalc       = 1000      # Number of sublayers to use for dim=1 solid tides
             bulk_l      = 1e9       # Liquid bulk modulus [Pa]
