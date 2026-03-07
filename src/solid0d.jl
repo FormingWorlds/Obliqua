@@ -1,4 +1,4 @@
-module Solid
+module solid0d
 
     export compute_solid_lovenumbers
 
