@@ -114,7 +114,7 @@ if suite > 2
     # test config validity
     @info " "
     @info "Testing config validity"
-    cfg = Obliqua.open_config("$RES_DIR/config/default.toml")
+    cfg = Obliqua.open_config("$TEST_DIR/test.toml")
     if cfg !== nothing
         @info "Pass"
     else
