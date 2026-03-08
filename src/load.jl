@@ -497,7 +497,7 @@ module load
             ok &= (length(visc)   == N)
             ok &= (length(shear)  == N)
             ok &= (length(bulk)   == N)
-            ok &= (length(buphilk)   == N)
+            ok &= (length(phi)    == N)
 
             # # simple physical checks 
             ok &= all(rho .> 0)

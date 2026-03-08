@@ -20,9 +20,10 @@ If you are interested in contributing to the model, please contact the developer
 
 ```@autodocs
 Modules = [
-    Obliqua.Love, 
-    Obliqua.Fluid,
-    Obliqua.Solid,
+    Obliqua.solid0d, 
+    Obliqua.solid1d, 
+    Obliqua.solid1d_mush, 
+    Obliqua.fluid0d,
     Obliqua.Hansen
 ]
 Order   = [:function, :type]     

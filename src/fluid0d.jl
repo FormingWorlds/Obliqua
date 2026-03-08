@@ -1,6 +1,6 @@
 
 
-module Fluid
+module fluid0d
 
     export compute_fluid_lovenumbers
 
@@ -19,7 +19,7 @@ module Fluid
     Calculate k2 lovenumbers in fluid.
 
     # Arguments
-    - `omega::Float64`                  : Forcing frequency range.
+    - `omega::prec`                     : Forcing frequency range.
     - `R::prec`                         : Outer radius of fluid segment in mantle.
     - `H_magma::prec`                   : Height of fluid segment in mantle.
     - `g::prec`                         : Surface gravity at top of fluid segment in mantle.
@@ -55,38 +55,6 @@ module Fluid
         k2_L = 0. # needs proper expression, possibly the shell formalism in Farhat+2025 for a loaded MO
 
         return k2_T, k2_L
-    end
-
-
-    """
-        heat_profile(power, ρ, r)
-
-    Construct 1D uniform heating profile.
-
-    # Arguments
-    - `power::prec`                     : Total dissipated power.
-    - `ρ::Array{prec,1}`                : Density profile of the planet.
-    - `r::Array{prec,1}`                : Radial positions of layers, from bottom to top of segment.
-
-    # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    """
-    function heat_profile( power::prec, 
-                            ρ::Array{prec,1},
-                            r::Array{prec,1}
-                            )::Array{prec,1}
-
-        # calculate mean density of region
-        V = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) # Volume of each layer (m^3)
-        
-        # calculate power density
-        power_ρ = power / sum(V) # W/m3
-
-        # calculate power profile
-        power_prf = power_ρ ./ ρ # W/kg
-
-        return power_prf
-
     end
 
 

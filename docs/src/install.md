@@ -16,7 +16,7 @@ Follow the steps below in order to setup the code.
 3. Download Obliqua: `git clone https://github.com/FormingWorlds/Obliqua.git`
 4. Change directory: `cd Obliqua`
 5. Open Julia package manager: `julia`, then press `]`
-6. Install: `add https://github.com/FormingWorlds/Obliqua.git#julia`
+6. Install: `add .`
 
 ## Testing
 If you want to run the tests manually, simply use the script in the `test/` folder.

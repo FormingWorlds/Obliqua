@@ -16,17 +16,6 @@ Forked from the [original repository](https://github.com/hamishHay/Love.jl) of H
 ### Documentation
 https://fwl-proteus.readthedocs.io
 
-### Contributors
-
-| Name                  | Email address                          |
-|:----------------------|:---------------------------------------|
-| Marijn van Dijk       | m.r.van.dijk.3[at]student.rug.nl       |
-| Tim Lichtenberg       | tim.lichtenberg[at]rug.nl              |
-| Harrison Nicholls     | harrison.nicholls[at]physics.ox.ac.uk  |
-| Mohammad Farhat       | farhat[at]berkeley.edu                 |
-| Hamish Hay            | hamish[at]tides.rocks                  |
-
-
 ### Repository structure
 * `README.md`           - This file
 * `LICENSE.txt`         - License for modification, distribution, etc.
