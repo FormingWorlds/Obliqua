@@ -307,6 +307,8 @@ module Obliqua
         if spectrum == "adaptive"
             s_min    = cfg["orbit"]["obliqua"]["s_min"]
             s_max    = cfg["orbit"]["obliqua"]["s_max"]
+            s_min    = nothing_if_none(s_min)
+            s_max    = nothing_if_none(s_max)
         elseif spectrum == "full"
             N_σ      = cfg["orbit"]["obliqua"]["N_sigma"]
             p_min    = cfg["orbit"]["obliqua"]["p_min"]
@@ -342,8 +344,7 @@ module Obliqua
         module_fluid = nothing_if_none(module_fluid)
         module_mushy = nothing_if_none(module_mushy)
 
-        s_min = nothing_if_none(s_min)
-        s_max = nothing_if_none(s_max)
+        # shear .= ifelse.((shear .< 1e10), 3.2e9, shear)
 
         # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
@@ -415,7 +416,7 @@ module Obliqua
             t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
             σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
             σ_range = reshape(σ_range, :)
-        
+            print("Using full spectrum with $N_σ frequencies from $(σ_range[1]) /s to $(σ_range[end]) /s.")
         end
 
         # get forcing frequency dependent complex shear modulus
@@ -542,10 +543,20 @@ module Obliqua
                     elseif module_fluid=="fluid1d"
                         prf_seg[iss,:], kT, kL = run_fluid1d(
                             σ, ρ_seg, r_seg, 
-                            g_seg, ρ_mean_lower,
+                            g_seg, ρ_ratio,
                             S_mass, sma, R; n=n,
-                            σ_R=sigma_R,
-                            σ_inf=sigma_R_inf,
+                            sigma_R=sigma_R,
+                            sigma_inf=sigma_R_inf,
+                            sigma_R_prf=sigma_R_prf,
+                            H_R=H_R, efficiency=efficiency_seg
+                        )
+                    elseif module_fluid=="fluid1d_RD"
+                        prf_seg[iss,:], kT, kL = run_fluid1d_RD(
+                            σ, ρ_seg, r_seg, 
+                            g_seg, ρ_ratio,
+                            S_mass, sma, R; n=n,
+                            sigma_R=sigma_R,
+                            sigma_inf=sigma_R_inf,
                             sigma_R_prf=sigma_R_prf,
                             H_R=H_R, efficiency=efficiency_seg
                         )
@@ -558,7 +569,16 @@ module Obliqua
                     # don't model mush tides
                     if module_mushy===nothing
                         kT, kL = 0., 0.
-                    # elseif heating profile from neighbouring segments
+                    elseif module_solid=="solid1d"
+                        # calculate tides in solid region 
+                        prf_seg[iss,:], kT, kL = run_solid1d( 
+                            σ, ρ_seg,
+                            r_seg, η_seg,                               
+                            μc_seg[:, iss], 
+                            κ_seg, R; 
+                            ncalc=ncalc, n=n, m=m
+                        )
+                        # elseif heating profile from neighbouring segments
                     elseif module_mushy=="interp"
                         # turn on interpolation mode
                         interp_active = true
@@ -705,13 +725,13 @@ module Obliqua
             # Hansen coefficient at s=1
             _, X = Hansen.get_hansen(ecc, n, m, 1, 1)
 
-            A = 2 * sqrt(4π * factorial(n-m) / ((2*n+1) * factorial(n+m))) * Plm.(n, m, 0.) * X
+            A = 2 * sqrt(4π * factorial(n-m) / ((2*n+1) * factorial(n+m))) * Plm(n, m, 0.) * X
                         
             U = (G*S_mass/sma) * (R/sma)^n * A
 
             prefactor = (2*n + 1) * R / (8π*G) .* σ_range
 
-            U2 = abs2(U)
+            U2 = abs2.(U)
 
             # return power profile at each frequency
             P_T_1_prf = zeros(prec, N_σ, length(shear))
@@ -723,7 +743,7 @@ module Obliqua
             # return bulk heating at each frequency
             P_T_1_blk = prefactor .* imag_k2 .* U2
 
-            @info "Mapping 1 --> $(σ_range[1]) /s, and 50 --> $(σ_range[end]) /s."
+            @info "Mapping 1 --> $(σ_range[1]) /s, and $N_σ --> $(σ_range[end]) /s."
 
             # plot heating profile from full spectrum at s=1
             plt = plotting.plot_segment_heating(
@@ -1129,11 +1149,12 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(rr, ρ, g, μc, κ, n; core="liquid")
+        M, y1_4, matrices_R = solid1d.compute_M(omega, rr, ρ, g, μc, κ, n; core="liquid")
+        # M, y1_4 = solid1d.compute_M_fluid(omega, rr, ρ, g, μc, κ, n; core="liquid")
         #   Tidal
-        tidal_solution_T = solid1d.compute_y(rr, g, M, R, y1_4, n; load=false)
+        tidal_solution_T = solid1d.compute_y(rr, g, M, R, y1_4, matrices_R, n; load=false)
         #   Load
-        tidal_solution_L = solid1d.compute_y(rr, g, M, R, y1_4, n; load=true)
+        tidal_solution_L = solid1d.compute_y(rr, g, M, R, y1_4, matrices_R, n; load=true)
 
         # get k2 tidal Love Number (complex-valued)
         k2_T = tidal_solution_T[5, end, end] - 1
@@ -1501,6 +1522,106 @@ module Obliqua
 
 
     """
+        run_fluid1d(omega, rho, radius, gravity, ρ_ratio, S_mass, sma, R; kwargs...)
+
+    Compute tidal heating profile and Love numbers for a 1D fluid model.
+
+    # Arguments
+    - `omega::Float64`        : Forcing frequency
+    - `rho::Vector{prec}`     : Density profile
+    - `radius::Vector{prec}`  : Radial grid (core → surface)
+    - `gravity::Vector{prec}` : Gravity profile
+    - `ρ_ratio::prec`         : Density ratio of lower layer
+    - `S_mass::prec`          : Stellar mass
+    - `sma::prec`             : Semi-major axis
+    - `R::prec`               : Planet radius
+
+    # Keyword Arguments
+    - `n::Int=2`              : Radial power (dominant term n=2)
+    - `sigma_R::Float64=1e-3` : Rayleigh drag at interface
+    - `sigma_inf::Float64=1e-7` : Drag in fluid interior
+    - `sigma_R_prf::String="uniform"` : Drag profile type
+    - `H_R::Float64=1e3`      : Drag scale height
+    - `efficiency::Float64=0.3` : Interface efficiency factor
+
+    # Returns
+    - `power_prf::Vector{prec}` : Heating profile
+    - `k2_T::precc`             : Tidal Love number
+    - `k2_L::precc`             : Load Love number
+    """
+    function run_fluid1d(   omega::Float64,
+                            rho::Vector{prec},
+                            radius::Vector{prec},
+                            gravity::Vector{prec},
+                            ρ_ratio::prec,
+                            S_mass::prec,
+                            sma::prec,
+                            R::prec;
+                            n::Int = 2,
+                            sigma_R::Float64 = 1e-3,
+                            sigma_inf::Float64 = 1e-7,
+                            sigma_R_prf::String = "uniform",
+                            H_R::Float64 = 1e3,
+                            efficiency::Float64 = 0.3
+                        )::Tuple{Vector{prec}, precc, precc}
+
+        # internal structure arrays 
+        r = convert(Vector{prec}, radius) 
+
+        # volumes
+        Vs  = (4/3) * π * (r[end]^3 - r[1]^3)
+        dVs = (4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3)
+
+        # Love numbers (interface vs fluid interior)
+        k2_T, k2_L = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R)
+        k2_T_inf, _ = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=sigma_inf)
+
+        # total heating (bulk)
+        prefactor = (2n + 1) * R * omega / (8π * G)
+
+        power_blk     = prefactor * -imag(k2_T)     / Vs
+        power_blk_inf = prefactor * -imag(k2_T_inf) / Vs
+
+        Δpower = max(power_blk - power_blk_inf, 0)
+
+        # radial positions
+        r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
+        z     = abs.(r_mid .- r[1])  # distance from interface
+
+        # profile shape function
+        shape = ones(length(z))
+
+        if sigma_R_prf == "exp"
+            shape .= exp.(-z ./ H_R)
+
+        elseif sigma_R_prf == "linear"
+            shape .= max.(0, 1 .- z ./ H_R)
+
+        elseif sigma_R_prf == "quadratic"
+            shape .= max.(0, 1 .- z ./ H_R).^2
+
+        elseif sigma_R_prf == "dynamic"
+            l_mix = max.(min.(z, H_R), 1e-12)
+            shape .= exp.(-z ./ l_mix)
+
+        elseif sigma_R_prf != "uniform"
+            error("Unknown sigma_R_prf: $sigma_R_prf")
+        end
+
+        # heating profile
+        power_prf = power_blk_inf .+ Δpower .* shape
+
+        # normalize to match bulk heating
+        unorm = sum(power_prf .* dVs) / Vs
+        if unorm > 0
+            power_prf .*= power_blk / unorm
+        end
+
+        return power_prf, k2_T, k2_L
+    end
+
+
+    """
         run_fluid1d(omega, rho, radius, gravity, ρ_mean_lower, S_mass, sma; n=2, sigma_R=1e-3, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3)
 
     Calculate k2 Lovenumbers in the 1D fluid, and compute 1d heating profile from density-contrast and Rayleigh-drag.
@@ -1528,90 +1649,98 @@ module Obliqua
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
-    function run_fluid1d( omega::Float64,
-                        rho::Array{prec,1},
-                        radius::Array{prec,1},
-                        gravity::Array{prec,1},
-                        ρ_mean_lower::prec, 
-                        S_mass::prec,
-                        sma::prec,
-                        R::prec;
-                        n::Int64=2,
-                        σ_R::Float64=1e-3,
-                        σ_inf::Float64=1e-7,
-                        sigma_R_prf::String="uniform",
-                        H_R::Float64=1e3,
-                        efficiency::Float64=0.3
-                        )::Tuple{Array{prec,1},precc,precc}
+    function run_fluid1d_RD(   omega::Float64,
+                            rho::Vector{prec},
+                            radius::Vector{prec},
+                            gravity::Vector{prec},
+                            ρ_mean_lower::prec,
+                            S_mass::prec,
+                            sma::prec,
+                            R::prec;
+                            n::Int = 2,
+                            sigma_R::Float64 = 1e-3,
+                            sigma_inf::Float64 = 1e-7,
+                            sigma_R_prf::String = "uniform",
+                            H_R::Float64 = 1e3,
+                            efficiency::Float64 = 0.3
+                        )::Tuple{Vector{prec}, precc, precc}
 
-        # internal structure arrays
-        ρ = convert(Vector{prec}, rho)
-        r = convert(Vector{prec}, radius)
+        # internal structure arrays 
+        ρ = convert(Vector{prec}, rho) 
+        r = convert(Vector{prec}, radius) 
         g = convert(Vector{prec}, gravity)
-        
-        # get shell volumes
-        Vs = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3)
 
-        # calculate density contrast
-        ρs = vcat(ρ_mean_lower, ρ)
-        ρ_ratios = ρs[2:end]./ρs[1:end-1]
+        ns = length(r) - 1  # number of shells
 
-        # fluid magma ocean layer heights
+        # volumes
+        dVs = (4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3)  # shell volumes
+
+        # magma ocean height
         H_magma = diff(r)
-             
-        # define Rayleigh-drag profile
-        σ_R_prf = zeros(Float64, length(r)-1)
 
-        # closest solid-like boundary, where Rayleigh-drag is maximal
-        r_int = r[1]
+        # density contrast 
+        ρs = vcat(ρ_mean_lower, ρ)
+        ρ_ratios = ρs[2:end] ./ ρs[1:end-1]
+
+        # radial coordinates
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
-        z     = abs.(r_mid .- r_int) # distance from interface
+        z     = abs.(r_mid .- r[1])  # distance from interface
 
-        # Rayleigh-drag profiles
-        if sigma_R_prf == "uniform"
-            σ_R_prf .= σ_inf .+ max((efficiency * σ_R .- σ_inf), 0)
+        # Rayleigh drag contrast
+        Δσ = max(efficiency * sigma_R - sigma_inf, 0.0)
 
-        elseif sigma_R_prf == "exp"
-            σ_R_prf .= σ_inf .+ max((efficiency * σ_R .- σ_inf), 0) .* exp.(-z ./ H_R)
+        # shape function
+        shape = ones(ns)
+
+        if sigma_R_prf == "exp"
+            shape .= exp.(-z ./ H_R)
 
         elseif sigma_R_prf == "linear"
-            σ_R_prf .= σ_inf .+ max((efficiency * σ_R .- σ_inf), 0) .* max.(0.0, 1 .- z ./ H_R)
+            shape .= max.(0.0, 1 .- z ./ H_R)
 
         elseif sigma_R_prf == "quadratic"
-            σ_R_prf .= σ_inf .+ max((efficiency * σ_R .- σ_inf), 0) .* max.(0.0, 1 .- z ./ H_R).^2
+            shape .= max.(0.0, 1 .- z ./ H_R).^2
 
         elseif sigma_R_prf == "dynamic"
-            # dynamic mixing length
-            l_mix = min.(z, H_R)
+            l_mix = max.(min.(z, H_R), 1e-12)
+            shape .= exp.(-z ./ l_mix)
 
-            # avoid division by zero at interface
-            l_mix .= max.(l_mix, 1e-12)
-
-            # Rayleigh-drag profile
-            σ_R_prf .= σ_inf .+ max((efficiency * σ_R .- σ_inf), 0) .* exp.(-z ./ l_mix)
+        elseif sigma_R_prf != "uniform"
+            error("Unknown sigma_R_prf: $sigma_R_prf")
         end
 
-        # obtain heating profile and Imk2 Love and load numbers
-        power_prf = zeros(prec, length(r)-1)
-        k2_T = zeros(precc, length(r)-1)
-        k2_L = zeros(precc, length(r)-1)
+        # Rayleigh drag profile 
+        sigma_profile = sigma_inf .+ Δσ .* shape
 
-        # calculate prefactor and total availible heat
-        prefactor = (2*n+1) * R * omega / (8π*G)
-        
-        for (is, s) in pairs(r[1:end-1])
-            # get k2 Lovenumbers
-            k2_T[is], k2_L[is] = fluid0d.compute_fluid_lovenumbers(
-                omega, r[is+1], H_magma[is], 
-                g[is], ρ_ratios[is], n, σ_R_prf[is]
+        # outputs
+        power_prf = zeros(prec, ns)
+        k2_T = zeros(precc, ns)
+        k2_L = zeros(precc, ns)
+
+        # prefactor 
+        prefactor = (2n + 1) * R * omega / (8π * G)
+
+        # loop over shells 
+        for i in 1:ns
+            k2_T[i], k2_L[i] = fluid0d.compute_fluid_lovenumbers(
+                omega,
+                r[i+1],
+                H_magma[i],
+                g[i],
+                ρ_ratios[i],
+                n,
+                sigma_profile[i]
             )
-            
-            # calculate total heat input at forcing frequency
-            power_prf[is] = prefactor * -imag(k2_T[is]) / Vs[is]
+
+            power_prf[i] = prefactor * -imag(k2_T[i]) / dVs[i]
         end
 
-        return power_prf, sum(k2_T), sum(k2_L)
+        # effective Love numbers (volume-weighted)
+        Vtot = sum(dVs)
+        k2_T_eff = sum(k2_T .* dVs) / Vtot
+        k2_L_eff = sum(k2_L .* dVs) / Vtot
 
+        return power_prf, k2_T_eff, k2_L_eff
     end
 
 
