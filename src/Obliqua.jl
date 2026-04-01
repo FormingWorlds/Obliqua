@@ -1572,8 +1572,8 @@ module Obliqua
         Vs  = (4/3) * π * (r[end]^3 - r[1]^3)
         dVs = (4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3)
 
-        # Love numbers (interface vs fluid interior)
-        k2_T, k2_L = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R)
+        # Love numbers (solid-fluid interface and fluid interior)
+        k2_T, k2_L  = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R)
         k2_T_inf, _ = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=sigma_inf)
 
         # total heating (bulk)
@@ -1582,7 +1582,7 @@ module Obliqua
         power_blk     = prefactor * -imag(k2_T)     / Vs
         power_blk_inf = prefactor * -imag(k2_T_inf) / Vs
 
-        Δpower = max(power_blk - power_blk_inf, 0)
+        D_power_blk = max(power_blk - power_blk_inf, 0)
 
         # radial positions
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
@@ -1609,7 +1609,7 @@ module Obliqua
         end
 
         # heating profile
-        power_prf = power_blk_inf .+ Δpower .* shape
+        power_prf = power_blk_inf .+ D_power_blk .* shape
 
         # normalize to match bulk heating
         unorm = sum(power_prf .* dVs) / Vs
@@ -1649,7 +1649,7 @@ module Obliqua
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
-    function run_fluid1d_RD(   omega::Float64,
+    function run_fluid1d_RD(omega::Float64,
                             rho::Vector{prec},
                             radius::Vector{prec},
                             gravity::Vector{prec},

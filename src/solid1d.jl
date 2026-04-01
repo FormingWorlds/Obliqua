@@ -1,6 +1,6 @@
 
 
-module solid1d#_scaled
+module solid1d
     
     using LinearAlgebra
     using DoubleFloats
@@ -206,18 +206,19 @@ module solid1d#_scaled
 
     function get_scales(r, ρ, R0, M0, s0)
 
-        ρ0 = M0 / R0^3            # 1000 kg/m^3
-        μ0 = M0 / (R0 * s0^2)     # 1e9 Pa (1 GPa)
-        g0 = R0 / s0^2            # 0.1 m/s^2 (Note: check if you want 10 or 0.1)
+        ρ0 = M0 / R0^3            # kg/m^3
+        μ0 = M0 / (R0 * s0^2)     # Pa 
+        g0 = R0 / s0^2            # m/s^2 
+
         G0 = R0^3 / (M0 * s0^2)   # Gravity constant scaling
 
         S = Diagonal(precc[
-            R0,       # y1: radial displacement (m)
-            R0,       # y2: tangential displacement (m)
-            μ0,       # y3: radial stress (Pa)
-            μ0,       # y4: tangential stress (Pa)
-            g0*R0,    # y5: potential (m^2/s^2)
-            g0        # y6: potential gradient/gravity (m/s^2)
+            R0,       # y1: radial displacement         (m)
+            R0,       # y2: tangential displacement     (m)
+            μ0,       # y3: radial stress               (Pa)
+            μ0,       # y4: tangential stress           (Pa)
+            g0*R0,    # y5: potential                   (m^2/s^2)
+            g0        # y6: potential gradient/gravity  (m/s^2)
         ])
 
         Sinv = inv(S)
@@ -513,6 +514,7 @@ module solid1d#_scaled
     # Returns
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
+    - `matrices_R_sublayer::Array{Matrix{precc},2}` : 2D array of the R matrices from the QR decomposition at each sublayer, which is used for back-propagation in the `compute_y` function to compute the solution vector across the interior.
     """
     function compute_M(ω, r, ρ, g, μ, K, n; core="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
@@ -534,8 +536,6 @@ module solid1d#_scaled
         y_start .= Sinv * y_start # Scale starting vector
 
         # To store QR factors for back-propagation
-        # matrices_Q stores the orthonormal basis at each layer interface
-        # matrices_R stores the mixing coefficients
         matrices_R_sublayer = Array{Matrix{precc}}(undef, nlayers, nsublayers-1)
 
         y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
@@ -550,7 +550,7 @@ module solid1d#_scaled
                 # Multiply by the current basis
                 y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * current_basis 
 
-                # --- QR decomposition at the sublayer ---
+                # QR decomposition at the sublayer
                 F = qr(y1_4[:,:,j,i])
 
                 Qthin = Matrix(F.Q)[:, 1:3]   # extract 6x3
@@ -560,7 +560,6 @@ module solid1d#_scaled
                 current_basis = Qthin   # update the basis for next sublayer
 
                 # store the R matrix if you need it for back-propagation
-                # matrices_R[i] could be replaced by a 2D array (nlayers x nsublayers) or a vector of matrices
                 matrices_R_sublayer[i,j] = Rj
             end
 
@@ -602,6 +601,7 @@ module solid1d#_scaled
     - `M::Array{precc,2}`                : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `R::prec`                          : Surface radius of the body.
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
+    - `matrices_R_sublayer::Array{Matrix{precc},2}` : 2D array of the R matrices from the QR decomposition at each sublayer, which is used for back-propagation in the `compute_y` function to compute the solution vector across the interior.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
@@ -615,7 +615,7 @@ module solid1d#_scaled
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        # --- Boundary condition ---
+        # Boundary condition
         b = zeros(precc, 3)
         if load
             b[1] = -(2n+1)*g[end,end]/(4π*(R)^2)
@@ -624,13 +624,13 @@ module solid1d#_scaled
             b[3] = (2n+1)/R
         end
 
-        # --- Solve surface coefficients ---
+        # Solve surface coefficients
         C_current = M \ b
 
-        # --- Allocate ---
+        # Allocate
         y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 
-        # --- Backward propagation ---
+        # Backward propagation
         for i in nlayers:-1:2
             for j in (nsublayers-1):-1:1
 
@@ -639,7 +639,7 @@ module solid1d#_scaled
 
                 # Update coefficients using local R
                 Rj = matrices_R_sublayer[i,j]
-                C_current = Rj \ C_current   # ← CRITICAL: solve, not multiply
+                C_current = Rj \ C_current 
             end
         end
 
