@@ -19,19 +19,14 @@ To describe tidal and rotational deformations of a spherically symmetric body, `
 
 where
 
-* ``U_{\ell m}``: radial displacement
-* ``V_{\ell m}``: tangential displacement
-* ``R_{\ell m}``: radial stress
-* ``S_{\ell m}``: tangential stress
-* ``\Phi_{\ell m}``: gravitational potential perturbation
-* ``Q_{\ell m}``: “potential stress,” defined as
-
-```math
-Q_{\ell m}
-= \frac{\partial \Phi_{\ell m}}{\partial r}
-  + \frac{\ell+1}{r}\Phi_{\ell m}
-  + 4\pi G \rho_0 U_{\ell m}.
-```
+| Component       | Physical Meaning                                                                               | Units (SI) | Normalization Scale | Notes                           |
+| --------------- | ---------------------------------------------------------------------------------------------- | ---------- | ------------------- | ------------------------------- |
+| ``U_{\ell m}``    | Radial displacement                                                                            | m          | ``R_0``               | Typical planetary radius        |
+| ``V_{\ell m}``    | Tangential displacement                                                                        | m          | ``R_0``               | Same as radial displacement     |
+| ``R_{\ell m}``    | Radial stress                                                                                  | Pa         | ``\mu_0``             | Characteristic shear modulus    |
+| ``S_{\ell m}``    | Tangential stress                                                                              | Pa         | ``\mu_0``             | Same as radial stress           |
+| ``\Phi_{\ell m}`` | Gravitational potential perturbation                                                           | m``^2/``s``^2``      | ``g_0 R_0``           | ``g_0`` is characteristic gravity |
+| ``Q_{\ell m}``    | Potential stress | m/s``^2``       | ``g_0``               | Same units as gravity           |
 
 The spheroidal vector satisfies the first-order ODE system
 
@@ -43,7 +38,7 @@ The spheroidal vector satisfies the first-order ODE system
 Here, the coefficient matrix ``\mathbf{A}_{\ell}(r)`` represents the responds of the mantle to deformations, and is given by 
 
 ```math
-A(r) =
+\mathbf{A}_\ell(r) =
 \begin{pmatrix}
 -\frac{2\lambda}{r\beta} &
 \frac{\ell(\ell+1)\lambda}{r\beta} &
@@ -93,6 +88,20 @@ and
 \lambda = \kappa - \frac{2}{3}\mu.
 ```
 
+When solving the spheroidal displacement–stress–gravity system, the 6-vector can span vastly different physical units. This disparity can make the coefficient matrix ``\mathbf{A}_\ell(r)`` highly ill-conditioned, leading to numerical instability when computing linearly independent solutions or performing matrix inversions.
+
+To mitigate this, we introduce a unit-normalization scaling matrix ``\mathbf{S}``, defined as
+```math
+  \mathbf{S} = \mathrm{diag}\Big(R_0, R_0, \mu_0, \mu_0, g_0 R_0, g_0 \Big),
+```
+
+where ``R_0, \mu_0, g_0`` are characteristic scales for length, stress, and gravity, respectively. The scaled variables are then
+
+```math
+  \tilde{\mathbf{y}}_{\ell m} = \mathbf{S}^{-1}\mathbf{y}_{\ell m}, \quad
+  \tilde{\mathbf{A}}_\ell = \mathbf{S}^{-1} \mathbf{A}_\ell \mathbf{S}.
+```
+
 ---
 
 ### Core–Mantle Boundary
@@ -118,6 +127,12 @@ q_\ell(r_C) & 0 & 4\pi G \rho_0(r_C^-)
 \end{pmatrix}.
 ```
 
+The assumed normalization implies
+
+```math
+\mathbf{\tilde{I}}_C = \mathbf{S}^{-1} \mathbf{I}_C.
+```
+
 Once the constants ``\mathbf{C}`` are determined, the full perturbed state of the solid mantle is known.
 
 ---
@@ -129,7 +144,17 @@ We propagate the solution using the so-called propagator matrix (``\pmb{\Pi}_\el
 ```math
 \frac{d\pmb{\Pi}_\ell(r, r')}{dr} = \pmb{A}_\ell(r)\,\pmb{\Pi}_\ell(r, r'),
 ```
-at radius ``r`` w.r.t. the solution at the previous layer ``r'``, this is also know as the Cauchy data at radius (``r'``). If ``r = r'`` we have
+at radius ``r`` w.r.t. the solution at the previous layer ``r'``, this is also know as the Cauchy data at radius (``r'``). Equivalently, we may write the normalized version of the propagator matrix as
+
+```math
+\frac{d\tilde{\pmb{\Pi}}_\ell(r, r')}{dr} = \tilde{\pmb{A}}_\ell(r)\,\tilde{\pmb{\Pi}}_\ell(r, r'),
+```
+
+Given that ``\tilde{\pmb{\Pi}}_\ell(r, r')`` is constructed from the normalized matrix ``\tilde{\pmb{A}}_\ell``, the normailization in ``\mathbf{A}_\ell`` enters ``\tilde{\pmb{\Pi}}_\ell`` as
+
+```math
+\tilde{\pmb{\Pi}}_\ell(r, r') = \left[\left[\left[  \mathbf{1} \times \mathbf{S}^{-1} \tilde{\pmb{\Pi}}_\ell(r_1, r_1') \mathbf{S}\right] \times \mathbf{S}^{-1} \tilde{\pmb{\Pi}}_\ell(r_2, r_2') \mathbf{S} \right] \times \dots \right] = \mathbf{S}^{-1} \pmb{\Pi}_\ell(r, r') \mathbf{S},
+``` the normalization does not alter the physical solution. If ``r = r'`` we have
 
 ```math
 \pmb{\Pi}_\ell(r', r') = \pmb{1}.
@@ -140,6 +165,12 @@ Each column of the propagator matrix is one of the six linearly independent solu
 ```math
 \frac{d\pmb{y}_{\ell m}}{dr} = \pmb{A}_\ell(r)\,\pmb{y}_{\ell m}.
 ```
+
+The six linearly independent solutions are multiplied by the propagator, forming a basis matrix. To prevent ill-conditioning due to widely differing units and growing/decaying solutions, we perform a QR decomposition at every sublayer:
+
+```math
+\pmb{\Pi}_\ell(r, r') = \mathbf{Q}\,\mathbf{R},
+``` where ``\mathbf{Q}`` is an orthogonal matrix and ``\mathbf{R}`` is an upper triangular matrix. The orthogonal matrix ``\mathbf{Q}`` forms an orthonormalized basis used to propagate to the next sublayer, while the upper triangular matrix ``\mathbf{R}`` stores the mixing coefficients for back-propagation, ensuring accurate reconstruction of the physical solution. The process is repeated across all layers.
 
 We impose continuity:
 
@@ -158,6 +189,13 @@ Therefore,
 ```math
 \pmb{y}_{\ell m}(r) =
 \pmb{\Pi}_\ell(r, r_C^+)\,\pmb{I}_C\,\pmb{C}.
+```
+
+or in the normalized form
+
+```math
+\pmb{y}_{\ell m}(r) =
+\mathbf{S} \, \tilde{\pmb{\Pi}}_\ell(r, r_C^+)\,\tilde{\pmb{I}}_C\,{\pmb{C}}.
 ```
 
 This equation can be solved iteratively, up till the surface to yield the general responds of the interior to any form of tidal- or load induced deformation.
@@ -228,3 +266,4 @@ Thus,
 To solve this system we thus need only provide ``\pmb{P}_1\,\pmb{y}(a^-)``, we will provide some examples in Chapter 7 at the end of this component.
 
 ---
+
