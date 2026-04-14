@@ -20,6 +20,7 @@ module Obliqua
     # Include local jl files
     include("solid0d.jl")
     include("solid1d.jl")
+    include("solid1d_relax.jl")
     include("solid1d_mush.jl")
     include("fluid0d.jl")
     include("Hansen.jl")
@@ -29,6 +30,7 @@ module Obliqua
     # Import submodules
     import .solid0d
     import .solid1d
+    import .solid1d_relax
     import .solid1d_mush
     import .fluid0d
     import .Hansen
@@ -38,6 +40,7 @@ module Obliqua
     # Export submodules (mostly for autodoc purposes)
     export solid0d
     export solid1d
+    export solid1d_relax
     export solid1d_mush
     export fluid0d
     export Hansen
@@ -509,6 +512,16 @@ module Obliqua
                         prf_seg[iss,:], kT, kL = run_solid1d( 
                             σ, ρ_seg,
                             r_seg, η_seg,                               
+                            μc_seg[:, iss], 
+                            κ_seg, R; 
+                            ncalc=ncalc, n=n, m=m
+                        )
+                    # elseif 1D interior and heating profile from strain tensor
+                    elseif module_solid=="solid1d_relax"
+                        # calculate tides in solid region 
+                        prf_seg[iss,:], kT, kL = run_solid1d_relax( 
+                            σ, ρ_seg, r_seg,
+                            g_seg, η_seg,                               
                             μc_seg[:, iss], 
                             κ_seg, R; 
                             ncalc=ncalc, n=n, m=m
@@ -1156,6 +1169,8 @@ module Obliqua
         #   Load
         tidal_solution_L = solid1d.compute_y(rr, g, M, R, y1_4, matrices_R, n; load=true)
 
+        plotting.plot_relaxation_solution(tidal_solution_T[1:6, end, :], r[1:end-1], filename="$OUT_DIR/shooting_solution.png")
+
         # get k2 tidal Love Number (complex-valued)
         k2_T = tidal_solution_T[5, end, end] - 1
         k2_L = tidal_solution_L[5, end, end] - 1
@@ -1171,6 +1186,194 @@ module Obliqua
 
         # Renormalization factor
         power_prf = (Eμ_tot .+ Eκ_tot) .* (R ./ maximum(r)).^(2) # Compute total volumetric heating (W/m3)
+
+        return power_prf, k2_T, k2_L
+    end
+
+
+    function resample_profiles(radius, rho, visc, shear, bulk, grav, ncalc)
+
+        r_b = convert(Vector{prec}, radius)
+
+        ρ_old = convert(Vector{prec}, rho)
+        η_old = convert(Vector{prec}, visc)
+        μ_old = convert(Vector{precc}, shear)
+        κ_old = convert(Vector{prec}, bulk)
+        g_old = convert(Vector{prec}, grav)
+
+        N = length(ρ_old)
+
+        # centers of original grid
+        r_c = 0.5 .* (r_b[1:N] .+ r_b[2:N+1])
+
+        rmin = first(r_b)
+        rmax = last(r_b)
+
+        # detect steep viscosity transitions
+        logη = log.(η_old)
+
+        dlogη = abs.(diff(logη))   # logarithmic gradient
+
+        threshold = log(1e3)       # threshold for significant viscosity jump
+
+        jump_idx = findall(dlogη .> threshold)
+
+        # base stretched grid (without refinement) using a power-law stretching function
+        s = range(0, 1, length=ncalc+1)
+
+        γ = 3
+        f_base(s) = 1 - (1 - s)^γ
+
+        r_base = rmin .+ (rmax - rmin) .* f_base.(s)
+
+        # build refinement weight function
+        refine = zeros(eltype(r_base), length(r_base))
+
+        σ = 0.12 * (rmax - rmin)   # width of refinement region
+
+        for idx in jump_idx
+            r_jump = r_c[idx]
+
+            # exponential bump
+            for i in eachindex(r_base)
+                if r_base[i] > r_jump
+                    refine[i] += exp(-(r_base[i] - r_jump) / σ)     # only above transition
+                end
+            end
+        end
+
+        # normalize refinement
+        if maximum(refine) > 0
+            refine ./= maximum(refine)
+        end
+
+        # distort grid
+        α = 0.5   # strength of refinement
+
+        r_new_b = similar(r_base)
+
+        r_new_b[1] = rmin
+        for i in 2:length(r_base)
+            dr = r_base[i] - r_base[i-1]
+
+            # shrink spacing near jumps
+            dr_mod = dr * (1 - α * refine[i])
+
+            r_new_b[i] = r_new_b[i-1] + dr_mod
+        end
+
+        # rescale to enforce exact endpoints
+        r_new_b .= rmin .+ (rmax - rmin) .* (r_new_b .- r_new_b[1]) ./ (r_new_b[end] - r_new_b[1])
+
+        r_new_c = 0.5 .* (r_new_b[1:end-1] .+ r_new_b[2:end])
+
+        # interpolate profiles onto new grid using linear interpolation (log–log for viscosity and shear modulus)
+        itp_ρ = linear_interpolation(r_c, ρ_old, extrapolation_bc=Line())
+        itp_g = linear_interpolation(r_c, g_old, extrapolation_bc=Line())
+
+        itp_η = linear_interpolation(r_c, log.(η_old), extrapolation_bc=Line())
+        itp_κ = linear_interpolation(r_c, log.(κ_old), extrapolation_bc=Line())
+
+        μ_mag = abs.(μ_old)
+        μ_phase = angle.(μ_old)
+
+        itp_μ_mag   = linear_interpolation(r_c, log.(μ_mag), extrapolation_bc=Line())
+        itp_μ_phase = linear_interpolation(r_c, μ_phase, extrapolation_bc=Line())
+
+        # evaluate interpolants on new grid
+        ρ = itp_ρ.(r_new_c)
+        g = itp_g.(r_new_c)
+
+        η = exp.(itp_η.(r_new_c))
+        κ = exp.(itp_κ.(r_new_c))
+
+        μ = exp.(itp_μ_mag.(r_new_c)) .* cis.(itp_μ_phase.(r_new_c))
+
+        return r_new_b, ρ, η, μ, κ, g
+    end
+
+
+    function run_solid1d_relax( omega::Float64,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        g::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{prec,1},
+                        R::prec;
+                        ncalc::Int=2000,
+                        n::Int=2,
+                        m::Int=2
+                        )::Tuple{Array{prec,1},precc,precc}
+
+        # for debugging
+        println("Running 1D relaxation method...")
+
+        # convert inputs
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+        η = convert(Vector{prec}, visc)
+        μ = convert(Vector{precc}, shear)
+        κ = convert(Vector{prec}, bulk)
+        g = convert(Vector{prec}, g)
+
+        # determine number of layers based on frequency (more layers for higher frequencies)
+        if omega > 1e-7
+            Nr = trunc(Int, (length(r) - 1) * 100)
+        elseif omega > 1e-10
+            Nr = trunc(Int, (length(r) - 1) * 20)
+        else
+            Nr = trunc(Int, (length(r) - 1) * 10)
+        end
+
+        # resample profiles onto new grid
+        r_grid, ρ, η, μ, κ, g = resample_profiles(r, ρ, η, μ, κ, g, Nr)
+
+        # use cell centers
+        r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
+
+        # define angular grid
+        solid1d_relax.define_spherical_grid(res, n, m)
+
+        # solve y functions across grid
+        y = solid1d_relax.compute_y_relaxation(r_centers, ρ, g, μ, κ, omega, n, R)
+
+        # for debugging: plot y-function relaxation solution
+        # in particular, observe the oscillating behavior near transition zones
+        # and also near the surface for high frequencies
+        plotting.plot_relaxation_solution(y, r_centers,
+            filename="$OUT_DIR/relaxation_solution.png")
+
+        # Love numbers
+        k2_T = y[5, end] - 1
+        k2_L = 0.0 + 0im
+
+        # enforce sign consistency with omega
+        # this should not be necessary, but due to numerical issues k2_T can 
+        # end up in the wrong quadrant of the complex plane
+        if omega < 0
+            k2_T = real(k2_T) + 1im * abs(imag(k2_T))
+        else
+            k2_T = real(k2_T) - 1im * abs(imag(k2_T))
+        end
+
+        # heating profile
+        (Eμ, Eκ) = solid1d_relax.get_heating_profile(
+            y, r_grid, ρ, g, μ, κ, n, omega
+        )
+
+        Eμ_tot, _ = Eμ
+        Eκ_tot, _ = Eκ
+
+        power_prf = abs.(Eμ_tot .+ Eκ_tot) .* (R ./ maximum(r)).^(2)
+
+        # interpolate from grid back to original radius points 
+        itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
+
+        # original centers
+        r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
+
+        power_prf = itp.(r_orig_centers)
 
         return power_prf, k2_T, k2_L
     end

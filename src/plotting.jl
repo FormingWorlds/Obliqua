@@ -327,5 +327,48 @@ module plotting
     end
 
 
+    function plot_relaxation_solution(y, r; filename="relaxation_solution.png")
+
+        R = maximum(r)
+        rnorm = r ./ R
+
+        plt = plot(layout=(2,3), size=(1000,600))
+
+        for i in 1:6
+            yi = y[i, :]
+
+            # plot directly into subplot
+            plot!(
+                plt[i],
+                real(yi), rnorm,
+                label = "Re(y$i)",
+                lw = 2
+            )
+
+            plot!(
+                plt[i],
+                imag(yi), rnorm,
+                label = "Im(y$i)",
+                lw = 2,
+                ls = :dash
+            )
+
+            xlabel!(plt[i], "y$i")
+            ylabel!(plt[i], "r / R")
+            title!(plt[i], "y$i")
+
+            # fix axis direction explicitly
+            ylims!(plt[i], minimum(rnorm), 1)
+
+            # zero reference line
+            vline!(plt[i], [0], color=:black, lw=1, ls=:dot, label=false)
+        end
+
+        savefig(plt, filename)
+        @info "Saved relaxation solution plot to $filename"
+
+        return plt
+    end
+
 
 end
