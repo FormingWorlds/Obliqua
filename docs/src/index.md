@@ -2,9 +2,6 @@
     <a href="https://opensource.org/license/mit">
         <img src="https://img.shields.io/badge/License-MIT-blue.svg">
     </a>
-    <a href="https://arxiv.org/abs/2507.11266">
-        <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
-    </a>
 ```
 
 # Obliqua (Tidal heating model)
@@ -14,7 +11,7 @@ A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of
 Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
 
 ### Documentation
-https://fwl-proteus.readthedocs.io
+PROTEUS: [https://fwl-proteus.readthedocs.io](https://fwl-proteus.readthedocs.io)
 
 ### Repository structure
 * `README.md`           - This file

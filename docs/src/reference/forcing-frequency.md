@@ -3,7 +3,7 @@
 
 # Forcing Frequency
 
-Given the fact that the tidal forcing magnitude decreases exponentially with harmonnic order, we limit the calculation to only the lowest harmonnic frequency ``n = 2``. Generally, in the limit of ``R_p = a``, it suffices to only consider the quadrupolar harmonic (``n = 2``). Moreover, as we are considering a coplanar geometry, terms with ``\ell = 1`` associated with obliquity tides vanish. The Fourier modes of the second harmonnic have frequencies given by
+Given the fact that the tidal forcing magnitude decreases exponentially with harmonnic order, we may limit the calculation to only the lowest harmonnic degree ``n = 2``. Generally, in the limit of ``R_p \ll a``, it suffices to only consider the quadrupolar harmonic (``n = 2``). Nevertheless, Obliqua can also determine higher degree contributions. As of now, we are considering a coplanar geometry. Hence, terms with ``\ell = 1`` associated with obliquity tides vanish. The Fourier modes of the second harmonnic have frequencies given by
 
 ```math
 \sigma = 2\Omega - k n_{\mathrm{orb}},
