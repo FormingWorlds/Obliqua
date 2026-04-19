@@ -41,15 +41,15 @@ version = "1.0"                 # Version of this configuration file
         visc_l      = 1e2       # Pure liquid viscosity [Pa s]
         visc_lus    = 5e5       # Liquidus viscosity to use [Pa s]
         visc_s      = 1e22      # Pure solid visosity [Pa s]
-        visc_sus    = 5e13      # Solidus viscosity to use [Pa s]
+        visc_sus    = 5e5       # Solidus viscosity to use [Pa s]
         n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
         m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
         spectrum    = "adaptive"# Obtain k2 spectrum for whole spectrum (<"full">) or region of interest (<"adaptive">)
-        N_sigma     = 50        # Number probe frequencies to evaluate k2 at
-        p_min       = -20       # Minimum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over minimal 1e-17 yr interval
-        p_max       = 6         # Maximum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over maximal 1e9   yr interval
-        s_min       = "none"    # -30 Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
-        s_max       = "none"    # 40 Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        N_sigma     = 10        # Number probe frequencies to evaluate k2 at
+        p_min       = -6.7       # Minimum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over minimal 1e-17 yr interval
+        p_max       = 4         # Maximum period for orbital and axial frequencies [log(kyr)] i.e. forcing occurion over maximal 1e9   yr interval
+        s_min       = "none"    # Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        s_max       = "none"    # Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
         
         material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
         alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
@@ -63,16 +63,19 @@ version = "1.0"                 # Version of this configuration file
         # - "solid1d"       : Radially resolved solid model. Solves the tidal response through a
         #                     layered solid interior. Allows realistic rigidity, density, and
         #                     rheology profiles.
+        # - "solid1d-relax" : Same as solid1d, but uses the relaxation method to obtain a solution 
+        #                     (instead of the shooting method) which is generally more stable. 
+        #                     However, this method is generally slower.
         # - "solid1d-mush"  : Same as solid1d but includes a partially molten/porous ("mushy") region
         #                     with evolving rheology between solid and liquid behavior.
-        module_solid = "solid1d"
+        module_solid = "solid1d-relax"
 
         # Mushy layer model
         # Controls how partially molten regions are treated.
         # - "none"          : No explicit mush layer treatment.
         # - "interp"        : Rheological properties transition smoothly between solid and fluid
         #                     regimes using interpolation across the melt fraction range.
-        module_mushy = "interp"
+        module_mushy = "none"
 
         # Fluid layer model
         # Controls how the fluid (e.g., magma ocean or atmosphere) responds to tidal forcing.
@@ -84,7 +87,10 @@ version = "1.0"                 # Version of this configuration file
         module_fluid = "fluid1d"
 
         [orbit.obliqua.solid]
-            ncalc       = 1000      # Number of sublayers to use for dim=1 solid tides
+            ncalc       = 100       # Number of sublayers to use for dim=1 solid tides (for shooting method)
+            dr_min      = 300       # Minimum spacing between grid points (for relaxation method) [m]
+            dr_max      = 3000      # Maximum spacing between grid points (for relaxation method) [m]
+            core        = "liquid"  # Core solution to use as CMB boundary condition, options: "liquid", "solid", "inertial"
             bulk_l      = 1e9       # Liquid bulk modulus [Pa]
             permea      = 1e-7      # Permeability [m^2]
             porosity_thresh = 1e-5  # Porosity threshold, below this value no mush. [dimensionless]
