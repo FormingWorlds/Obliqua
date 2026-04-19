@@ -20,8 +20,8 @@ module Obliqua
     # Include local jl files
     include("solid0d.jl")
     include("solid1d.jl")
-    include("solid1d_relax.jl")
     include("solid1d_mush.jl")
+    include("solid1d_relax.jl")
     include("fluid0d.jl")
     include("Hansen.jl")
     include("load.jl")
@@ -30,8 +30,8 @@ module Obliqua
     # Import submodules
     import .solid0d
     import .solid1d
-    import .solid1d_relax
     import .solid1d_mush
+    import .solid1d_relax
     import .fluid0d
     import .Hansen
     import .load
@@ -40,8 +40,8 @@ module Obliqua
     # Export submodules (mostly for autodoc purposes)
     export solid0d
     export solid1d
-    export solid1d_relax
     export solid1d_mush
+    export solid1d_relax
     export fluid0d
     export Hansen
     export load
@@ -393,7 +393,7 @@ module Obliqua
         # orbital and axial frequencies
         if spectrum == "adaptive"
             # get s range for proper convergence for given eccentricity
-            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m; tol=1e-3)
+            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m)
 
             if s_min === nothing 
                 s_min = s_min_ecc
@@ -521,7 +521,7 @@ module Obliqua
                             ncalc=ncalc, n=n, m=m
                         )
                     # elseif 1D interior and heating profile from strain tensor
-                    elseif module_solid=="solid1d_relax"
+                    elseif module_solid=="solid1d-relax"
                         # calculate tides in solid region 
                         prf_seg[iss,:], kT, kL = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,

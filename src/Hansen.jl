@@ -5,8 +5,13 @@ module Hansen
 
     using FFTW
     using LinearAlgebra
+    using NCDatasets
 
     export get_hansen
+
+    # Get Obliqua root directory
+    ROOT_DIR = abspath(joinpath(dirname(abspath(@__FILE__)),"../"))
+    RES_DIR  = joinpath(ROOT_DIR,"res/")
 
     # Precision types
     prec = BigFloat
@@ -14,32 +19,62 @@ module Hansen
 
 
     """
-        get_k_range(ecc, n; tol=0.01)
+        get_k_range(e, n, m)
 
-    Compute k-range for Hansen coefficients given eccentricity e and tidal degree n.
+    Compute k-range for Hansen coefficients given eccentricity e and tidal degree n and order m.
     
     # Arguments
     - `e::Float64`                      : Eccentricity of the orbit.
     - `n::Int`                          : Tidal degree l.
     - `m::Int`                          : Tidal order m.
     
-    # Keyword Arguments
-    - `tol::Float64=0.01`               : Desired fractional contribution threshold for e^p.
-
     # Returns
     - `k_min::Int`                      : Minimum k-index for Hansen coefficients.
     - `k_max::Int`                      : Maximum k-index for Hansen coefficients.
     """
-    function get_k_range(e::prec, n::Int, m::Int; tol::Float64=0.01)
-        # estimate maximum eccentricity power p_max
-        # power of e where contribution ~ tol
-        p_max = ceil(Int, log(tol)/log(e+eps()))
-        
-        k_min = -(n + p_max)
-        k_max =  n + p_max
-        
-        if m == 0
-            k_min = 0
+    function get_k_range(e, n::Int, m::Int)::Tuple{Int, Int}
+
+        path = joinpath(RES_DIR, "hansen_k_table.nc")
+
+        ds = NCDataset(path, "r")
+
+        n_vals   = ds["n"][:]
+        m_vals   = ds["m"][:]
+        ecc_vals = ds["ecc"][:]
+        kmin_vals = ds["k_min"][:]
+        kmax_vals = ds["k_max"][:]
+
+        close(ds)
+
+        # filter matching (n, m)
+        mask_nm = (n_vals .== n) .& (m_vals .== m)
+
+        if !any(mask_nm)
+            error("No entries found for n=$n, m=$m in Hansen table.")
+        end
+
+        ecc_sub  = ecc_vals[mask_nm]
+        kmin_sub = kmin_vals[mask_nm]
+        kmax_sub = kmax_vals[mask_nm]
+
+        # find smallest ecc >= e
+        # convert e to Float64 for comparison (table is Float64)
+        e_val = Float64(e)
+
+        valid = ecc_sub .>= e_val
+
+        if any(valid)
+            idx_local = findfirst(valid)  # assumes ecc_list was sorted ascending
+        else
+            # if e is larger than any tabulated value → fallback to largest available
+            idx_local = argmax(ecc_sub)
+        end
+
+        k_max = kmax_sub[idx_local]
+        k_min = kmin_sub[idx_local]
+
+        if m == 0 
+            k_min = 0 
         end
 
         return k_min, k_max
