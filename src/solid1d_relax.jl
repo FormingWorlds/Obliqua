@@ -8,7 +8,6 @@ module solid1d_relax
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
-    using Statistics
 
     prec = BigFloat
     precc = Complex{BigFloat}
@@ -26,58 +25,98 @@ module solid1d_relax
 
 
     """
-        expand_layers(r; nr::Int=80)
+        resample_profiles(radius, rho, visc, shear, bulk, grav, ncalc)
 
-    Discretize the primary layers given by `r` into `nr` discrete secondary layers.
+    Resample the input profiles onto a new grid with `ncalc` points. The new grid is generated using a 
+    stretched and refined scheme, which allows for better resolution in regions of interest (e.g., near 
+    layer boundaries). 
 
     # Arguments
-    - `r::Array{Float64,2}`               : 2D array of primary layer boundaries.
-
-    # Keyword Arguments
-    - `nr::Int=80`                        : Number of secondary layers to discretize.
+    - `radius::Vector{Float64}`           : Original radius profile (layer boundaries).
+    - `rho::Vector{Float64}`              : Original density profile (defined at layer centers).
+    - `visc::Vector{Float64}`             : Original viscosity profile (defined at layer centers).
+    - `shear::Vector{Float64}`            : Original shear modulus profile (defined at layer centers).
+    - `bulk::Vector{Float64}`             : Original bulk modulus profile (defined at layer centers).
+    - `m_core::Float64`                   : Mass of the core, used for gravity calculations.
+    - `Δr_min::Float64`                   : Minimum grid spacing for the new grid.
+    - `Δr_max::Float64`                   : Maximum grid spacing for the new grid.
 
     # Returns
-    - `rs::Array{Float64,2}`              : 2D array of secondary layer boundaries/
-    """
-    function expand_layers(r; nr::Int=80)
-        
-        rs = zeros(Float64, (nr+1, length(r)-1))
-        
-        for i in 1:length(r)-1
-            rfine = LinRange(r[i], r[i+1], nr+1)
-            rs[:, i] .= rfine[1:end] 
+    Tuple of resampled profiles on the new grid:
+    - `r_new_b::Vector{prec}`             : New radius profile at layer boundaries.
+    - `ρ_new::Vector{prec}`               : New density profile at layer centers.
+    - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
+    - `μ_new::Vector{prec}`               : New shear modulus profile at layer centers.
+    - `κ_new::Vector{prec}`               : New bulk modulus profile at layer centers.
+    - `g_new::Vector{prec}`               : New gravity profile at layer centers.
+    """ 
+    function resample_profiles(radius, rho, visc, shear, bulk, m_core, dr_min, dr_max)
+        # setup grids
+        α = log(dr_max / dr_min)
+
+        N = Int(round((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
+
+        # indices i = 1:N
+        i = collect(1:N)
+
+        # convert to BigFloat for consistency
+        i_bf = BigFloat.(i)
+        N_bf = BigFloat(N)
+
+        # compute normalized coordinate (N - i)/(N - 1)
+        ξ = (N_bf .- i_bf) ./ (N_bf - 1)
+
+        # compute r_i
+        r_new_b = radius[end] .+ (radius[1] - radius[end]) .* (
+            (exp.(α .* ξ) .- 1) ./ (exp(α) - 1)
+        )
+
+        # cell centers
+        r_new_c = 0.5 .* (r_new_b[1:end-1] .+ r_new_b[2:end])
+
+        # obtain new profiles (Constant per original layer)
+        ρ_new = similar(rho, N-1)
+        η_new = similar(visc, N-1)
+        μ_new = similar(shear, N-1)
+        κ_new = similar(bulk, N-1)
+
+        for i in 1:N-1
+            # find index such that r_b[idx] <= r_new_c[i] < r_b[idx+1]
+            idx = searchsortedfirst(radius, r_new_c[i]) - 1
+            idx = clamp(idx, 1, length(rho)) # Safety clamp
+
+            ρ_new[i] = rho[idx]
+            η_new[i] = visc[idx]
+            μ_new[i] = shear[idx]
+            κ_new[i] = bulk[idx]
         end
-    
-        return rs
+
+        g_new = get_g(r_new_b, ρ_new, m_core) 
+
+        return r_new_b, ρ_new, η_new, μ_new, κ_new, g_new
     end
 
 
     """
-        get_g(r, ρ)
+        get_g(r, ρ, m_core)
 
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
     # Arguments
-    - `r::Array{Float64,2}`               : 2D array of layer boundaries. 
+    - `r::Array{Float64,1}`               : 1D array of layer boundaries. 
     - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::Float64`                   : Mass of the core.
 
     # Returns
-    - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
-
-    # Notes
-    `r` must be be a 2D array, with index 1 representing the top radius of secondary layers, and index 2
-    representing the top radius of primary layers. 
+    - `g::Array{Float64,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
     """
-    function get_g(r, ρ)
-        g = zeros(Float64, size(r))
-        M = zeros(Float64, size(r))
+    function get_g(r, ρ, m_core)
 
-        for i in 1:size(r)[2]
-            M[2:end,i] = 4.0/3.0 * π .* diff(r[:,i].^3) .* ρ[i]
-        end
-    
-        g[2:end,:] .= G*accumulate(+,M[2:end,:]) ./ r[2:end,:].^2
-        g[1,2:end] = g[end,1:end-1]
+        dm = 4.0/3.0 * π .* diff(r.^3) .* ρ
+
+        M_enc = cumsum(dm) .+ m_core
+            
+        g = G .* M_enc ./ r[2:end].^2
 
         return g
     end
@@ -183,30 +222,28 @@ module solid1d_relax
 
 
     """
-        convert_params_to_prec(r, ρ, g, μ, κs)
+        get_scales(R0, M0, s0)
 
-    Convert input parameters into the required precision.
+    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and time 
+    scale `s0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
+
     # Arguments
-    - `r::Array{Float64,2}`               : 2D array of layer boundaries.
-    - `ρ::Array{Float64,1}`               : 1D array of layer densities. 
-    - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. 
-    - `μ::Array{Float64,1}`               : 1D array of layer shear moduli.
-    - `κs::Array{Float64,1}`              : 1D array of layer bulk moduli. 
-    
+    - `R0::prec`                         : Reference radius scale (e.g., planetary radius).
+    - `M0::prec`                         : Reference mass scale (e.g., planetary mass).
+    - `s0::prec`                         : Reference time scale (e.g., 1 day in seconds).
+
     # Returns
-    Tuple of converted parameters in the required precision.
+    Tuple of characteristic scales:
+    - `R0::prec`                         : Length scale (m).
+    - `M0::prec`                         : Mass scale (kg).
+    - `s0::prec`                         : Time scale (s).
+    - `ρ0::prec`                         : Density scale (kg/m^3).
+    - `G0::prec`                         : Gravitational constant scale (m^3 kg^-1 s^-2).
+    - `g0::prec`                         : Gravity scale (m/s^2).
+    - `μ0::prec`                         : Shear modulus scale (Pa).
+    - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
+    - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
     """
-    function convert_params_to_prec(r, ρ, g, μ, κs)
-        r_prec = convert(Array{prec}, r)
-        ρ_prec = convert(Array{prec}, ρ)
-        g_prec = convert(Array{prec}, g)
-        μ_prec = convert(Array{precc}, μ)
-        κs_prec = convert(Array{precc}, κs)
-
-        return (r_prec,  ρ_prec, g_prec, μ_prec, κs_prec)
-    end
-
-
     function get_scales(R0, M0, s0)
 
         ρ0 = M0 / R0^3            # 1000 kg/m^3
@@ -228,6 +265,17 @@ module solid1d_relax
     end
 
 
+    """
+        doublefactorial(n)
+
+    Compute the double factorial of an integer n, defined as n!! = n * (n-2) * (n-4) * ... until 1 or 0.
+
+    # Arguments
+    - `n::Integer`                     : The integer for which to compute the double factorial. Must be non-negative.
+
+    # Returns
+    - `result::Integer`                 : The double factorial of n.
+    """
     function doublefactorial(n::Integer)
         n < 0 && error("doublefactorial not defined for negative n")
         n == 0 && return one(n)
@@ -241,20 +289,11 @@ module solid1d_relax
     end
 
 
-    function safe_sph_besselj(l, x)
-        try
-            return sphericalbesselj(l, x)
-        catch
-            # asymptotic fallback
-            return sin(x - l*pi/2) / x
-        end
-    end
-
-
     """
-        get_Ic(ω, r, ρ, g, μ, K, type, n; M=6, N=3)
+        get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
             
     Get the core solution vector.
+    https://academic.oup.com/gji/article/203/3/2150/2594863
     
     # Arguments
     - `ω::prec`                          : Angular frequency.
@@ -287,6 +326,9 @@ module solid1d_relax
             Ic[6,1] = 2(n-1)*r^(n-1)
             Ic[6,3] = 4π * G_norm * ρ 
         elseif type == "inertial"
+
+            @warn "Inertial core boundary conditions have not been fully implemented. Use with caution."
+
             φ = 4π * G_norm * ρ / 3
 
             Ic[1,1] = n * r^(n-1)
@@ -305,8 +347,8 @@ module solid1d_relax
 
             x64 = ComplexF64(x)
 
-            jl_n   = safe_sph_besselj(n, x64)
-            jl_np1 = safe_sph_besselj(n+1, x64)
+            jl_n   = sphericalbesselj(n, x64)
+            jl_np1 = sphericalbesselj(n+1, x64)
 
             ϕl   = doublefactorial(2n+1) / x^n * jl_n
             ϕlp1 = doublefactorial(2n+3) / x^(n+1) * jl_np1
@@ -327,7 +369,7 @@ module solid1d_relax
 
             Ic[:,3] .= 0.0
             Ic[2,3] = 1.0   # tangential slip
-        else # incompressible solid core
+        elseif type == "solid" # incompressible solid core
             # First column
             Ic[1, 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
             Ic[2, 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
@@ -346,7 +388,8 @@ module solid1d_relax
             Ic[3, 3] = -ρ * r^n
             Ic[5, 3] = -r^n
             Ic[6, 3] = -( 2n + 1) * r^( n-1 )
-
+        else
+            error("Invalid core type: $type. Must be 'liquid', 'inertial', or 'solid'.")
         end
 
         return Ic
@@ -354,11 +397,12 @@ module solid1d_relax
 
 
     """
-        get_A(r, ρ, g, μ, K, n)
+        get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
 
     # Arguments
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
@@ -366,11 +410,12 @@ module solid1d_relax
     - `K::prec`                          : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
+
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-
-    # Notes
-    See also [`get_A!`](@ref)
     """
     function get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
         A = zeros(precc, 6, 6) 
@@ -380,7 +425,7 @@ module solid1d_relax
 
 
     """
-        get_A!(A, r, ρ, g, μ, K, n; λ=nothing)
+        get_A!(A, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
@@ -388,6 +433,7 @@ module solid1d_relax
 
     # Arguments
     - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
@@ -396,10 +442,8 @@ module solid1d_relax
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
     - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-
-    # Notes
-    See also [`get_A`](@ref)
     """
     function get_A!(A::Matrix, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
         if isnothing(λ)
@@ -443,19 +487,38 @@ module solid1d_relax
     end
 
 
-    function solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet; core="inertial")
+    """
+        solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet, ρ_core; core="liquid")
+
+    Solve the radial system of ODEs for the solid-body problem using a relaxation method. This function 
+    implements the forward-backward relaxation scheme described in the main text of N. Kobayashi (2006).
+    
+    # Arguments
+    - `r::Vector{prec}`                 : Vector of radial grid points (layer boundaries).
+    - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
+    - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
+    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `ω::prec`                         : Angular frequency of the tidal forcing.
+    - `n::Int`                          : Tidal degree.
+    - `R_planet::prec`                  : Planetary radius, used for surface boundary conditions.
+    - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
+
+    # Keyword Arguments
+    - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+
+    # Returns
+    - `XN::Matrix{precc}`               : 6x6 matrix representing the solution at the surface (radius = R_planet). Each column corresponds to a linearly independent solution of the ODE system, and each row corresponds to a state variable (displacements, stresses, potential).
+    - `R::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the solution at each radial grid point. Each matrix contains the state variables (displacements, stresses, potential) for the 6-component system of ODEs.
+    - `b::Vector{precc}`                : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
+    """
+    function solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet, ρ_core; core="liquid")
 
         Nr = length(r)
 
-        # scaling
-        # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1, 1, 1)
+        # non-dimensional scaling
+        # this implementation needs to be double-checked for consistency.
         R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(9.8e6, 4.3e22, 4.3e3)
-
-        # Extract sub-blocks for BC scaling
-        Su = S[1:3, 1:3]
-        Sl = S[4:6, 4:6]
-        Sinv_u = Sinv[1:3, 1:3]
-        Sinv_l = Sinv[4:6, 4:6]
 
         ωs = ω * s0
         rs = r ./ R0
@@ -465,27 +528,8 @@ module solid1d_relax
         Ks = K ./ μ0
 
         # boundary conditions
-        B1 = zeros(precc, 3, 6)
-
-        function isbad(A)
-            any(x -> !isfinite(real(x)) || !isfinite(imag(x)), A)
-        end
-
-        try
-            B1 .= get_core_bc!(ω, r[1], ρ[1], g[1], μ[1], K[1], core, n; G0=1)
-
-            if isbad(B1)
-                println("NaN/Inf detected in core BC → switching to liquid core")
-                B1 .= get_core_bc!(ω, r[1], ρ[1], g[1], μ[1], K[1], "liquid", n; G0=1)
-            end
-
-        catch e
-            println("Error in core BC → switching to liquid core")
-            B1 .= get_core_bc!(ω, r[1], ρ[1], g[1], μ[1], K[1], "liquid", n; G0=1)
-        end
-        
+        B1    = get_core_bc!(ω, r[1], ρ_core, g[1], μ[1], K[1], core, n; G0=1)        
         BN, b = get_surface_bc!(R_planet, n)
-        # BN, b = get_surface_bc!(R_planet, n)
 
         # storage
         R = Vector{Matrix{precc}}(undef, Nr)
@@ -540,7 +584,6 @@ module solid1d_relax
         # final layer (n = N)
         dr = rs[Nr] - rs[Nr-1]
 
-
         A_Nm = S * get_A(ωs, rs[end-1], ρs[end-1], gs[end-1], μs[end-1], Ks[end-1], n; G0=G0) * Sinv
         A_N  = S * get_A(ωs, rs[end],   ρs[end],   gs[end],   μs[end],   Ks[end],   n; G0=G0) * Sinv
 
@@ -558,117 +601,31 @@ module solid1d_relax
         return XN, R, b
     end
 
-    # function solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet; core="inertial")
 
-    #     Nr = length(r)
+    """
+        get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1)
 
-    #     # scaling
-    #     # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1, 1, 1)
-    #     R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(9.8e6, 4.3e22, 4.3e3)
+    Get the core boundary condition matrix `B` and vector `b` for the solid-body problem. The core 
+    boundary conditions are derived from the requirement that the radial stress at the core-mantle 
+    boundary must balance the tidal potential, and that the tangential stresses must vanish.
 
-    #     ωs = ω * s0
-    #     rs = r ./ R0
-    #     ρs = ρ ./ ρ0
-    #     gs = g ./ g0
-    #     μs = μ ./ μ0
-    #     Ks = K ./ μ0
+    # Arguments
+    - `ω::Float64`                       : Forcing frequency.
+    - `r::prec`                          : Radial position of the core-mantle boundary.
+    - `ρ::prec`                          : Density at the core-mantle boundary.
+    - `g::prec`                          : Gravity at the core-mantle boundary.
+    - `μ::precc`                         : Complex shear modulus at the core-mantle boundary.
+    - `K::prec`                          : Bulk modulus at the core-mantle boundary.
+    - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+    - `n::Int`                           : Tidal degree.
 
-    #     println(g0)
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
 
-    #     # boundary conditions
-    #     B1 = zeros(precc, 3, 6)
-
-    #     # function isbad(A)
-    #     #     any(x -> !isfinite(real(x)) || !isfinite(imag(x)), A)
-    #     # end
-
-    #     # try
-    #     #     B1 .= get_core_bc!(ωs, rs[1], ρs[1], gs[1], μs[1], Ks[1], core, n)
-
-    #     #     if isbad(B1)
-    #     #         println("NaN/Inf detected in core BC → switching to liquid core")
-    #     #         B1 .= get_core_bc!(ωs, rs[1], ρs[1], gs[1], μs[1], Ks[1], "liquid", n)
-    #     #     end
-
-    #     # catch e
-    #     #     println("Error in core BC → switching to liquid core")
-    #     #     B1 .= get_core_bc!(ωs, rs[1], ρs[1], gs[1], μs[1], Ks[1], "liquid", n)
-    #     # end
-    #     B1 .= get_core_bc!(ωs, rs[1], ρs[1], gs[1], μs[1], Ks[1], core, n; G0=G0)
-    #     BN, b = get_surface_bc!(R_planet/R0, n)
-
-    #     # storage
-    #     R = Vector{Matrix{precc}}(undef, Nr)
-
-    #     # first layer (n = 1)
-    #     dr = rs[2] - rs[1]
-
-    #     A1 = get_A(ωs, rs[1], ρs[1], gs[1], μs[1], Ks[1], n; G0=G0)
-    #     A2 = get_A(ωs, rs[2], ρs[2], gs[2], μs[2], Ks[2], n; G0=G0)
-
-    #     I6 = Matrix{precc}(I, 6, 6)
-
-    #     C1 =  I6 + 0.5 * dr * A1
-    #     D2 = -I6 + 0.5 * dr * A2
-
-    #     # split matrices
-    #     C1u, C1l = C1[1:3, :], C1[4:6, :]
-    #     D2u, D2l = D2[1:3, :], D2[4:6, :]
-
-    #     # build S1 and Q1
-    #     S1 = [B1; C1u]              # 6×6
-    #     Q1 = [zeros(3,6); D2u]      # 6×6
-
-    #     # initial recursion
-    #     R[1] = -pinv(S1) * Q1
-
-    #     # forward recursion
-    #     for i in 2:Nr-1
-
-    #         dr = rs[i+1] - rs[i]
-
-    #         A_n  = get_A(ωs, rs[i],   ρs[i],   gs[i],   μs[i],   Ks[i],   n; G0=G0)
-    #         A_np = get_A(ωs, rs[i+1], ρs[i+1], gs[i+1], μs[i+1], Ks[i+1], n; G0=G0)
-
-    #         Cn  =  I6 + 0.5 * dr * A_n
-    #         Dnp = -I6 + 0.5 * dr * A_np
-
-    #         # split
-    #         Cn_u, Cn_l = Cn[1:3, :], Cn[4:6, :]
-    #         Dnp_u, Dnp_l = Dnp[1:3, :], Dnp[4:6, :]
-
-    #         # build blocks
-    #         Pn = [Cn_l; zeros(3,6)]
-    #         Sn = [Dnp_l; Cn_u]
-    #         Qn = [zeros(3,6); Dnp_u]
-
-    #         # recursion
-    #         Xn = Pn * R[i-1] + Sn
-    #         R[i] = -pinv(Xn) * Qn
-    #     end
-
-    #     # final layer (n = N)
-    #     dr = rs[Nr] - rs[Nr-1]
-
-
-    #     A_Nm = get_A(ωs, rs[end-1], ρs[end-1], gs[end-1], μs[end-1], Ks[end-1], n; G0=G0)
-    #     A_N  = get_A(ωs, rs[end],   ρs[end],   gs[end],   μs[end],   Ks[end],   n; G0=G0)
-
-    #     CNm =  I6 + 0.5 * dr * A_Nm
-    #     DN  = -I6 + 0.5 * dr * A_N
-
-    #     CNm_l = CNm[4:6, :]
-    #     DN_l  = DN[4:6, :]
-
-    #     PN = [CNm_l; zeros(3,6)]
-    #     SN = [DN_l; BN]
-
-    #     XN = PN * R[Nr-1] + SN
-
-    #     return XN, R, b
-    # end
-
-
+    # Returns
+    - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
+    - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the core boundary conditions.
+    """
     function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1)
 
         Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, M=6, N=3)
@@ -700,8 +657,25 @@ module solid1d_relax
     end
 
 
+    """
+        get_surface_bc!(R, n)
+
+    Get the surface boundary condition vector `b` and matrix `BN` for the solid-body problem. The surface 
+    boundary conditions are derived from the requirement that the radial stress at the surface must balance 
+    the tidal potential, and that the tangential stresses must vanish.
+
+    # Arguments
+    - `R::prec`                          : Planetary radius, used for surface boundary conditions.
+    - `n::Int`                           : Tidal degree.
+
+    # Returns
+    - `BN::Array{precc,2}`               : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
+    - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
+    """
     function get_surface_bc!(R, n)
         
+        # first three elements of b are zero, last three 
+        # elements are given in the documentation.
         b = zeros(precc, 6) 
         b[6] = (2n+1)/R
         
@@ -719,17 +693,35 @@ module solid1d_relax
     end
 
 
-    function compute_y_relaxation(r, ρ, g, μ, K, ω, n, R)
+    """
+        compute_y_relaxation(r, ρ, g, μ, K, ω, n, R, ρ_core; core="liquid")
 
-        if ω < 1e-6
-            core = "liquid"
-        else
-            core = "inertial"
-        end
+    Compute the solution `y` to the solid-body problem using a relaxation method. This function performs the 
+    forward-backward relaxation scheme described in the main text of N. Kobayashi (2006), where we first solve 
+    the radial system of ODEs to obtain the solution at the surface, and then perform back-substitution to 
+    compute the solution at all interior points. 
 
-        # core = "liquid"
+    # Arguments
+    - `r::Vector{prec}`                 : Vector of radial grid points (layer boundaries).
+    - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
+    - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
+    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `ω::prec`                         : Angular frequency of the tidal forcing.
+    - `n::Int`                          : Tidal degree.
+    - `R::prec`                         : Planetary radius, used for surface boundary conditions.
+    - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
 
-        XN, R, b = solve_radial_system(r, ρ, g, μ, K, ω, n, R; core=core)
+    # Keyword Arguments
+    - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+
+    # Returns
+    - `y::Matrix{precc}`                : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
+    """    
+    function compute_y_relaxation(r, ρ, g, μ, K, ω, n, R, ρ_core; core="liquid")
+
+        # solve radial system to get surface solution and recursion matrices
+        XN, R, b = solve_radial_system(r, ρ, g, μ, K, ω, n, R, ρ_core; core=core)
 
         Nr = length(r)
         T = eltype(XN)
@@ -816,9 +808,7 @@ module solid1d_relax
 
     # Returns
     - `Eμ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to shear, in W.
-    - `Eμ_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to shear, with dimensions corresponding to the secondary layer and primary layer indices.
     - `Eκ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to compaction, in W.
-    - `Eκ_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to compaction, with dimensions corresponding to the secondary layer and primary layer indices.
     """
     function get_heating_profile(y, r, ρ, g, μ, κ, n, ω)
 
@@ -865,15 +855,12 @@ module solid1d_relax
             # angular integration
             weight = sin.(clats)
 
-            Eμ_vol[i] = sum(weight .* Eμ_loc * dres^2) * rr^2 * dr / dvol
-            Eκ_vol[i] = sum(weight .* Eκ_loc * dres^2) * rr^2 * dr / dvol
+            Eμ_tot[i] = sum(weight .* Eμ_loc * dres^2) * rr^2 * dr / dvol
+            Eκ_tot[i] = sum(weight .* Eκ_loc * dres^2) * rr^2 * dr / dvol
 
-            # accumulate totals
-            Eμ_tot[i] = Eμ_vol[i] 
-            Eκ_tot[i] = Eκ_vol[i] 
         end
 
-        return (Eμ_tot, Eμ_vol), (Eκ_tot, Eκ_vol)
+        return Eμ_tot, Eκ_tot
     end
 
 end

@@ -323,6 +323,9 @@ module Obliqua
 
         module_solid = cfg["orbit"]["obliqua"]["module_solid"]
         ncalc        = cfg["orbit"]["obliqua"]["solid"]["ncalc"]
+        dr_min       = cfg["orbit"]["obliqua"]["solid"]["dr_min"]
+        dr_max       = cfg["orbit"]["obliqua"]["solid"]["dr_max"]
+        core         = cfg["orbit"]["obliqua"]["solid"]["core"]
         bulk_l       = cfg["orbit"]["obliqua"]["solid"]["bulk_l"]
         permea       = cfg["orbit"]["obliqua"]["solid"]["permea"]
         porosity_thresh = cfg["orbit"]["obliqua"]["solid"]["porosity_thresh"]
@@ -347,8 +350,6 @@ module Obliqua
         module_fluid = nothing_if_none(module_fluid)
         module_mushy = nothing_if_none(module_mushy)
 
-        # shear .= ifelse.((shear .< 1e10), 3.2e9, shear)
-
         # convert interior profiles to BigFloat                 
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
@@ -372,6 +373,10 @@ module Obliqua
             throw("CMB radius not at bottom of mantle, did you properly order the interior arrays?")
         end
 
+        # get core mass from core density and radius
+        ρ_core = convert(prec, cfg["struct"]["core_density"])
+        m_core = (4/3)*π*r[1]^3*ρ_core
+
         # find planet radius (m)
         R = maximum(r)
 
@@ -379,8 +384,8 @@ module Obliqua
         dv = 4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) 
         dm = dv .* ρ
 
-        # cumulative enclosed mass
-        M_enc = cumsum(dm)
+        # cumulative enclosed mass, including core mass
+        M_enc = cumsum(dm) .+ m_core
 
         # gravity at each layer radius
         g = G .* M_enc ./ r[2:end].^2
@@ -419,7 +424,6 @@ module Obliqua
             t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
             σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
             σ_range = reshape(σ_range, :)
-            print("Using full spectrum with $N_σ frequencies from $(σ_range[1]) /s to $(σ_range[end]) /s.")
         end
 
         # get forcing frequency dependent complex shear modulus
@@ -433,7 +437,7 @@ module Obliqua
         prf_total = zeros(prec, N_σ, N_layers)
 
         # core density for bottom boundary
-        ρ_mean_lower = convert(prec, cfg["struct"]["core_density"])
+        ρ_mean_lower = ρ_core
         # Rayleigh drag efficiency at fluid core
         efficiency_seg = efficiency
 
@@ -521,10 +525,10 @@ module Obliqua
                         # calculate tides in solid region 
                         prf_seg[iss,:], kT, kL = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
-                            g_seg, η_seg,                               
-                            μc_seg[:, iss], 
-                            κ_seg, R; 
-                            ncalc=ncalc, n=n, m=m
+                            η_seg, μc_seg[:, iss], 
+                            κ_seg, R, m_core, ρ_core; 
+                            dr_min=dr_min, dr_max=dr_max, 
+                            n=n, m=m, core=core
                         )
                     # elseif 1D interior with mush interface and heating profile from strain tensor
                     elseif module_solid=="solid1d-mush"
@@ -582,16 +586,6 @@ module Obliqua
                     # don't model mush tides
                     if module_mushy===nothing
                         kT, kL = 0., 0.
-                    elseif module_solid=="solid1d"
-                        # calculate tides in solid region 
-                        prf_seg[iss,:], kT, kL = run_solid1d( 
-                            σ, ρ_seg,
-                            r_seg, η_seg,                               
-                            μc_seg[:, iss], 
-                            κ_seg, R; 
-                            ncalc=ncalc, n=n, m=m
-                        )
-                        # elseif heating profile from neighbouring segments
                     elseif module_mushy=="interp"
                         # turn on interpolation mode
                         interp_active = true
@@ -607,8 +601,9 @@ module Obliqua
                                 t_width=t_width, b_width=b_width
                             )
                         end
-
                         # Then model next segment to get heating at the upper interface P_t
+                    else
+                        throw("No compatible mush tides module: $module_mushy.")
                     end
 
                 # if segment is ice
@@ -660,7 +655,7 @@ module Obliqua
             interp_previous = false
 
             # step to next segment
-        end
+        end  
 
         # plot segment k2 spectra
         plt = plotting.plot_imagk2_spectra(σ_range, abs.(.-imag.(knms_T)), segments; outpath="$OUT_DIR/all_layers_k2.png") 
@@ -669,6 +664,8 @@ module Obliqua
         knms_total = copy(knms_T[:, end])  
 
         # loop from top (surface) to just above CMB
+        # This implementation is currently only valid for CMB -> Solid -> Fluid -> Surface layering, 
+        # and would need to be adapted for more complex layering (e.g., fluid under solid).
         for iseg in reverse(1:length(segments)-1)
             for i in 1:N_σ
                 knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
@@ -906,7 +903,7 @@ module Obliqua
 
         # masks for liquid and solid regions
         mask_l = η .< η_l
-        #mask_s = (η_s .< η .< 1e20)
+        # mask_s = (η_s .< η .< 1e13)
         mask_s = η_s .< η 
 
         # total mantle thickness
@@ -1169,8 +1166,6 @@ module Obliqua
         #   Load
         tidal_solution_L = solid1d.compute_y(rr, g, M, R, y1_4, matrices_R, n; load=true)
 
-        plotting.plot_relaxation_solution(tidal_solution_T[1:6, end, :], r[1:end-1], filename="$OUT_DIR/shooting_solution.png")
-
         # get k2 tidal Love Number (complex-valued)
         k2_T = tidal_solution_T[5, end, end] - 1
         k2_L = tidal_solution_L[5, end, end] - 1
@@ -1189,125 +1184,51 @@ module Obliqua
 
         return power_prf, k2_T, k2_L
     end
+    
 
+    """
+        run_solid1d_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core; dr_min=300, dr_max=3000, n=2, m=2)
 
-    function resample_profiles(radius, rho, visc, shear, bulk, grav, ncalc)
+    Use 1D solid tides model with relaxation method to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
-        r_b = convert(Vector{prec}, radius)
+    # Arguments
+    - `omega::prec`                     : Forcing frequency range.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
+    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `R::prec`                         : Planet radius.
+    - `m_core::prec`                    : Core mass.
+    - `ρ_core::prec`                    : Core density.
 
-        ρ_old = convert(Vector{prec}, rho)
-        η_old = convert(Vector{prec}, visc)
-        μ_old = convert(Vector{precc}, shear)
-        κ_old = convert(Vector{prec}, bulk)
-        g_old = convert(Vector{prec}, grav)
+    # Keyword Arguments
+    - `dr_min::Int=300`                 : Minimum layer thickness in km.
+    - `dr_max::Int=3000`                : Maximum layer thickness in km.
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
+    - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
 
-        N = length(ρ_old)
-
-        # centers of original grid
-        r_c = 0.5 .* (r_b[1:N] .+ r_b[2:N+1])
-
-        rmin = first(r_b)
-        rmax = last(r_b)
-
-        # detect steep viscosity transitions
-        logη = log.(η_old)
-
-        dlogη = abs.(diff(logη))   # logarithmic gradient
-
-        threshold = log(1e3)       # threshold for significant viscosity jump
-
-        jump_idx = findall(dlogη .> threshold)
-
-        # base stretched grid (without refinement) using a power-law stretching function
-        s = range(0, 1, length=ncalc+1)
-
-        γ = 3
-        f_base(s) = 1 - (1 - s)^γ
-
-        r_base = rmin .+ (rmax - rmin) .* f_base.(s)
-
-        # build refinement weight function
-        refine = zeros(eltype(r_base), length(r_base))
-
-        σ = 0.12 * (rmax - rmin)   # width of refinement region
-
-        for idx in jump_idx
-            r_jump = r_c[idx]
-
-            # exponential bump
-            for i in eachindex(r_base)
-                if r_base[i] > r_jump
-                    refine[i] += exp(-(r_base[i] - r_jump) / σ)     # only above transition
-                end
-            end
-        end
-
-        # normalize refinement
-        if maximum(refine) > 0
-            refine ./= maximum(refine)
-        end
-
-        # distort grid
-        α = 0.5   # strength of refinement
-
-        r_new_b = similar(r_base)
-
-        r_new_b[1] = rmin
-        for i in 2:length(r_base)
-            dr = r_base[i] - r_base[i-1]
-
-            # shrink spacing near jumps
-            dr_mod = dr * (1 - α * refine[i])
-
-            r_new_b[i] = r_new_b[i-1] + dr_mod
-        end
-
-        # rescale to enforce exact endpoints
-        r_new_b .= rmin .+ (rmax - rmin) .* (r_new_b .- r_new_b[1]) ./ (r_new_b[end] - r_new_b[1])
-
-        r_new_c = 0.5 .* (r_new_b[1:end-1] .+ r_new_b[2:end])
-
-        # interpolate profiles onto new grid using linear interpolation (log–log for viscosity and shear modulus)
-        itp_ρ = linear_interpolation(r_c, ρ_old, extrapolation_bc=Line())
-        itp_g = linear_interpolation(r_c, g_old, extrapolation_bc=Line())
-
-        itp_η = linear_interpolation(r_c, log.(η_old), extrapolation_bc=Line())
-        itp_κ = linear_interpolation(r_c, log.(κ_old), extrapolation_bc=Line())
-
-        μ_mag = abs.(μ_old)
-        μ_phase = angle.(μ_old)
-
-        itp_μ_mag   = linear_interpolation(r_c, log.(μ_mag), extrapolation_bc=Line())
-        itp_μ_phase = linear_interpolation(r_c, μ_phase, extrapolation_bc=Line())
-
-        # evaluate interpolants on new grid
-        ρ = itp_ρ.(r_new_c)
-        g = itp_g.(r_new_c)
-
-        η = exp.(itp_η.(r_new_c))
-        κ = exp.(itp_κ.(r_new_c))
-
-        μ = exp.(itp_μ_mag.(r_new_c)) .* cis.(itp_μ_phase.(r_new_c))
-
-        return r_new_b, ρ, η, μ, κ, g
-    end
-
-
+    # Returns
+    - `power_prf::Array{prec,1}`        : Heating profile.
+    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
+    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    """
     function run_solid1d_relax( omega::Float64,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
-                        g::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{prec,1},
-                        R::prec;
-                        ncalc::Int=2000,
+                        R::prec,
+                        m_core::prec,
+                        ρ_core::prec;
+                        dr_min::Int=300,
+                        dr_max::Int=3000,
                         n::Int=2,
-                        m::Int=2
+                        m::Int=2,
+                        core::String="liquid"
                         )::Tuple{Array{prec,1},precc,precc}
-
-        # for debugging
-        println("Running 1D relaxation method...")
 
         # convert inputs
         ρ = convert(Vector{prec}, rho)
@@ -1315,19 +1236,9 @@ module Obliqua
         η = convert(Vector{prec}, visc)
         μ = convert(Vector{precc}, shear)
         κ = convert(Vector{prec}, bulk)
-        g = convert(Vector{prec}, g)
-
-        # determine number of layers based on frequency (more layers for higher frequencies)
-        if omega > 1e-7
-            Nr = trunc(Int, (length(r) - 1) * 100)
-        elseif omega > 1e-10
-            Nr = trunc(Int, (length(r) - 1) * 20)
-        else
-            Nr = trunc(Int, (length(r) - 1) * 10)
-        end
 
         # resample profiles onto new grid
-        r_grid, ρ, η, μ, κ, g = resample_profiles(r, ρ, η, μ, κ, g, Nr)
+        r_grid, ρ, η, μ, κ, g = solid1d_relax.resample_profiles(r, ρ, η, μ, κ, m_core, dr_min, dr_max)
 
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
@@ -1336,34 +1247,16 @@ module Obliqua
         solid1d_relax.define_spherical_grid(res, n, m)
 
         # solve y functions across grid
-        y = solid1d_relax.compute_y_relaxation(r_centers, ρ, g, μ, κ, omega, n, R)
-
-        # for debugging: plot y-function relaxation solution
-        # in particular, observe the oscillating behavior near transition zones
-        # and also near the surface for high frequencies
-        plotting.plot_relaxation_solution(y, r_centers,
-            filename="$OUT_DIR/relaxation_solution.png")
+        y = solid1d_relax.compute_y_relaxation(r_centers, ρ, g, μ, κ, omega, n, R, ρ_core; core=core)
 
         # Love numbers
         k2_T = y[5, end] - 1
         k2_L = 0.0 + 0im
 
-        # enforce sign consistency with omega
-        # this should not be necessary, but due to numerical issues k2_T can 
-        # end up in the wrong quadrant of the complex plane
-        if omega < 0
-            k2_T = real(k2_T) + 1im * abs(imag(k2_T))
-        else
-            k2_T = real(k2_T) - 1im * abs(imag(k2_T))
-        end
-
         # heating profile
-        (Eμ, Eκ) = solid1d_relax.get_heating_profile(
+        (Eμ_tot, Eκ_tot) = solid1d_relax.get_heating_profile(
             y, r_grid, ρ, g, μ, κ, n, omega
         )
-
-        Eμ_tot, _ = Eμ
-        Eκ_tot, _ = Eκ
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot) .* (R ./ maximum(r)).^(2)
 
@@ -1377,72 +1270,6 @@ module Obliqua
 
         return power_prf, k2_T, k2_L
     end
-
-
-    # """
-    #     run_solid1d(rho, radius, visc, shear, bulk; ncalc=2000, n=2)
-
-    # Use 1D solid tides model to calculate k2 Lovenumbers.
-
-    # # Arguments
-    # - `rho::Array{prec,1}`              : Density profile of the planet.
-    # - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
-    # - `visc::Array{prec,1}`             : Viscosity profile of the planet.
-    # - `μ_profile::Array{precc,1}`       : Complex shear modulus profile of the planet.
-    # - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
-    # - `R::prec`                         : Planet radius.
-    
-    # # Keyword Arguments
-    # - `ncalc::Int=1000`                 : Number of sublayers.
-    # - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
-    
-    # # Returns
-    # - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    # - `k2_L::precc`                     : Complex Load k2 Lovenumber.
-    # """
-    # function run_solid1d( rho::Array{prec,1},
-    #                     radius::Array{prec,1},
-    #                     visc::Array{prec,1},
-    #                     shear::Array{precc,1},
-    #                     bulk::Array{prec,1},
-    #                     R::prec;
-    #                     ncalc::Int=1000,
-    #                     n::Int=2
-    #                     )::Tuple{precc,precc}
-
-    #     # internal structure arrays.
-    #     # first element is the innermost layer, last element is the outermost layer
-    #     ρ = convert(Vector{prec}, rho)
-    #     r = convert(Vector{prec}, radius)
-    #     η = convert(Vector{prec}, visc)
-    #     μc = convert(Vector{precc},shear)
-    #     κ = convert(Vector{prec}, bulk)
-
-    #     # subdivide input layers such that we have ~ncalc in total
-    #     rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
-
-    #     # get gravity at each layer
-    #     g = Love.get_g(rr, ρ);
-
-    #     # create grid
-    #     #Love.define_spherical_grid(res; n=n)
-
-    #     # get y-functions
-    #     M, y1_4 = Love.compute_M(rr, ρ, g, μc, κ)
-    #     #   Tidal
-    #     tidal_solution_T = Love.compute_y_1d(rr, g, M, R, y1_4; load=false)
-    #     #   Load
-    #     tidal_solution_L = Love.compute_y_1d(rr, g, M, R, y1_4; load=true)
-
-    #     # get k2 tidal Love Number (complex-valued)
-    #     k2_T = tidal_solution_T[5, end, end] - 1
-    #     k2_L = tidal_solution_L[5, end, end] - 1
-        
-    #     # return zero for now
-    #     k2_L = 0.
-
-    #     return k2_T, k2_L
-    # end
     
 
     """
@@ -1568,113 +1395,6 @@ module Obliqua
 
         return power_prf, k2_T, k2_L
     end
-
-
-    # """
-    #     run_solid1d_mush(omega, rho, radius, visc, shear, bulk, phi; ncalc=2000, n=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
-
-    # Use 1D solid tides model with mush interface to calculate k2 Lovenumbers.
-
-    # # Arguments
-    # - `omega::Float64`                  : Forcing frequency.
-    # - `rho::Array{prec,1}`              : Density profile of the planet.
-    # - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
-    # - `visc::Array{prec,1}`             : Viscosity profile of the planet.
-    # - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
-    # - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
-    # - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
-    # - `R::prec`                         : Planet radius.
-    
-    # # Keyword Arguments
-    # - `ncalc::Int=1000`                 : Number of sublayers.
-    # - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
-    # - `visc_l::Float64=1e2`             : Liquid viscosity.
-    # - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
-    # - `permea::Float64=1e-7`            : Permeability of mush layer.
-    # - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
-
-    # # Returns
-    # - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    # - `k2_L::precc`                     : Complex Load k2 Lovenumber.
-    # """
-    # function run_solid1d_mush( omega::Float64,
-    #                     rho::Array{prec,1},
-    #                     radius::Array{prec,1},
-    #                     visc::Array{prec,1},
-    #                     shear::Array{precc,1},
-    #                     bulk::Array{prec,1},
-    #                     phi::Array{prec,1},
-    #                     R::prec;
-    #                     ncalc::Int=2000,
-    #                     n::Int=2,
-    #                     visc_l::Float64=1e2,
-    #                     bulk_l::Float64=1e9,
-    #                     permea::Float64=1e-7,
-    #                     porosity_thresh::Float64=1e-5
-    #                     )::Tuple{precc,precc}
-
-    #     # internal structure arrays.
-    #     # first element is the innermost layer, last element is the outermost layer
-    #     ρ  = convert(Vector{prec}, rho)
-    #     r  = convert(Vector{prec}, radius)
-    #     η  = convert(Vector{prec}, visc)
-    #     μc = convert(Vector{precc},shear)
-    #     κs = convert(Vector{prec}, bulk)
-    #     ϕ  = convert(Vector{prec}, phi)
-    #     κd = 0.01.*κs                        # drained bulk modulus
-
-    #     α  = 1.0.-(κd./κs)                    # Biot's modulus
-
-    #     # allocate zero arrays with same length and precision as r
-    #     κl = zeros(prec, length(r))
-    #     ηl = zeros(prec, length(r))
-    #     k  = zeros(prec, length(r))
-
-    #     # implicitely the mush interface occurs at the top of the solid
-    #     # the mush layer index is therefore
-    #     ii = length(ϕ)
-
-    #     # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
-    #     if ϕ[ii] <= prec(porosity_thresh)
-    #         throw("No mush region identified in viscosity profile.")
-    #     end
-
-    #     # update the liquid arrays
-    #     κl[ii] = prec(bulk_l)   # liquid bulk modulus
-    #     ηl[ii] = prec(visc_l)   # liquid viscosity
-    #     k[ii]  = prec(permea)   # permeability
-
-    #     ρs = ρ.*(1.0.-ϕ)        # solid density 
-    #     ρl = ρ.*ϕ               # liquid density
-
-    #     # set porosity to zero outside mush region (otherwise code cannot solve system)
-    #     ϕ[1:ii-1]   .= 0.0      # zero below ii
-
-    #     # subdivide input layers such that we have ~ncalc in total
-    #     rr = Love.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
-
-    #     # get gravity at each layer
-    #     g = Love.get_g(rr, ρ);
-
-    #     # create grid
-    #     Love.define_spherical_grid(res; n=n)
-
-    #     # get y-functions
-    #     M, y1_4 = Love.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k; core="liquid", load=false)
-    #     #   Tidal
-    #     tidal_solution_T = Love.compute_y_1d_mush(rr, g, M, R, y1_4; load=false)
-    #     #   Load
-    #     tidal_solution_L = Love.compute_y_1d_mush(rr, g, M, R, y1_4; load=true)
-
-    #     # get k2 tidal Love Number (complex-valued)
-    #     k2_T = tidal_solution_T[5, end, end] - 1
-    #     k2_L = tidal_solution_L[5, end, end] - 1
-        
-    #     # return zero for now
-    #     k2_L = 0.
-
-    #     return k2_T, k2_L
-    # end
 
 
     """
