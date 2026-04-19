@@ -154,7 +154,7 @@ module solid1d_relax
     - `m::Int`                           : Tidal order.
 
     # Notes
-    The grid is internal to solid1d, but can be accessed with 
+    The grid is internal to solid1d_relax, but can be accessed with 
 
         solid1d_relax.clats[:] # colatitude grid
         solid1d_relax.lons[:]  # longitude grid
@@ -789,9 +789,9 @@ module solid1d_relax
 
     Get the radial volumetric heating for solid-body tides and eccentricity forcing,
     assuming synchronous rotation. Heating rate is computed with numerical integration 
-    using the solution `y` returned by [`compute_y`](@ref), using Eq. 2.39a/b integrated 
-    over solid angle. The heating profile for a specific layer is specified with `lay`, 
-    otherwise all layers will be caclulated.
+    using the solution `y`, using Eq. 2.39a/b integrated over solid angle. The heating 
+    profile for a specific layer is specified with `lay`, otherwise all layers will be 
+    caclulated.
 
     # Arguments
     - `y::Array{ComplexF64,4}`           : 4D array of the solution vector y across the interior, returned by `compute_y`.

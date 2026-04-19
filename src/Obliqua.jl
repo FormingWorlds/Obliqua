@@ -517,7 +517,7 @@ module Obliqua
                             σ, ρ_seg,
                             r_seg, η_seg,                               
                             μc_seg[:, iss], 
-                            κ_seg, R; 
+                            κ_seg, R, m_core; 
                             ncalc=ncalc, n=n, m=m
                         )
                     # elseif 1D interior and heating profile from strain tensor
@@ -535,7 +535,7 @@ module Obliqua
                         prf_seg[iss,:], kT, kL = run_solid1d_mush( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, ϕ_seg, R;
+                            κ_seg, ϕ_seg, R, m_core;
                             ncalc, n, m, visc_l, bulk_l,
                             permea, porosity_thresh
                         )
@@ -1135,7 +1135,8 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{prec,1},
-                        R::prec;
+                        R::prec,
+                        m_core::prec;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2
@@ -1153,7 +1154,7 @@ module Obliqua
         rr = solid1d.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
 
         # get gravity at each layer
-        g = solid1d.get_g(rr, ρ);
+        g = solid1d.get_g(rr, ρ, m_core)
 
         # create grid
         solid1d.define_spherical_grid(res, n, m)
@@ -1308,7 +1309,8 @@ module Obliqua
                         shear::Array{precc,1},
                         bulk::Array{prec,1},
                         phi::Array{prec,1},
-                        R::prec;
+                        R::prec,
+                        m_core::prec;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
@@ -1361,7 +1363,7 @@ module Obliqua
         rr = solid1d_mush.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
 
         # get gravity at each layer
-        g = solid1d_mush.get_g(rr, ρ);
+        g = solid1d_mush.get_g(rr, ρ, m_core)
 
         # create grid
         solid1d_mush.define_spherical_grid(res, n, m)

@@ -51,13 +51,14 @@ module solid1d_mush
 
 
     """
-        get_g(r, ρ)
+        get_g(r, ρ, m_core)
 
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
     # Arguments
     - `r::Array{Float64,2}`               : 2D array of layer boundaries. 
     - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::Float64`                   : Mass of the planetary core.
 
     # Returns
     - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
@@ -66,13 +67,15 @@ module solid1d_mush
     `r` must be be a 2D array, with index 1 representing the top radius of secondary layers, and index 2
     representing the top radius of primary layers. 
     """
-    function get_g(r, ρ)
+    function get_g(r, ρ, m_core)
         g = zeros(Float64, size(r))
         M = zeros(Float64, size(r))
 
         for i in 1:size(r)[2]
             M[2:end,i] = 4.0/3.0 * π .* diff(r[:,i].^3) .* ρ[i]
         end
+
+        M[2,1] += m_core
     
         g[2:end,:] .= G*accumulate(+,M[2:end,:]) ./ r[2:end,:].^2
         g[1,2:end] = g[end,1:end-1]
