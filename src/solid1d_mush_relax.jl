@@ -1313,9 +1313,9 @@ module solid1d_mush_relax
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; M=6, N=3)
+        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0, M=6, N=3)
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; M=6, N=3)
+        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, M=6, N=3)
 
         PN = [CNm_l; zeros(3,6)]
         SN_t = [DN_l; BN_t]

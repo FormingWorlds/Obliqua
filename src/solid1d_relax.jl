@@ -725,9 +725,9 @@ module solid1d_relax
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0)
+        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0)
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0)
+        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0)
 
         PN = [CNm_l; zeros(3,6)]
         SN_t = [DN_l; BN_t]
@@ -803,7 +803,7 @@ module solid1d_relax
 
 
     """
-        get_surface_bc!(R, n)
+        get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1)
 
     Get the surface boundary condition vector `b` and matrix `BN` for the solid-body problem. The surface 
     boundary conditions are determined by setting, respectively (U, U', tau, P) to (1,0,0,0) for tidal Love 
