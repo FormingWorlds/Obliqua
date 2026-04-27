@@ -148,17 +148,7 @@ propagate the solution using the so-called propagator matrix (``\pmb{\Pi}_\ell``
 ```math
 \frac{d\pmb{\Pi}_\ell(r, r')}{dr} = \pmb{A}_\ell(r)\,\pmb{\Pi}_\ell(r, r'),
 ```
-at radius ``r`` w.r.t. the solution at the previous layer ``r'``, this is also know as the Cauchy data at radius (``r'``). Equivalently, we may write the normalized version of the propagator matrix as
-
-```math
-\frac{d\tilde{\pmb{\Pi}}_\ell(r, r')}{dr} = \tilde{\pmb{A}}_\ell(r)\,\tilde{\pmb{\Pi}}_\ell(r, r'),
-```
-
-Given that ``\tilde{\pmb{\Pi}}_\ell(r, r')`` is constructed from the normalized matrix ``\tilde{\pmb{A}}_\ell``, the normailization in ``\mathbf{A}_\ell`` enters ``\tilde{\pmb{\Pi}}_\ell`` as
-
-```math
-\tilde{\pmb{\Pi}}_\ell(r, r') = \left[\left[\left[  \mathbf{1} \times \mathbf{S}^{-1} \tilde{\pmb{\Pi}}_\ell(r_1, r_1') \mathbf{S}\right] \times \mathbf{S}^{-1} \tilde{\pmb{\Pi}}_\ell(r_2, r_2') \mathbf{S} \right] \times \dots \right] = \mathbf{S}^{-1} \pmb{\Pi}_\ell(r, r') \mathbf{S},
-``` the normalization does not alter the physical solution. If ``r = r'`` we have
+at radius ``r`` w.r.t. the solution at the previous layer ``r'``, this is also know as the Cauchy data at radius (``r'``). If ``r = r'`` we have
 
 ```math
 \pmb{\Pi}_\ell(r', r') = \pmb{1}.
@@ -170,13 +160,7 @@ Each column of the propagator matrix is one of the six linearly independent solu
 \frac{d\pmb{y}_{\ell m}}{dr} = \pmb{A}_\ell(r)\,\pmb{y}_{\ell m}.
 ```
 
-The six linearly independent solutions are multiplied by the propagator, forming a basis matrix. To prevent ill-conditioning due to widely differing units and growing/decaying solutions, we perform a QR decomposition at every sublayer:
-
-```math
-\pmb{\Pi}_\ell(r, r') = \mathbf{Q}\,\mathbf{R},
-``` where ``\mathbf{Q}`` is an orthogonal matrix and ``\mathbf{R}`` is an upper triangular matrix. The orthogonal matrix ``\mathbf{Q}`` forms an orthonormalized basis used to propagate to the next sublayer, while the upper triangular matrix ``\mathbf{R}`` stores the mixing coefficients for back-propagation, ensuring accurate reconstruction of the physical solution. The process is repeated across all layers.
-
-We impose continuity:
+The six linearly independent solutions are multiplied by the propagator, forming a basis matrix. We impose continuity:
 
 ```math
 \pmb{\Pi}_\ell(r_j^+, r') = \pmb{\Pi}_\ell(r_j^-, r'),
@@ -193,13 +177,6 @@ Therefore,
 ```math
 \pmb{y}_{\ell m}(r) =
 \pmb{\Pi}_\ell(r, r_C^+)\,\pmb{I}_C\,\pmb{C}.
-```
-
-or in the normalized form
-
-```math
-\pmb{y}_{\ell m}(r) =
-\mathbf{S} \, \tilde{\pmb{\Pi}}_\ell(r, r_C^+)\,\tilde{\pmb{I}}_C\,{\pmb{C}}.
 ```
 
 This equation can be solved iteratively, up till the surface to yield the general responds of the interior to any form of tidal- or load induced deformation.
@@ -475,7 +452,7 @@ The initial condition is:
 R_1 = -S_1^{-1} Q_1
 ```
 
-Finally, the last block equation becomes:
+Finally, the last block equation becomes (see below for the surface boundary conditions):
 
 ```math
 X_N y_N = b =
@@ -515,48 +492,7 @@ Here, ``Q_n`` is singular by construction, so ``R_n`` is not invertible. This en
 
 ### Surface Boundary Conditions
 
-Finally, to find the specific solution for the case where a planet is orbiting around a star-like object, we can specify the surface (``r=a^-``) boundary condition. In particular we need to constrain the 3rd, 4th, and 6th ``y``-values. To do this employ the projector on the 3rd, 4th, and 6th components given by 
-
-```math
-\pmb{P}_1\,\pmb{y}(a^-) =
-\pmb{P}_1 \left[
-\pmb{\Pi}_\ell(a^-, r_C^+)\,\pmb{I}_C\,\pmb{C}
-\right]
-= \pmb{b},
-```
-
-where
-
-```math
-\pmb{b} = \sigma_{\ell m}^L\,\pmb{b}^L +
-\left(\Phi_{\ell m}^T(a) + \Phi_{\ell m}^C(a)\right)\pmb{b}^T,
-```
-
-with
-
-```math
-\pmb{b}^L =
-\begin{pmatrix}
--\dfrac{(2\ell+1)g(a)}{4\pi a^2} \\[1em]
-0 \\[1em]
--\dfrac{(2\ell+1)G}{a^2}
-\end{pmatrix}
-\qquad\text{(Load)},
-```
-
-```math
-\pmb{b}^T =
-\begin{pmatrix}
-0 \\[1em]
-0 \\[1em]
-\dfrac{2\ell+1}{a}
-\end{pmatrix}
-\qquad\text{(Tidal)}.
-```
-
-Incase the solid part of the mantle extends up to the surface of the planet, then the surface is stress-free and the toroidal part has ``\sigma_{\ell m}^L = \pmb{0}``, and the solution no longer depends on ``\pmb{b}^L``. However, as in our formalism the solid is often loaded by a liquid magma ocean, we cannot ignore this term.
-
-The integration constants follow from
+Finally, to find the specific solution for the case where a planet is orbiting around a star-like object, we can specify the surface (``r=a^-``) boundary condition. In particular we need to constrain the 3rd, 4th, and 6th ``y``-values. The integration constants will follow from
 
 ```math
 \pmb{C} =
@@ -574,22 +510,18 @@ Thus,
 \pmb{b}.
 ```
 
-To solve this system we thus need only provide ``\pmb{P}_1\,\pmb{y}(a^-)``, we will provide some examples in Chapter 7 at the end of this component.
-
----
-
-Similarly, for the relaxation method, we can impose a free-surface outer boundary. The boundary conditions can be written in the same form as the inner system with
+To solve this system we thus need only provide ``\pmb{P}_1\,\pmb{y}(a^-)``. Additionally for the relaxation method we can impose a semi-free-surface outer boundary. The boundary conditions can be written in the same form as the inner system with
 
 ```math
 \mathbf{B} =
 \begin{pmatrix}
 0 & 0 & 1 & 0 & 0 & 0 \\
 0 & 0 & 0 & 1 & 0 & 0 \\
-0 & 0 & 0 & 0 & 0 & 1
+0 & 0 & 0 & 0 & (n+1)/R & 1
 \end{pmatrix}
 ```
 
-This corresponds to free-surface conditions applied to ``y_1``, ``y_2``, and ``y_5``, while the remaining components are constrained accordingly. In the general case, let ``P`` denote the external atmospheric pressure, ``\zeta`` the surface mass load, ``U`` an external potential, and ``\tau`` the tangential traction component. Then the boundary conditions for a spherical harmonic degree ``n`` can be written as:
+This corresponds to free-surface conditions applied to ``y_1``, ``y_2``, and (semi) ``y_5``, while the remaining components are constrained accordingly. In the general case, let ``P`` denote the external atmospheric pressure, ``\zeta`` the surface mass load, ``U`` an external potential, and ``\tau`` the tangential traction component. Then the boundary conditions for a spherical harmonic degree ``n`` can be written as:
 
 ```math
 \begin{cases}
@@ -613,7 +545,7 @@ We distinguish between Tidal Love numbers (response to an external potential per
 * TLN: ``(U, U', \tau, P) = (1, 0, 0, 0)``
 * LLN: ``(U, U', \tau, P) = (0, 1, 0, 0)``
 
-When the outer boundary is driven by tides from an external perturber, the system can be written as:
+When the outer boundary is driven by tides from an external perturber, the final step in the relaxation method system can be written as:
 
 ```math
 \mathbf{B} \mathbf{y} = \mathbf{b}
@@ -630,16 +562,7 @@ with
 \end{pmatrix}
 ```
 
-This expression follows from a simplified form of the general boundary conditions, assuming the outer radius ``a = R`` (planetary radius) and neglecting higher-order corrections.
-
-This corresponds to the free-surface conditions:
-
-```math
-X(R) = 0, \qquad Y(R) = 0, \qquad \psi(R) = \frac{2n+1}{R}
-```
-
-applied at ``r = R`` the planetary radius.
-
+This expression follows from a simplified form of the general boundary conditions, assuming the outer radius ``a = R`` (planetary radius).
 
 ---
 

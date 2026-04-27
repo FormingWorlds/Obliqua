@@ -24,6 +24,7 @@ Modules = [
     Obliqua.solid1d, 
     Obliqua.solid1d_mush, 
     Obliqua.solid1d_relax, 
+    Obliqua.solid1d_mush_relax, 
     Obliqua.fluid0d,
     Obliqua.Hansen
 ]

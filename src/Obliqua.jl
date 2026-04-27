@@ -20,7 +20,6 @@ module Obliqua
     # Include local jl files
     include("solid0d.jl")
     include("solid1d.jl")
-    include("solid1d_qr.jl")
     include("solid1d_mush.jl")
     include("solid1d_relax.jl")
     include("solid1d_mush_relax.jl")
@@ -32,7 +31,6 @@ module Obliqua
     # Import submodules
     import .solid0d
     import .solid1d
-    import .solid1d_qr
     import .solid1d_mush
     import .solid1d_relax
     import .solid1d_mush_relax
@@ -46,6 +44,7 @@ module Obliqua
     export solid1d
     export solid1d_mush
     export solid1d_relax
+    export solid1d_mush_relax
     export fluid0d
     export Hansen
     export load
