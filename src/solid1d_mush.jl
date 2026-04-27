@@ -735,7 +735,7 @@ module solid1d_mush
     - `M::Array{precc,2}`               : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid")
+    function compute_M(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core; core="liquid")
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -747,7 +747,7 @@ module solid1d_mush
         nsublayers = size(r)[1]
 
         # Define starting vector as the core solution matrix, Y_r_C (Eq. S5.15)
-        y_start = get_Ic(r[end,1], ρ[1], g[end,1], μ[1], core, n; M=8, N=4)
+        y_start = get_Ic(r[end,1], ρ_core, g[end,1], μ[1], core, n; M=8, N=4)
 
         y1_4 = zeros(precc, 8,   4, nsublayers-1, nlayers)  # Four linearly independent y solutions
         
@@ -777,7 +777,7 @@ module solid1d_mush
         
         M[1, :] .= y1_4[3,:,end,end] # Row 1 - Radial Stress
         M[2, :] .= y1_4[4,:,end,end] # Row 2 - Tangential Stress
-        M[3, :] .= y1_4[6,:,end,end] # Row 3 - Potential Stress
+        M[3, :] .= y1_4[6,:,end,end] .+ (n+1)/r[end:end] .* y1_4[5,:,end,end] # Row 3 - Potential Stress
         
         for i in 2:nlayers
             if porous_layer[i]
@@ -790,7 +790,7 @@ module solid1d_mush
 
 
     """
-        compute_y(r, g, M, R, y1_4, n; load=false)
+        compute_y(r, g, M, y1_4, n; load=false)
 
     Compute the 8x1 solution vector at the surface and porous layer interface, which is used to compute the strain, 
     Darcy flux, and pore pressure at a particular radial level. This is given by Eq. S5.20 in Hay et al., (2025).
@@ -799,7 +799,6 @@ module solid1d_mush
     - `r::Array{prec,2}`                 : 2D array of layer boundaries.
     - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
     - `M::Array{precc,2}`                : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
-    - `R::prec`                          : Surface radius of the body.
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     - `n::Int`                           : Tidal degree.
 
@@ -809,18 +808,29 @@ module solid1d_mush
     # Returns
     - `y::Array{ComplexF64,4}`           : 4D array of the solution vector y across the interior.
     """
-    function compute_y(r, g, M, R, y1_4, n; load=false)
+    function compute_y(r, g, M, y1_4, n; load=false)
+
+        tau = 0.0
+        P = 0.0
+        U_prime = 0.0
+        U = 0.0
+        if load
+            U_prime = 1.0
+        elseif !load
+            U = 1.0
+        end
+
+        # Define surface mass load (zeta) based on Farrell/Longman relation
+        zeta = ((2 * n + 1) / (4 * pi * G * r[end,end])) * U_prime
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
         b = zeros(precc, 4)
-        if load
-            b[1] = -(2n+1)*g[end,end]/(4π*(R)^2)
-            b[3] = -(2n+1)*G/(R)^2
-        else
-            b[3] = (2n+1)/R 
-        end
+        b[1] = -g[end,end] * zeta * G / r[end,end] - P
+        b[2] = tau
+        b[3] = ((2 * n + 1) / r[end,end]) * U - 4 * pi * G * zeta
+        b[4] = 0.0
 
         C = M \ b
 

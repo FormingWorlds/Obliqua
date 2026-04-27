@@ -7,6 +7,7 @@ module solid1d
     using AssociatedLegendrePolynomials    
     using StaticArrays
 
+
     prec = BigFloat
     precc = Complex{BigFloat}
 
@@ -57,7 +58,7 @@ module solid1d
     # Arguments
     - `r::Array{Float64,2}`               : 2D array of layer boundaries. 
     - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
-    - `m_core::Float64`                   : Mass of the planetary core.
+    - `m_core::Float64`                   : Mass of the core, which is used to compute the gravity at the core boundary.
 
     # Returns
     - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
@@ -73,9 +74,9 @@ module solid1d
         for i in 1:size(r)[2]
             M[2:end,i] = 4.0/3.0 * π .* diff(r[:,i].^3) .* ρ[i]
         end
-    
-        M[2,1] += m_core
 
+        M[2,1] += m_core
+    
         g[2:end,:] .= G*accumulate(+,M[2:end,:]) ./ r[2:end,:].^2
         g[1,2:end] = g[end,1:end-1]
 
@@ -207,28 +208,6 @@ module solid1d
     end
 
 
-    function get_scales(r, ρ, R0, M0, s0)
-
-        ρ0 = M0 / R0^3            # kg/m^3
-        μ0 = M0 / (R0 * s0^2)     # Pa 
-        g0 = R0 / s0^2            # m/s^2 
-
-        G0 = R0^3 / (M0 * s0^2)   # Gravity constant scaling
-
-        S = Diagonal(precc[
-            R0,       # y1: radial displacement         (m)
-            R0,       # y2: tangential displacement     (m)
-            μ0,       # y3: radial stress               (Pa)
-            μ0,       # y4: tangential stress           (Pa)
-            g0*R0,    # y5: potential                   (m^2/s^2)
-            g0        # y6: potential gradient/gravity  (m/s^2)
-        ])
-
-        Sinv = inv(S)
-        return R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv
-    end
-
-
     """
         get_Ic(r, ρ, g, μ, type, n; M=6, N=3)
             
@@ -305,9 +284,9 @@ module solid1d
     # Notes
     See also [`get_A!`](@ref)
     """
-    function get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
+    function get_A(r, ρ, g, μ, K, n)
         A = zeros(precc, 6, 6) 
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ)
+        get_A!(A, r, ρ, g, μ, K, n)
         return A
     end
 
@@ -334,22 +313,10 @@ module solid1d
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
+    function get_A!(A::Matrix, r, ρ, g, μ, K, n; λ=nothing)
         if isnothing(λ)
             λ = K - 2μ/3
         end
-
-        # if abs(μ) < 1e-9
-        #     # Scale it down to the max allowed magnitude, preserving phase
-        #     μ = μ / abs(μ) * 1e-9
-        # end
-
-        # if abs(K) < 1e-5
-        #     # Scale it down to the max allowed magnitude, preserving phase
-        #     K = K / abs(K) * 1e-5
-        # end
-
-        G_norm = G / G0
 
         r_inv = 1.0/r
         β_inv = 1.0/(2μ + λ)
@@ -357,16 +324,16 @@ module solid1d
 
         A[1,1] = -2λ * r_inv*β_inv
         A[2,1] = -r_inv
-        A[3,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) - ω^2 * ρ 
+        A[3,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g)
         A[4,1] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
-        A[5,1] = 4π * G_norm * ρ
-        A[6,1] = 4π*(n+1)*G_norm*ρ*r_inv
+        A[5,1] = 4π * G * ρ
+        A[6,1] = 4π*(n+1)*G*ρ*r_inv
 
         A[1,2] = n*(n+1) * λ * r_inv*β_inv
         A[2,2] = r_inv
         A[3,2] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[4,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) - ω^2 * ρ 
-        A[6,2] = -4π*n*(n+1)*G_norm*ρ*r_inv
+        A[4,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 )
+        A[6,2] = -4π*n*(n+1)*G*ρ*r_inv
 
         A[1,3] = β_inv
         A[3,3] = r_inv*β_inv * (-4μ )
@@ -407,22 +374,21 @@ module solid1d
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1)
+    function get_B(r1, r2, g1, g2, ρ, μ, K, n)
         B = zeros(precc, 6, 6)
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+        get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
         return B
     end
 
 
     """
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K)
+        get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
 
     # Arguments
     - `B::Array{precc,2}`                : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
-    - `ω::prec`                          : Tidal frequency.
     - `r1::prec`                         : Starting radius for integration.
     - `r2::prec`                         : Ending radius for integration.
     - `g1::prec`                         : Gravity at radius r1.
@@ -435,15 +401,15 @@ module solid1d
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1)
+    function get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
         ghalf = g1 + 0.5*(g2 - g1)
 
-        A1    = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0)
-        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0)
-        A2    = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0)
+        A1 = get_A(r1, ρ, g1, μ, K, n)
+        Ahalf = get_A(rhalf, ρ, ghalf, μ, K, n)
+        A2 = get_A(r2, ρ, g2, μ, K, n)
         
         k16 = zeros(precc, 6, 6)
         k26 = zeros(precc, 6, 6)
@@ -478,7 +444,7 @@ module solid1d
     - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.    
     """
-    function get_B_product!(Bprod2, ω, r, ρ, g, μ, K, n; G0=1)
+    function get_B_product!(Bprod2, r, ρ, g, μ, K, n)
         Bstart = Matrix{precc}(I, 6, 6)  
         B = zeros(precc, 6, 6) 
 
@@ -490,7 +456,7 @@ module solid1d
             g1 = g[j]
             g2 = g[j+1]
 
-            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+            get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
             Bprod2[:,:,j] .= B * (j==1 ? Bstart : Bprod2[:,:,j-1])
 
             r1 = r2
@@ -499,7 +465,7 @@ module solid1d
 
 
     """
-        compute_M(r, ρ, g, μ, K, n; core="liquid")
+        compute_M(r, ρ, g, μ, K, n, ρ_core; core="liquid")
 
     Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
 
@@ -510,6 +476,7 @@ module solid1d
     - `μ::Array{prec,1}`                 : 1D array of layer shear moduli.
     - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
+    - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
@@ -517,80 +484,40 @@ module solid1d
     # Returns
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
-    - `matrices_R_sublayer::Array{Matrix{precc},2}` : 2D array of the R matrices from the QR decomposition at each sublayer, which is used for back-propagation in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(ω, r, ρ, g, μ, K, n; core="liquid")
+    function compute_M(r, ρ, g, μ, K, n, ρ_core; core="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r, ρ, 4.6e6, 1.6e22, 3.6e5)
-
-        # scale inputs
-        ω_scaled = ω * s0
-        r_scaled = r ./ R0
-        ρ_scaled = ρ ./ ρ0
-        g_scaled = g ./ g0
-        μ_scaled = μ ./ μ0
-        K_scaled = K ./ μ0
-
-        y_start = get_Ic(r[end,1], ρ[1], g[end,1], μ[1], core, n; M=6, N=3)
-        y_start .= Sinv * y_start # Scale starting vector
-
-        # To store QR factors for back-propagation
-        matrices_R_sublayer = Array{Matrix{precc}}(undef, nlayers, nsublayers-1)
+        y_start = get_Ic(r[end,1], ρ_core, g[end,1], μ[1], core, n; M=6, N=3)
 
         y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
-            
-        current_basis = y_start
-
+                
         for i in 2:nlayers
             Bprod = zeros(precc, 6, 6, nsublayers-1)
-            @views get_B_product!(Bprod, ω_scaled, r_scaled[:, i], ρ_scaled[i], g_scaled[:, i], μ_scaled[i], K_scaled[i], n; G0=G0)
+            @views get_B_product!(Bprod, r[:, i], ρ[1], g[:, i], μ[i], K[i], n)
 
             for j in 1:nsublayers-1
-                # Multiply by the current basis
-                y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * current_basis 
-
-                # QR decomposition at the sublayer
-                F = qr(y1_4[:,:,j,i])
-
-                Qthin = Matrix(F.Q)[:, 1:3]   # extract 6x3
-                Rj = Matrix(F.R)
-
-                y1_4[:,:,j,i] = Qthin   # orthonormalized
-                current_basis = Qthin   # update the basis for next sublayer
-
-                # store the R matrix if you need it for back-propagation
-                matrices_R_sublayer[i,j] = Rj
+                y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
             end
 
-            current_basis[:,:] .= y1_4[:,:,end,i]  # Update the current basis to the last sublayer of the current layer
-
-            if cond(current_basis) > 1e12
-                @warn "Current basis at layer $i is ill-conditioned: cond = $(cond(current_basis))"
-            end
-            
-        end
-
-        # Convert y1_4 back to physical units
-        for i in axes(y1_4,4), j in axes(y1_4,3)
-            y1_4[:,:,j,i] .= S * y1_4[:,:,j,i]  # Scale back to physical units
+            y_start[:,:] .= @view(y1_4[:,:,end,i])   # Set starting vector for next layer
         end
 
         M = zeros(precc, 3,3)
 
         M[1, :] .= y1_4[3,:,end,end]  # Row 1 - Radial Stress 
         M[2, :] .= y1_4[4,:,end,end]  # Row 2 - Tangential Stress
-        M[3, :] .= y1_4[6,:,end,end]  # Row 3 - Potential Stress
-                
-        return M, y1_4, matrices_R_sublayer
+        M[3, :] .= y1_4[6,:,end,end] .+ (n+1)/r[end:end] .* y1_4[5,:,end,end]  # Row 3 - Potential Stress
+        
+        return M, y1_4
     end
 
 
     """
-        compute_y(r, g, M, R, y1_4, matrices_R_sublayer, n; load=false)
+        compute_y(r, g, M, y1_4, n; load=false)
 
     Compute the solution vector `y` across the entire interior, given the M matrix and the y1_4 solutions across each layer. 
     This is used to compute the strain tensor and heating profile.
@@ -599,9 +526,7 @@ module solid1d
     - `r::Array{prec,2}`                 : 2D array of layer boundaries.
     - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
     - `M::Array{precc,2}`                : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
-    - `R::prec`                          : Surface radius of the body.
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
-    - `matrices_R_sublayer::Array{Matrix{precc},2}` : 2D array of the R matrices from the QR decomposition at each sublayer, which is used for back-propagation in the `compute_y` function to compute the solution vector across the interior.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
@@ -610,36 +535,37 @@ module solid1d
     # Returns
     - `y::Array{ComplexF64,3}`           : 3D array of the solution vector y across the interior.
     """
-    function compute_y(r, g, M, R, y1_4, matrices_R_sublayer, n; load=false)
+    function compute_y(r, g, M, y1_4, n; load=false)
+
+        tau = 0.0
+        P = 0.0
+        U_prime = 0.0
+        U = 0.0
+        if load
+            U_prime = 1.0
+        elseif !load
+            U = 1.0
+        end
+
+        # Define surface mass load (zeta) based on Farrell/Longman relation
+        zeta = ((2 * n + 1) / (4 * pi * G * r[end,end])) * U_prime
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        # Boundary condition
         b = zeros(precc, 3)
-        if load
-            b[1] = -(2n+1)*g[end,end]/(4π*(R)^2)
-            b[3] = -(2n+1)*G/(R)^2
-        else
-            b[3] = (2n+1)/R
-        end
 
-        # Solve surface coefficients
-        C_current = M \ b
+        b[1] = -g[end,end] * zeta * G / r[end,end] - P
+        b[2] = tau
+        b[3] = ((2 * n + 1) / r[end,end]) * U - 4 * pi * G * zeta
 
-        # Allocate
+        C = M \ b
+
         y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 
-        # Backward propagation
-        for i in nlayers:-1:2
-            for j in (nsublayers-1):-1:1
-
-                # Compute solution
-                y[:,j,i] .= @view(y1_4[:,:,j,i]) * C_current
-
-                # Update coefficients using local R
-                Rj = matrices_R_sublayer[i,j]
-                C_current = Rj \ C_current 
+        for i in 2:nlayers
+            for j in 1:nsublayers-1
+                y[:,j,i] = @view(y1_4[:,:,j,i])*C
             end
         end
 
@@ -675,15 +601,6 @@ module solid1d
         y2 = y[2]
         y3 = y[3]
         y4 = y[4]
-
-        # if abs(μr) < 1e-9
-        #     # Scale it down to the max allowed magnitude, preserving phase
-        #     μr = μr / abs(μr) * 1e-9
-        # end
-        # if abs(Ksr) < 1e-5
-        #     # Scale it down to the max allowed magnitude, preserving phase
-        #     Ksr = Ksr / abs(Ksr) * 1e-5
-        # end
 
         λr = Ksr .- 2μr/3
         βr = λr + 2μr
