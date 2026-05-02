@@ -764,15 +764,25 @@ module Obliqua
 
             U2 = abs2.(U)
 
+            # return bulk heating at each frequency
+            P_T_1_blk = prefactor .* imag_k2 .* U2
+
             # return power profile at each frequency
             P_T_1_prf = zeros(prec, N_σ, length(shear))
             for iss in 1:N_σ
                 unorm_prf = radial_profile_at_sigma(Float64(σ_range[iss]), prf_itp_shells)
                 P_T_1_prf[iss, :] = unorm_prf .* U2
-            end          
 
-            # return bulk heating at each frequency
-            P_T_1_blk = prefactor .* imag_k2 .* U2
+                # Integrate the radial profile over the volume for this frequency
+                # Assuming 'dv' is the differential volume element array
+                integrated_profile_power = sum(dv .* P_T_1_prf[iss, :])
+                
+                # Calculate ratio
+                ratio = P_T_1_blk[iss] / integrated_profile_power
+                
+                # Print formatted results
+                @debug("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
+            end          
 
             @info "Mapping 1 --> $(σ_range[1]) /s, and $N_σ --> $(σ_range[end]) /s."
 
@@ -1187,7 +1197,7 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(rr, ρ, g, μc, κ, n, ρ_core; core=core)
+        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κ, n, ρ_core; core=core)
         #   Tidal
         tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n; load=false)
         #   Load
@@ -1404,7 +1414,7 @@ module Obliqua
         solid1d_mush.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d_mush.compute_M(rr, ρs, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core; core=core)
+        M, y1_4 = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core; core=core)
         #   Tidal
         tidal_solution_T = solid1d_mush.compute_y(rr, g, M, y1_4, n; load=false)
         #   Load
@@ -1504,45 +1514,13 @@ module Obliqua
         k  = zeros(prec, length(r))
 
         # find where the mush interface occurs (excluding the CMB layer)
-        # 1. Get all indices above the threshold
+        # get all indices above the threshold
         ii_all = findall(ϕ .> porosity_thresh)
-
-        # 2. Find the start of the continuous region that reaches the surface
-        # We look for the first index such that all subsequent indices are also > threshold
-        if isempty(ii_all)
-            ii = nothing # No mushy layer found
-        else
-            # Logic: If it's a single continuous layer at the top, 
-            # the start index will be the first one in a contiguous sequence ending at Nr.
-            if ii_all[end] == length(ϕ)
-                # Work backwards from the end to find the first break in continuity
-                continuous_from_top = findall(diff(ii_all) .!= 1)
-                if isempty(continuous_from_top)
-                    ii = ii_all[1] # The whole thing is mushy
-                else
-                    # The start is the index right after the last "break" in the sequence
-                    ii = ii_all[continuous_from_top[end] + 1]
-                end
-            else
-                ii = nothing # Porosity > threshold, but it doesn't reach the surface
-            end
-        end
-
-        # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
-        if ϕ[ii] <= prec(porosity_thresh)
-            throw("No mush region identified in viscosity profile.")
-        end
-
-        # Get top layer where porosity exceeds mush threshold
-        ii_top = maximum(findall(ϕ .< 0.60))
 
         # update the liquid arrays
         κl .= prec(bulk_l)   # liquid bulk modulus
         ηl .= prec(visc_l)   # liquid viscosity
-        k[ii:ii_top] .= prec(permea)   # permeability
-
-        # set porosity to zero outside mush region (otherwise code cannot solve system)
-        ϕ[1:ii-1]   .= 0.0      # zero below ii
+        k[ii_all] .= prec(permea)   # permeability
 
         # resample profiles onto new grid
         r_grid, ρ, η, μc, κs, κl, κd, α, ηl, ϕ, k, g, M_tot = solid1d_mush_relax.resample_profiles(r, ρ, η, μc, κs, κl, κd, α, ηl, ϕ, k, m_core, dr_min, dr_max)
@@ -1558,12 +1536,6 @@ module Obliqua
         
         # solve y functions across grid
         y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, M_tot; core=core)
-
-        # for debugging: plot y-function relaxation solution
-        # in particular, observe the oscillating behavior near transition zones
-        # and also near the surface for high frequencies
-        # plotting.plot_relaxation_solution(y_t, r_centers, 
-        #         filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
         k2_T = (y_t[3, end] - 1) .* (maximum(r) ./ R)
