@@ -2,6 +2,9 @@
 
 module solid1d_mush_relax
     
+    include("common.jl")
+    using .common
+
     using LinearAlgebra
     import GenericLinearAlgebra
     using DoubleFloats
@@ -237,479 +240,6 @@ module solid1d_mush_relax
         solid1d_mush_relax.lons  = lons
     end
 
-
-    """
-        get_scales(R0, M0, g0)
-
-    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravity scale 
-    `g0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
-
-    # Arguments
-    - `R0::prec`                         : Reference radius scale (e.g., planetary radius).
-    - `M0::prec`                         : Reference mass scale (e.g., planetary mass).
-    - `g0::prec`                         : Reference gravity scale.
-
-    # Returns
-    Tuple of characteristic scales:
-    - `R0::prec`                         : Length scale (m).
-    - `M0::prec`                         : Mass scale (kg).
-    - `s0::prec`                         : Time scale (s).
-    - `ρ0::prec`                         : Density scale (kg/m^3).
-    - `G0::prec`                         : Gravitational constant scale (m^3 kg^-1 s^-2).
-    - `g0::prec`                         : Gravity scale (m/s^2).
-    - `μ0::prec`                         : Shear modulus scale (Pa).
-    - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
-    - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
-    """
-    function get_scales(R0, M0, g0)
-
-        ρ0 = M0 / R0^3
-        P0 = g0 * R0
-        μ0 = ρ0 * g0 * R0
-
-        s0 = sqrt(g0 / R0)
-        G0 = R0^3 / (M0 * s0^2) 
-
-        S = Diagonal(precc[
-            R0,       # y1: radial displacement (m)
-            R0,       # y2: tangential displacement (m)
-            P0,    # y5: potential (m^2/s^2)
-            μ0,       # y7: pore pressure (Pa)
-            μ0,       # y3: radial stress (Pa)
-            μ0,       # y4: tangential stress (Pa)
-            g0,       # y6: potential gradient/gravity (m/s^2)
-            R0,       # y8: relative radial displacement (m)
-        ])
-
-        Sinv = inv(S)
-        return R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv
-    end
-
-
-    """
-        doublefactorial(n)
-
-    Compute the double factorial of an integer n, defined as n!! = n * (n-2) * (n-4) * ... until 1 or 0.
-
-    # Arguments
-    - `n::Integer`                     : The integer for which to compute the double factorial. Must be non-negative.
-
-    # Returns
-    - `result::Integer`                 : The double factorial of n.
-    """
-    function doublefactorial(n::Integer)
-        n < 0 && error("doublefactorial not defined for negative n")
-        n == 0 && return one(n)
-        n == 1 && return one(n)
-
-        result = one(n)
-        for k in n:-2:1
-            result *= k
-        end
-        return result
-    end
-
-
-    """
-        get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, M=8, N=4)
-            
-    Get the core solution vector.
-    https://academic.oup.com/gji/article/203/3/2150/2594863
-    
-    # Arguments
-    - `ω::prec`                          : Angular frequency.
-    - `r::prec`                          : Radius of the core boundary.
-    - `ρ::prec`                          : Density of the core.
-    - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                          : Shear modulus of the core.
-    - `K::prec`                          : Bulk modulus of the core.
-    - `type::String`                     : Type of core, either "liquid" or "solid".
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `M::Int=6`                         : Number of rows in the Ic matrix. This should be 6 for the solid-body problem.
-    - `N::Int=3`                         : Number of linearly independent solutions to compute. This should be 3 for the solid-body problem.
-
-    # Returns
-    - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
-    """
-    function get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, M=8, N=4)
-        Ic = zeros(precc, M, N)
-
-        G_norm = G / G0
-
-        if type=="liquid"
-            if M == 6
-                Ic[1,1] = -r^n / g
-                Ic[1,3] = 1.0
-                Ic[2,2] = 1.0
-                Ic[4,3] = g*ρ
-                Ic[3,1] = r^n
-                Ic[6,1] = 2(n-1)*r^(n-1)
-                Ic[6,3] = 4π * G_norm * ρ 
-            elseif M == 8
-                Ic[1,1] = -r^n / g
-                Ic[1,3] = 1.0
-                Ic[2,2] = 1.0
-                Ic[5,3] = g*ρ
-                Ic[3,1] = r^n
-                Ic[7,1] = 2(n-1)*r^(n-1)
-                Ic[7,3] = 4π * G_norm * ρ 
-            end
-        elseif type == "inertial"
-            @warn "Inertial core boundary conditions have not been fully implemented. Use with caution."
-            
-            φ = 4π * G_norm * ρ / 3
-            α = sqrt(K / ρ)
-            f = -ω^2 / φ
-            h = f - (n + 1)
-            k2 = (ω^2 + 4φ - n*(n+1)*φ^2 / ω^2) / α^2
-            k = sqrt(Complex{BigFloat}(k2))
-            x = k * r
-
-            x64 = ComplexF64(x)
-
-            jl_n   = sphericalbesselj(n, x64)
-            jl_np1 = sphericalbesselj(n+1, x64)
-
-            ϕl   = doublefactorial(2n+1) / x^n * jl_n
-            ϕlp1 = doublefactorial(2n+3) / x^(n+1) * jl_np1
-            ψl = 2*(2n+3)/x^2 * (1 - ϕl)
-            pref = -r^(n+1) / (2n + 3)
-
-            if M == 6
-                Ic[1,1] = n * r^(n-1)
-                Ic[2,1] = r^(n-1)
-                Ic[3,1] = 0.0
-                Ic[4,1] = 0.0
-                Ic[5,1] = -(n*φ - ω^2) * r^n
-                Ic[6,1] = -(2*(n-1)*n*φ - (2*n + 1)*ω^2) * r^(n-1)
-
-                Ic[1,2] = pref * (0.5 * n * h * ψl + f * ϕlp1)
-                Ic[2,2] = pref * (0.5 * h * ψl - ϕlp1)
-                Ic[3,2] = -φ * r^n * f * ϕl
-                Ic[4,2] = 0.0
-                Ic[5,2] = -r^(n+2) * (
-                    (α^2 * f)/r^2 - (3φ*f)/(2*(2n+3)) * ψl
-                )
-                Ic[6,2] = -r^(n+1) * (
-                    (2n+1)*(α^2*f)/r^2 -
-                    (3φ*((2n+1)*f - n*h))/(2*(2n+3)) * ψl
-                )
-
-                Ic[:,3] .= 0.0
-                Ic[2,3] = 1.0   # tangential slip
-            elseif M == 8
-                Ic[1,1] = n * r^(n-1)
-                Ic[2,1] = r^(n-1)
-                Ic[5,1] = 0.0
-                Ic[6,1] = 0.0
-                Ic[3,1] = -(n*φ - ω^2) * r^n
-                Ic[7,1] = -(2*(n-1)*n*φ - (2*n + 1)*ω^2) * r^(n-1)
-
-                Ic[1,2] = pref * (0.5 * n * h * ψl + f * ϕlp1)
-                Ic[2,2] = pref * (0.5 * h * ψl - ϕlp1)
-                Ic[5,2] = -φ * r^n * f * ϕl
-                Ic[6,2] = 0.0
-                Ic[3,2] = -r^(n+2) * (
-                    (α^2 * f)/r^2 - (3φ*f)/(2*(2n+3)) * ψl
-                )
-                Ic[7,2] = -r^(n+1) * (
-                    (2n+1)*(α^2*f)/r^2 -
-                    (3φ*((2n+1)*f - n*h))/(2*(2n+3)) * ψl
-                )
-
-                Ic[:,3] .= 0.0
-                Ic[2,3] = 1.0   # tangential slip
-            end
-        elseif type == "solid" # incompressible solid core
-            if M == 6
-                # First column
-                Ic[1, 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
-                Ic[2, 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
-                Ic[3, 1] = ( n*ρ*g*r + 2*( n^2 - n - 3)*μ ) * r^n / ( 2*( 2n + 3) )
-                Ic[4, 1] = n *( n+2 ) * μ * r^n / ( ( 2n + 3 )*( n+1 ) )
-                Ic[6, 1] = 2π*G_norm*ρ*n*r^( n+1 ) / ( 2n + 3 )
-
-                # Second column
-                Ic[1, 2] = r^( n-1 )
-                Ic[2, 2] = r^( n-1 ) / n
-                Ic[3, 2] = ( ρ*g*r + 2*( n-1 )*μ ) * r^( n-2 )
-                Ic[4, 2] = 2*( n-1 ) * μ * r^( n-2 ) / n
-                Ic[6, 2] = 4π*G_norm*ρ*r^( n-1 )
-
-                # Third column
-                Ic[3, 3] = -ρ * r^n
-                Ic[5, 3] = -r^n
-                Ic[6, 3] = -( 2n + 1) * r^( n-1 )
-            elseif M == 8
-                # First column
-                Ic[1, 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
-                Ic[2, 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
-                Ic[5, 1] = ( n*ρ*g*r + 2*( n^2 - n - 3)*μ ) * r^n / ( 2*( 2n + 3) )
-                Ic[6, 1] = n *( n+2 ) * μ * r^n / ( ( 2n + 3 )*( n+1 ) )
-                Ic[7, 1] = 2π*G_norm*ρ*n*r^( n+1 ) / ( 2n + 3 )
-
-                # Second column
-                Ic[1, 2] = r^( n-1 )
-                Ic[2, 2] = r^( n-1 ) / n
-                Ic[5, 2] = ( ρ*g*r + 2*( n-1 )*μ ) * r^( n-2 )
-                Ic[6, 2] = 2*( n-1 ) * μ * r^( n-2 ) / n
-                Ic[7, 2] = 4π*G_norm*ρ*r^( n-1 )
-
-                # Third column
-                Ic[5, 3] = -ρ * r^n
-                Ic[3, 3] = -r^n
-                Ic[7, 3] = -( 2n + 1) * r^( n-1 )
-            end
-        else
-            error("Invalid core type: $type. Must be 'liquid', 'inertial', or 'solid'.")
-        end
-
-        return Ic
-    end
-
-
-    """
-        get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, M=8)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
-
-    # Arguments
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-    - `M::Int=8`                         : Number of rows in the A matrix. This should be 6 for the solid-body problem, but can be 8 for the two-phase problem.
-
-    # Returns
-    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    """
-    function get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, M=8)
-        A = zeros(precc, 6, 6) 
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ, M=M)
-        return A
-    end
-
-    
-    """
-        get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing)
-
-    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025).
-
-    # Arguments
-    - `ω::prec`                          : Forcing frequency.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `ρₗ::prec`                          : Liquid density at radius r.
-    - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
-    - `ηₗ::prec`                          : Liquid viscosity at radius r.
-    - `ϕ::prec`                          : Porosity at radius r.
-    - `k::prec`                          : Permeability at radius r.    
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-
-    # Returns
-    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-
-    See also [`get_A!`](@ref)
-    """
-    function get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing)
-        A = zeros(precc, 8, 8)
-        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ)
-        return A
-    end
-
-
-    """
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, M=8)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
-    (2016) Eq. 1.95.
-
-    # Arguments
-    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-    - `M::Int=8`                         : Number of rows in the A matrix. This should be 6 for the solid-body problem, but can be 8 for the two-phase problem.
-    """
-    function get_A!(A::Matrix, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, M=8)
-        if isnothing(λ)
-            λ = K - 2μ/3
-        end
-
-        G_norm = G / G0
-
-        r_inv = 1.0/r
-        β_inv = 1.0/(2μ + λ)
-        rβ_inv = r_inv * β_inv
-
-        if M == 8
-            A[1,1] = -2λ * r_inv*β_inv
-            A[2,1] = -r_inv
-            A[5,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) - ω^2 * ρ 
-            A[6,1] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
-            A[3,1] = 4π * G_norm * ρ
-            A[7,1] = 4π*(n+1)*G_norm*ρ*r_inv
-
-            A[1,2] = n*(n+1) * λ * r_inv*β_inv
-            A[2,2] = r_inv
-            A[5,2] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-            A[6,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) - ω^2 * ρ 
-            A[7,2] = -4π*n*(n+1)*G_norm*ρ*r_inv
-
-            A[1,5] = β_inv
-            A[5,5] = r_inv*β_inv * (-4μ )
-            A[6,5] = -λ * r_inv*β_inv
-            
-            A[2,6] = 1.0 / μ
-            A[5,6] = n*(n+1)*r_inv
-            A[6,6] = -3r_inv
-
-            A[5,3] = ρ * (n+1)*r_inv
-            A[6,3] = -ρ*r_inv
-            A[3,3] = -(n+1)r_inv     
-
-            A[5,7] = -ρ
-            A[3,7] = 1.0
-            A[7,7] = (n-1)r_inv
-
-        elseif M ==6
-            A[1,1] = -2λ * r_inv*β_inv
-            A[2,1] = -r_inv
-            A[4,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) - ω^2 * ρ 
-            A[5,1] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
-            A[3,1] = 4π * G_norm * ρ
-            A[6,1] = 4π*(n+1)*G_norm*ρ*r_inv
-
-            A[1,2] = n*(n+1) * λ * r_inv*β_inv
-            A[2,2] = r_inv
-            A[4,2] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-            A[5,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) - ω^2 * ρ 
-            A[6,2] = -4π*n*(n+1)*G_norm*ρ*r_inv
-
-            A[1,4] = β_inv
-            A[4,4] = r_inv*β_inv * (-4μ )
-            A[5,4] = -λ * r_inv*β_inv
-            
-            A[2,5] = 1.0 / μ
-            A[4,5] = n*(n+1)*r_inv
-            A[5,5] = -3r_inv
-
-            A[4,3] = ρ * (n+1)*r_inv
-            A[5,3] = -ρ*r_inv
-            A[3,3] = -(n+1)r_inv     
-
-            A[4,6] = -ρ
-            A[3,6] = 1.0
-            A[6,6] = (n-1)r_inv
-        end
-    end
-
-
-    """
-        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
-
-    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025).
-
-    # Arguments
-    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    - `ω::prec`                          : Forcing frequency.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `ρₗ::prec`                          : Liquid density at radius r.
-    - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
-    - `ηₗ::prec`                          : Liquid viscosity at radius r.
-    - `ϕ::prec`                          : Porosity at radius r.
-    - `k::prec`                          : Permeability at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Notes
-    See also [`get_A`](@ref)
-    """
-    function get_A!(A::Matrix, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing)
-        # λ = K - 2μ/3       # Lame's second param, which uses the drained compaction modulus
-        λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
-        S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
-
-        # First add the solid-body coefficients, but using drained moduli. 
-        get_A!(A, ω, r, ρ, g, μ, Kd, n; λ=λ, G0=G0, M=8)    # Note that here we replace the bulk modulus with the compaction modulus
-
-        r_inv = 1.0/r
-        β_inv = 1.0/(2μ + λ)
-
-        G_norm = G / G0
-
-        # ϕ = 0.
-        # If there is a porous layer, now add the two-phase components
-        if !iszero(ϕ)
-
-            A[1,4] = α * β_inv
-
-            A[5,1] += 1im * k*ρₗ^2 *g^2 * n*(n+1) / (ω*ηₗ) * r_inv^2
-            A[5,3] += -(n+1)r_inv * 1im *(k*ρₗ^2*g*n)/(ω*ηₗ) * r_inv                               
-            A[5,4] = 1im * (k*ρₗ*g*n*(n+1))/(ω*ηₗ)*r_inv^2 - 4μ*α*β_inv*r_inv
-            A[5,8] =  1im * (k*ρₗ^2*g^2*n*(n+1))/(ω*ηₗ)*r_inv^2 - 4ϕ*ρₗ*g*r_inv 
-        
-            A[6,4] = 2α*μ*r_inv * β_inv
-            A[6,8] = ϕ*ρₗ*g*r_inv 
-            
-            A[3,8] = 4π*G_norm*ρₗ*ϕ
-
-            A[7,1] += -1im * 4π*G_norm*n*(n+1)*r_inv * (k*ρₗ^2*g/(ω*ηₗ)*r_inv)
-            A[7,3] = 1im*4π*n*(n+1)G_norm*(ρₗ)^2*k*r_inv^2 / (ω*ηₗ)
-            A[7,4] = -1im *4π*n*(n+1)G_norm*ρₗ*k*r_inv^2 / ( ω*ηₗ) 
-            A[7,8] = 4π*G_norm*(n+1)*r_inv * (ϕ*ρₗ - 1im * n*k*ρₗ^2*g/(ω*ηₗ)*r_inv) 
-            
-            A[4,1] = ρₗ*g*r_inv * ( 4 - 1im *(k*ρₗ*g*n*(n+1)/(ω*ϕ*ηₗ))*r_inv)  
-            A[4,2] = -ρₗ*n*(n+1)*r_inv*g
-            A[4,3] = -ρₗ*(n+1)r_inv * (1 - 1im*(k*ρₗ*g*n)/(ω*ϕ*ηₗ)*r_inv)  
-            A[4,7] = ρₗ 
-            A[4,4] = - 1im*(k*ρₗ*g*n*(n+1))/(ω*ϕ*ηₗ)*r_inv^2
-            A[4,8] = -1im*ω*ϕ*ηₗ/k - 4π*G_norm*(ρ - ϕ*ρₗ)*ρₗ + ρₗ*g*r_inv*(4 - 1im*(k*ρₗ*g*n*(n+1))/(ω*ϕ*ηₗ)*r_inv) 
-        
-            A[8,1] = r_inv*( 1im * k*ρₗ*g*n*(n+1)/(ω*ϕ*ηₗ)*r_inv - α/ϕ * 4μ*β_inv) 
-            A[8,2] = α/ϕ * 2n*(n+1)*μ *β_inv * r_inv
-            A[8,5] = -α/ϕ * β_inv 
-            A[8,3] = -1im * k *ρₗ *n*(n+1) / (ω*ϕ*ηₗ)*r_inv^2 
-            A[8,4] = 1im*k*n*(n+1)/(ω*ϕ*ηₗ)*r_inv^2 - 1/ϕ * (S + α^2 * β_inv) # If solid and liquid are compressible, keep the 1/M term
-            A[8,8] = 1im * k *ρₗ*g *n*(n+1) / (ω*ϕ*ηₗ)*r_inv^2  - 2r_inv 
-        end
-
-    end
-
     
     """
         solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core; core="liquid")
@@ -742,142 +272,147 @@ module solid1d_mush_relax
     - `y_t::Vector{precc}`              : Vector of length 8 representing the tidal solution at the top of the mantle. This includes the displacements, stresses, and potential at the surface.
     - `y_l::Vector{precc}`              : Vector of length 8 representing the load solution at the top of the mantle. This includes the displacements, stresses, and potential at the surface.
     - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `S::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the normalization.
-    - `ifc::Int`                        : Index of the first interface layer (the one closer to the core).
-    - `ifd::Int`                        : Index of the second interface layer (the one closer to the surface).
+    - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
     function solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n,
                                 ρ_core, M_tot; core="liquid")
 
-        # 1. Find the original interface index
-        ifc_orig = findfirst(k .> 0)
-        ifd_orig = findlast(k .> 0)
+        # Define the ordering of the solution vector components for the 6x6 and 8x8 cases
+        Y6 = [1,2,4,5,3,6]
+        Y8 = [1,2,5,6,3,7,4,8]
 
-        vars = (r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k)
-        new_vars = map(vars) do v
-            v_new = copy(v)
-            insert!(v_new, ifc_orig, v[ifc_orig])
-            insert!(v_new, ifd_orig + 1, v[ifd_orig])
-            v_new
+        # 1. Identify Regions and Transitions
+        # We define a boolean mask where true = mushy, false = solid
+        is_mush = k .> 0
+        
+        # Detect indices where the state changes
+        transitions = findall(diff(is_mush) .!= 0)
+        
+        # 2. Duplicate nodes at transition points for the relaxation scheme
+        # We iterate backwards to keep indices valid during insertion
+        new_r, new_ρ, new_g, new_μ, new_K, new_ρₗ, new_Kl, new_Kd, new_α, new_ηₗ, new_ϕ, new_k = 
+            copy(r), copy(ρ), copy(g), copy(μ), copy(K), copy(ρₗ), copy(Kl), copy(Kd), copy(α), copy(ηₗ), copy(ϕ), copy(k)
+
+        for trans_idx in reverse(transitions)
+            for v in (new_r, new_ρ, new_g, new_μ, new_K, new_ρₗ, new_Kl, new_Kd, new_α, new_ηₗ, new_ϕ, new_k)
+                insert!(v, trans_idx + 1, v[trans_idx])
+            end
         end
-        new_r, new_ρ, new_g, new_μ, new_K, new_ρₗ, new_Kl, new_Kd, new_α, new_ηₗ, new_ϕ, new_k = new_vars
 
         Nr = length(new_r)
-        ifc = ifc_orig  # The first of the two duplicate layers
-        ifd = ifd_orig + 1  # The second of the two duplicate layers
 
-        # 3. Define the new segments for the relaxation scheme
-        # Segment 3 now covers the transition between the two identical radial points
-        ids = [
-            (1, 2),             # 1: Core Boundary
-            (2, ifc-1),         # 2: Solid Propagation
-            (ifc-1, ifc+1),     # 3: Interface Transition (duplicate layer)
-            (ifc+1, ifd-1),     # 4: Mushy Propagation
-            (ifd-1, ifd+1),     # 5: Interface Transition (duplicate layer)
-            (ifd+1, Nr-1),      # 6: Solid Propagation
-            (Nr-1, Nr)          # 7: Surface Boundary
-        ]
+        new_is_mush = new_k .> 0
 
-        # 4. Non-dimensional scaling (Not working atm, use 1.,1.,1. for now)
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1., 1., 1.)
-        # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r[end], M_tot, g[end])
-        
+        # 3. Dynamic Scaling (needs to be checked for consistency with the non-dimensionalization in get_scales)
+        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1., 1., 1.; Y=Y8)
         ωs = ω * s0
-        rs = new_r ./ R0
-        ρs = new_ρ ./ ρ0
-        gs = new_g ./ g0
-        μs = new_μ ./ μ0
-        Ks = new_K ./ μ0
-        ρₗs = new_ρₗ ./ ρ0
-        Kls = new_Kl ./ μ0
-        Kds = new_Kd ./ μ0
-        ηₗs = new_ηₗ ./ (μ0 * s0)
-        ks = new_k ./ R0^2
+        rs, ρs, gs, μs, Ks = new_r./R0, new_ρ./ρ0, new_g./g0, new_μ./μ0, new_K./μ0
+        ρₗs, Kls, Kds, ηₗs, ks = new_ρₗ./ρ0, new_Kl./μ0, new_Kd./μ0, new_ηₗ./(μ0*s0), new_k./R0^2
 
-        # 5. Initialize Matrices
-        R = [zeros(precc, 8, 8) for _ in 1:Nr]
+        # 4. Initialize Matrices
+        R = [Matrix{precc}(I, 8, 8) for _ in 1:Nr]
         B = [zeros(precc, 8, 1) for _ in 1:Nr]
-
-        # Define the specific indices used by 6x6
-        idx = [1, 2, 3, 5, 6, 7]
-
-        # Create the view using these indices for both rows and columns
-        R6_view = [view(R[i], idx, idx) for i in 1:Nr]
+        idx_6 = [1, 2, 3, 5, 6, 7]
+        R6_view = [view(R[i], idx_6, idx_6) for i in 1:Nr]
         R8_view = [view(R[i], 1:8, 1:8) for i in 1:Nr]
-        B6_view = [view(B[i], idx, 1) for i in 1:Nr]
-        B8_view = [view(B[i], 1:8, 1) for i in 1:Nr]
 
-        # component 1: apply core boundary condition and get first solution (3x6)
-        C1l, D2l = core_boundary(R6_view, ids[1], rs, ρs, gs, μs, Ks, ωs, ρ_core/ρ0, core, n; G0=G0)
+        # 5. Adaptive Propagation Loop
+        @debug("\n--- Adaptive Solver Plan ---")
+        @debug("Total Nodes (Nr): $Nr")
+        @debug("Transitions at indices: $transitions")
 
-        # component 1: apply core boundary condition and get first solution (4x8)
-        # C1l, D2l = core_boundary_mush(R8_view, ids[1], rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, α, ηₗs, ϕ, ks, ρ_core/ρ0, core, n; G0=G0)
+        curr_idx = 1
+        # Step 1: Core
+        if !new_is_mush[1]
+            @debug("STEP 1: [Core Boundary] Solid | Indices: (1, 2)")
+            C1l, D2l = core_boundary(R6_view, (1, 2), rs, ρs, gs, μs, Ks, ωs, ρ_core/ρ0, core, n; G0=G0, Y=Y6)
+            curr_idx = 2
+        else
+            @debug("STEP 1: [Core Boundary] Mushy | Indices: (1, 2)")
+            C1l, D2l = core_boundary_mush(R8_view, (1, 2), rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, new_α, ηₗs, new_ϕ, ks, ρ_core/ρ0, core, n; G0=G0, Y=Y8)
+            curr_idx = 2
+        end
 
-        # component 2: propagate the solution up to the surface (6x6)
-        C1l, D2l = propagate_solid(R6_view, B6_view, C1l, D2l, ids[2], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
+        # Step 2: Propagation and Jumps
+        while curr_idx < Nr
+            next_change = findnext(x -> x != new_is_mush[curr_idx], new_is_mush, curr_idx)
+            segment_end = (next_change === nothing) ? Nr : next_change - 1
+            
+            # Safety check for empty ranges
+            if segment_end > curr_idx
+                if !new_is_mush[curr_idx]
+                    @debug("STEP: [Propagate Solid] | Range: ($curr_idx, $segment_end)")
+                    C1l, D2l = propagate_solid(R6_view, C1l, D2l, (curr_idx, segment_end-1), 
+                                            rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y6)
+                else
+                    @debug("STEP: [Propagate Mushy] | Range: ($curr_idx, $segment_end)")
+                    C1l, D2l = propagate_mush(R8_view, C1l, D2l, (curr_idx, segment_end-1), 
+                                            rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, new_α, ηₗs, new_ϕ, ks, n; G0=G0, Y=Y8)
+                end
+            end
 
-        # component 3: interface between 6x6 and 8x8
-        C1l, D2l = interface_solid_mush(R8_view, B8_view, C1l, D2l, ids[3])
+            if next_change !== nothing
+                # The jump occurs at the duplicated node
+                trans_range = (next_change - 1, next_change + 1)
+                if !new_is_mush[curr_idx] && new_is_mush[next_change]
+                    @debug("STEP: [Interface Jump] Solid -> Mushy | Range: $trans_range")
+                    C1l, D2l = interface_solid_mush(R8_view, C1l, D2l, trans_range; Y=Y8)
+                else
+                    @debug("STEP: [Interface Jump] Mushy -> Solid | Range: $trans_range")
+                    C1l, D2l = interface_mush_solid(R8_view, C1l, D2l, trans_range; Y=Y8)
+                end
+                curr_idx = next_change + 1
+            else
+                curr_idx = Nr
+            end
+        end
 
-        # component 4: propagate the solution up to the surface (8x8)
-        C1l, D2l = propagate_mush(R8_view, B8_view, C1l, D2l, ids[4], rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, new_α, ηₗs, new_ϕ, ks, n; G0=G0)
+        # Step 3: Surface
+        if !new_is_mush[Nr]
+            @debug("STEP: [Surface Boundary] Solid | Indices: ($(Nr-1), $Nr)")
+            y_t, y_l = surface_boundary(R6_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y6)
+        else
+            @debug("STEP: [Surface Boundary] Mushy | Indices: ($(Nr-1), $Nr)")
+            y_t, y_l = surface_boundary_mush(R8_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y8)
+        end
+        @debug("--- Solver Complete ---\n")
 
-        # component 5: interface between 8x8 and 6x6
-        C1l, D2l = interface_mush_solid(R8_view, B8_view, C1l, D2l, ids[5])
-
-        # component 6: propagate the solution up to the surface (6x6)
-        C1l, D2l = propagate_solid(R6_view, B6_view, C1l, D2l, ids[6], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
-
-        # component 7: apply surface boundary condition and solve for the final solution at the surface
-        y_t, y_l = surface_boundary(R6_view, B6_view, C1l, D2l, ids[7], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
-
-        # component 3: apply surface boundary condition and solve for the final solution at the surface
-        # y_t, y_l = surface_boundary_mush(R8_view, B8_view, C1l, D2l, ids[5], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
-
-        return y_t, y_l, R, B, S, ifc, ifd
+        return y_t, y_l, R, S, transitions 
     end
 
 
     """
-        interface_mush_solid(R8, B8, Cn_l, Dnp_l, ids)
+        interface_mush_solid(R8, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This 
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 8x8 system to the 6x6 system.
 
     # Arguments
     - `R8::Vector{Matrix{precc}}`       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B8::Vector{Matrix{precc}}`       : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
+
+    # keyword arguments
+    - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function interface_mush_solid(R8, B8, Cn_l, Dnp_l, ids)
+    function interface_mush_solid(R8, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
-        # Impose continuity at the boundary
-        # Make sure bn[4, 1] = 0.0, i.e. zero darcy flux at boundary
-        bn = zeros(precc, 8, 1) 
-
-        I86 = zeros(precc, 8, 8)
         I8  = Matrix{precc}(I, 8, 8)
 
-        icc = [1.,1.,1.,0.,1.,1.,1.,1.]
-        idd = [1.,1.,1.,0.,1.,1.,1.,0.]
-        for i in 1:8
-            I86[i, i] = icc[i]
-            I8[i, i]  = idd[i]
-        end      
-
-        Cn  = I86
+        Cn  = I8
         Dnp = -I8
+        Dnp[4, 4] = 0.0 
+        Dnp[8, 8] = 0.0
 
-        target_cols = [1, 2, 3, 5, 6, 7]
+        target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
         # 1. Use the "stored" lower halves from the previous step 
         # to fill the upper blocks of P and S.
         Pn_u = Cn_l
@@ -893,12 +428,15 @@ module solid1d_mush_relax
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
 
+        Kn = zeros(precc, 8, 8)
+        Kn[8, 8] = 1.0
+
         # 4. Perform recursion
-        Xn = Pn * R8[start_id] + Sn
+        Xn = Pn * R8[start_id] + Sn + Kn
+
         R_ifc = - pinv(Xn) * Qn
 
         R8[start_id+1] .= R_ifc 
-        B8[start_id+1] .= pinv(Xn) * (bn - Pn * B8[start_id])
 
         # 5. Update the "stored" lower halves for the next iteration
         Cn_l  = Cn[5:7, target_cols]
@@ -909,80 +447,74 @@ module solid1d_mush_relax
 
 
     """
-        interface_solid_mush(R8, B8, Cn_l, Dnp_l, ids)
+        interface_solid_mush(R, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the interface between the solid layer and the mushy layer. This 
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 6x6 system to the 8x8 system.
 
     # Arguments
-    - `R8::Vector{Matrix{precc}}`       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B8::Vector{Matrix{precc}}`       : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
+    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
+
+    # keyword arguments
+    - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.    
     """
-    function interface_solid_mush(R8, B8, Cn_l, Dnp_l, ids)
+    function interface_solid_mush(R, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
-        # impose continuity at the boundary
-        bn = zeros(precc, 8, 1) 
-        # Induce some pore pressure 
-        bn[4, 1] = -1.0
-
-        I86 = zeros(precc, 8, 8)
-        iss = [1.,1.,1.,1.,1.,1.,1.,0.]
-        for i in 1:8
-            I86[i, i] = iss[i]
-        end
-
-        I8  = Matrix{precc}(I, 8, 8)
-
-        Cn  = I86
-        Dnp = -I8
-
-        target_cols = [1, 2, 3, 5, 6, 7]
-        # 1. Use the "stored" lower halves from the previous step 
-        # to fill the upper blocks of P and S.
+        # target_cols
+        target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
+        
+        # expand the incoming 3x6 Solid Lower blocks to 4x8
         Pn_u = zeros(precc, 4, 8)
         Pn_u[1:3, target_cols] .= Cn_l
-
+        
         Sn_u = zeros(precc, 4, 8)
         Sn_u[1:3, target_cols] .= Dnp_l
-
-        Qn_u = zeros(precc, 4, 8)
-
-        # 2. Get the upper halves of the NEWLY calculated Cn and Dnp
-        Cn_u  = Cn[1:4, :]
-        Dnp_u = Dnp[1:4, :]
-
-        # 3. Build the 8x8 blocks
+                
+        # current Layer (Porous side)
+        # treat the interface as an infinitesimal jump where C = I, D = -I
+        I8 = Matrix{precc}(I, 8, 8)
+        Cn_curr = I8
+        Cn_curr[4, 4] = 0.0 
+        Cn_curr[8, 8] = 0.0
+        Dnp_curr = -I8
+        
+        Cn_u = Cn_curr[1:4, :]
+        Dnp_u = Dnp_curr[1:4, :]
+        
+        # assemble 8x8 system
         Pn = [Pn_u; zeros(precc, 4, 8)]
         Sn = [Sn_u; Cn_u]
-        Qn = [Qn_u; Dnp_u]
+        Qn = [zeros(precc, 4, 8); Dnp_u]
 
-        # 4. Perform recursion
-        Xn = Pn * R8[start_id] + Sn
+        # introduce some pore pressure at the boundary to drive the solution in the mushy layer
+        Kn = zeros(precc, 8, 8)
+        Kn[8, 8] = 1.0
+
+        # solve the jump
+        Xn = Pn * R[start_id] + Sn + Kn
         R_ifc = - pinv(Xn) * Qn
 
-        R8[start_id+1] .= R_ifc 
-        B8[start_id+1] .= pinv(Xn) * (bn - Pn * B8[start_id])
-
-        # 5. Update the "stored" lower halves for the next iteration
-        Cn_l  = Cn[5:8, :]
-        Dnp_l = Dnp[5:8, :]
-
-        return Cn_l, Dnp_l
-
+        R[start_id+1] .= R_ifc
+        
+        # pass the Lower halves of the Porous Identity to the next propagator
+        Cn_l_new = Cn_curr[5:8, :]
+        Dnp_l_new = Dnp_curr[5:8, :]
+        
+        return Cn_l_new, Dnp_l_new
     end
 
 
     """
-        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n)
+        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n; G0=1, Y=[1,2,3,4,5,6])
 
     Perform the forward-backward relaxation step at the core boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the initial step of the relaxation scheme, where we apply the core boundary condition and 
@@ -1003,12 +535,13 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`   : Ordering of the solution vector components.
 
     # Returns
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n; G0=1)
+    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -1018,8 +551,8 @@ module solid1d_mush_relax
         # first layer (n = 1)
         dr = r[end_id] - r[start_id]
 
-        A1 = get_A(ω, r[start_id], ρ[start_id], g[start_id], μ[start_id], K[start_id], n; G0=G0, M=6)
-        A2 = get_A(ω, r[end_id], ρ[end_id], g[end_id], μ[end_id], K[end_id], n; G0=G0, M=6)
+        A1 = get_A(ω, r[start_id], ρ[start_id], g[start_id], μ[start_id], K[start_id], n; G0=G0, Y=Y)
+        A2 = get_A(ω, r[end_id], ρ[end_id], g[end_id], μ[end_id], K[end_id], n; G0=G0, Y=Y)
 
         I6 = Matrix{precc}(I, 6, 6)
 
@@ -1042,7 +575,7 @@ module solid1d_mush_relax
 
 
     """
-        core_boundary_mush(R, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, ρ_core, core, n)
+        core_boundary_mush(R, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, ρ_core, core, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the core boundary for the two-phase problem. This function implements 
     the recursion described in N. Kobayashi (2007) for the initial step of the relaxation scheme, where we apply the core 
@@ -1076,21 +609,21 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary_mush(R, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, ρ_core, core, n; G0=1)
+    function core_boundary_mush(R, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, ρ_core, core, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
         # boundary conditions
-        B1 = get_core_bc!(ω, r[start_id], ρ_core, g[start_id], μ[start_id], K[start_id], core, n; G0=G0, M=8, N=4)     
+        B1 = get_core_bc!(ω, r[start_id], ρ_core, g[start_id], μ[start_id], K[start_id], core, n; G0=G0, Y=Y)     
         
         # first layer (n = 1)
         dr = r[end_id] - r[start_id]
 
         A1 = get_A(ω, r[start_id], ρ[start_id], g[start_id], μ[start_id], K[start_id],
-                    ρₗ[start_id], Kl[start_id], Kd[start_id], α[start_id], ηₗ[start_id], ϕ[start_id], k[start_id], n; G0=G0)
+                    ρₗ[start_id], Kl[start_id], Kd[start_id], α[start_id], ηₗ[start_id], ϕ[start_id], k[start_id], n; G0=G0, Y=Y)
 
         A2 = get_A(ω, r[end_id], ρ[end_id], g[end_id], μ[end_id], K[end_id],
-                ρₗ[end_id], Kl[end_id], Kd[end_id], α[end_id], ηₗ[end_id], ϕ[end_id], k[end_id], n; G0=G0)
+                ρₗ[end_id], Kl[end_id], Kd[end_id], α[end_id], ηₗ[end_id], ϕ[end_id], k[end_id], n; G0=G0, Y=Y)
 
         I8 = Matrix{precc}(I, 8, 8)
 
@@ -1113,7 +646,7 @@ module solid1d_mush_relax
 
     
     """
-        propagate_solid(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n)
+        propagate_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6])
 
     Perform the forward-backward relaxation step for the solid propagation segments. This function implements the 
     recursion described in N. Kobayashi (2007) for the segments of the radial grid that correspond to the solid 
@@ -1121,7 +654,6 @@ module solid1d_mush_relax
 
     # Arguments
     - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -1135,12 +667,13 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`    : Ordering of the solution vector components.
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_solid(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
+    function propagate_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -1155,8 +688,8 @@ module solid1d_mush_relax
             dr = r[i+1] - r[i]
 
             # Calculate A at current and next step
-            A_n  = get_A(ω, r[i],   ρ[i],   g[i],   μ[i],   K[i],   n; G0=G0, M=6)
-            A_np = get_A(ω, r[i+1], ρ[i+1], g[i+1], μ[i+1], K[i+1], n; G0=G0, M=6)
+            A_n  = get_A(ω, r[i],   ρ[i],   g[i],   μ[i],   K[i],   n; G0=G0, Y=Y)
+            A_np = get_A(ω, r[i+1], ρ[i+1], g[i+1], μ[i+1], K[i+1], n; G0=G0, Y=Y)
 
             Cn  =  I6 + 0.5 * dr * A_n
             Dnp = -I6 + 0.5 * dr * A_np
@@ -1178,9 +711,14 @@ module solid1d_mush_relax
 
             # 4. Perform recursion
             Xn = Pn * R[i-1] + Sn
-            R[i] .= -Xn \ Qn
-            B[i] .=  Xn \ (-Pn * B[i-1])
-
+            
+            if i == start_id
+                # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
+                R[i] .= - pinv(Xn) * Qn
+            else
+                R[i] .= -Xn \ Qn
+            end
+            
             # 5. Update the "stored" lower halves for the next iteration
             Cn_l  = Cn[4:6, :]
             Dnp_l = Dnp[4:6, :]
@@ -1191,7 +729,7 @@ module solid1d_mush_relax
 
     
     """
-        propagate_mush(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
+        propagate_mush(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step for the mushy layer propagation segment. This function implements the
     recursion described in N. Kobayashi (2007) for the segment of the radial grid that corresponds to the mushy layer, 
@@ -1200,7 +738,6 @@ module solid1d_mush_relax
 
     # Arguments
     - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 4x8 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -1221,12 +758,13 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.  
+    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Indices for the state variables (default is for standard case).
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 4x8 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 4x8 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_mush(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1)
+    function propagate_mush(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -1242,10 +780,10 @@ module solid1d_mush_relax
 
             # Calculate A at current and next step
             A_n  = get_A(ω, r[i],   ρ[i],   g[i],   μ[i],   K[i],
-                            ρₗ[i], Kl[i], Kd[i], α[i], ηₗ[i], ϕ[i], k[i], n; G0=G0)
+                            ρₗ[i], Kl[i], Kd[i], α[i], ηₗ[i], ϕ[i], k[i], n; G0=G0, Y=Y)
 
             A_np = get_A(ω, r[i+1], ρ[i+1], g[i+1], μ[i+1], K[i+1],
-                        ρₗ[i+1], Kl[i+1], Kd[i+1], α[i+1], ηₗ[i+1], ϕ[i+1], k[i+1], n; G0=G0)
+                        ρₗ[i+1], Kl[i+1], Kd[i+1], α[i+1], ηₗ[i+1], ϕ[i+1], k[i+1], n; G0=G0, Y=Y)
 
             Cn  =  I8 + 0.5 * dr * A_n
             Dnp = -I8 + 0.5 * dr * A_np
@@ -1268,8 +806,12 @@ module solid1d_mush_relax
             # 4. Perform recursion
             Xn = Pn * R[i-1] + Sn
 
-            R[i] .= -Xn \ Qn
-            B[i] .=  Xn \ (-Pn * B[i-1])
+            if i == start_id
+                # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
+                R[i] .= -pinv(Xn) * Qn
+            else
+                R[i] .= -Xn \ Qn
+            end
 
             # 5. Update the "stored" lower halves for the next iteration
             Cn_l  = Cn[5:8, :]
@@ -1281,7 +823,7 @@ module solid1d_mush_relax
 
 
     """
-        surface_boundary(R, B, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
+        surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
 
     Perform the forward-backward relaxation step at the surface boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the final step of the relaxation scheme, where we apply the surface boundary condition and 
@@ -1289,7 +831,6 @@ module solid1d_mush_relax
 
     # Arguments
     - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `CNm_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the CNm matrix from the previous step.
     - `DN_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -1308,14 +849,14 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R, B, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
+    function surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=Y)
 
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0, M=6, N=3)
+        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0, Y=Y)
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, M=6, N=3)
+        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, Y=Y)
 
         PN = [CNm_l; zeros(3,6)]
         SN_t = [DN_l; BN_t]
@@ -1324,12 +865,10 @@ module solid1d_mush_relax
         XN_t = PN * R[start_id] + SN_t
         XN_l = PN * R[start_id] + SN_l
 
-        BN = - XN_t \ PN * B[start_id]
-
         # solve outer  (tides)
-        y_t = XN_t \ b_t + BN
+        y_t = XN_t \ b_t
         # solve outer (load)
-        y_l = XN_l \ b_l + BN
+        y_l = XN_l \ b_l
 
         return y_t, y_l
 
@@ -1337,7 +876,7 @@ module solid1d_mush_relax
 
 
     """
-        surface_boundary_mush(R, B, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
+        surface_boundary_mush(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
 
     Perform the forward-backward relaxation step at the surface boundary for the two-phase problem. This function implements 
     the recursion described in N. Kobayashi (2007) for the final step of the relaxation scheme, where we apply the surface 
@@ -1346,7 +885,6 @@ module solid1d_mush_relax
 
     # Arguments
     - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `CNm_l::Matrix{precc}`            : 4x8 matrix representing the "stored" lower half of the CNm matrix from the previous step.
     - `DN_l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -1365,14 +903,14 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary_mush(R, B, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
+    function surface_boundary_mush(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; M=8, N=4)
+        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; Y=Y)
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; M=8, N=4)
+        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; Y=Y)
 
         PN = [CNm_l; zeros(4,8)]
         SN_t = [DN_l; BN_t]
@@ -1381,12 +919,10 @@ module solid1d_mush_relax
         XN_t = PN * R[start_id] + SN_t
         XN_l = PN * R[start_id] + SN_l
 
-        BN = - XN_t \ PN * B[start_id]
-
         # solve outer  (tides)
-        y_t = pinv(XN_t) * b_t + BN
+        y_t = pinv(XN_t) * b_t
         # solve outer (load)
-        y_l = pinv(XN_l) * b_l + BN
+        y_l = pinv(XN_l) * b_l
 
         return y_t, y_l
 
@@ -1394,7 +930,7 @@ module solid1d_mush_relax
 
 
     """
-        get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
+        get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, Y=[1,2,3,4,5,6])
 
     Get the core boundary condition matrix `B` for the solid-body problem. The core boundary 
     conditions are derived from the requirement that the radial stress at the core-mantle 
@@ -1403,34 +939,37 @@ module solid1d_mush_relax
     # Arguments
     - `ω::Float64`                       : Forcing frequency.
     - `r::prec`                          : Radial position of the core-mantle boundary.
-    - `ρ::prec`                          : Density at the core-mantle boundary.
+    - `ρ::prec`                          : Average core density.
     - `g::prec`                          : Gravity at the core-mantle boundary.
-    - `μ::precc`                         : Complex shear modulus at the core-mantle boundary.
-    - `K::prec`                          : Bulk modulus at the core-mantle boundary.
+    - `μ::precc`                         : Average core complex shear modulus.
+    - `K::prec`                          : Average core bulk modulus.
     - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `M::Int=6`                         : Dimensionality of the system (6 for standard, 8 for mushy layer).
-    - `N::Int=3`                         : Number of boundary conditions to apply (3 for standard, 4 for mushy layer).
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`    : Indices for the state variables (default is for standard case).
 
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
     """
-    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
+    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, Y=[1,2,3,4,5,6])
+        
+        M = length(Y)
+        N = Int(M / 2)
+
         # 1. Get the Initial Conditions matrix
-        Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, M=M, N=N)
+        Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, Y=Y)
 
         # 2. Define indices based on dimensionality
         # If M=8 (Mushing/Hay 2025):  U=1, V=2, phi=5, P=7 | X=3, Y=4, psi=6, R=8
         # If M=6 (Standard/Takeuchi): U=1, V=2, phi=5      | X=3, Y=4, psi=6
         if M == 8
-            idx_u = [1, 2, 3, 4]
-            idx_s = [5, 6, 7, 8]
+            idx_u = [Y[1], Y[2], Y[5], Y[7]]
+            idx_s = [Y[3], Y[4], Y[6], Y[8]]
         else
-            idx_u = [1, 2, 5]
-            idx_s = [3, 4, 6]
+            idx_u = [Y[1], Y[2], Y[5]]
+            idx_s = [Y[3], Y[4], Y[6]]
         end
 
         # 3. Partition and calculate the boundary condition coefficients
@@ -1456,7 +995,7 @@ module solid1d_mush_relax
 
 
     """
-        get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, M=6, N=3)
+        get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Get the surface boundary condition vector `b` and matrix `BN` for the solid-body problem. The surface 
     boundary conditions are determined by setting, respectively (U, U', tau, P) to (1,0,0,0) for tidal Love 
@@ -1475,15 +1014,17 @@ module solid1d_mush_relax
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `M::Int=6`                         : Dimensionality of the system (6 for standard, 8 for mushy layer).
-    - `N::Int=3`                         : Number of boundary conditions to apply (3 for standard, 4 for mushy layer).
+    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Indices for the state variables (default is for standard case).
 
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
     - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
     """
-    function get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, M=8, N=4)
+    function get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, Y=[1,2,3,4,5,6,7,8])
         
+        M = length(Y)
+        N = Int(M / 2)
+
         # Define surface mass load (zeta) based on Farrell/Longman relation
         zeta = ((2 * n + 1) / (4 * pi * G/G0 * R)) * U_prime
 
@@ -1492,25 +1033,25 @@ module solid1d_mush_relax
         
         if M == 8
             # radial Stress y3
-            b[5] = -g * zeta * (G/G0) / R - P
+            b[Y[3]] = -g * zeta * (G/G0) / R - P
             
             # tangential Stress y4
-            b[6] = tau
+            b[Y[4]] = tau
             
             # gravitational potential boundary
-            b[7] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
+            b[Y[6]] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
 
             # darcy flux boundary
-            b[8] = 0.
+            b[Y[8]] = 0
         elseif M == 6
             # radial Stress y3
-            b[4] = -g * zeta * (G/G0) / R - P
+            b[Y[3]] = -g * zeta * (G/G0) / R - P
             
             # tangential Stress y4
-            b[5] = tau
+            b[Y[4]] = tau
             
             # gravitational potential boundary
-            b[6] = ((2 * n + 1) / R) * U - 4 * pi * G/G0 * zeta
+            b[Y[6]] = ((2 * n + 1) / R) * U - 4 * pi * G/G0 * zeta
         else
             error("Unsupported M value. M should be either 6 or 8.")
         end
@@ -1521,20 +1062,20 @@ module solid1d_mush_relax
 
         if M == 8
             # stress components
-            B[1, 5] = 1.0  # radial stress y3
-            B[2, 6] = 1.0  # tangential stress y4
+            B[1, Y[3]] = 1.0  # radial stress y3
+            B[2, Y[4]] = 1.0  # tangential stress y4
             
             # potential component
-            B[3, 3] = (n + 1) / R
-            B[3, 7] = 1.0
-            B[4, 8] = 1.0
+            B[3, Y[5]] = (n + 1) / R
+            B[3, Y[6]] = 1.0
+            B[4, Y[8]] = 1.0
         elseif M == 6
             # stress components
-            B[1, 4] = 1.0  # radial stress y3
-            B[2, 5] = 1.0  # tangential stress y4
+            B[1, Y[3]] = 1.0  # radial stress y3
+            B[2, Y[4]] = 1.0  # tangential stress y4
             # potential component
-            B[3, 3] = (n + 1) / R
-            B[3, 6] = 1.0        
+            B[3, Y[5]] = (n + 1) / R
+            B[3, Y[6]] = 1.0        
         end
 
         return B, b
@@ -1576,9 +1117,9 @@ module solid1d_mush_relax
     function compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, M_tot; core="liquid")
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, B, S, ifc, ifd = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, M_tot; core=core)
+        yN_t, yN_l, R, S, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, M_tot; core=core)
 
-        Nr = length(r) + 2
+        Nr = length(r) + length(transitions) 
         T = eltype(yN_t)
         M = length(yN_t)
 
@@ -1593,23 +1134,19 @@ module solid1d_mush_relax
 
         # back-substitution
         for i in Nr-1:-1:1
-            if i > ifc && i < ifd
-                # in the mushy region, use the mushy recursion
-                y_t[:, i] = R[i] * y_t[:, i+1] + B[i]
-            else
-                # in the solid region, use the solid recursion
-                y_t[:, i] = R[i] * y_t[:, i+1] + B[i]
-            end
+            # if this is not a transition point, we perform the recursion step as normal
+            y_t[:, i] = R[i] * y_t[:, i+1]        
         end
 
-        # Create a mask for all columns except the two interface indices
-        mask = [i for i in 1:size(y_t, 2) if i != ifc && i != ifd]
+        # keep only indices NOT in the transition list
+        mask = filter(i -> !(i in transitions), 1:size(y_t, 2))
 
         # Apply the mask to the columns
         y_t = y_t[:, mask]
 
         # apply scaling to get dimensional solution
-        for i in 1:Nr-2
+        # for i in 1:Nr-2
+        for i in 1:Nr-length(transitions)
             y_t[:, i] = S * y_t[:, i] 
         end
 

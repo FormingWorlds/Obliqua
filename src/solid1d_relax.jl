@@ -2,6 +2,9 @@
 
 module solid1d_relax
     
+    include("common.jl")
+    using .common
+
     using LinearAlgebra
     using DoubleFloats
     using AssociatedLegendrePolynomials    
@@ -224,52 +227,6 @@ module solid1d_relax
 
 
     """
-        get_scales(R0, M0, g0)
-
-    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and density 
-    scale `g0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
-
-    # Arguments
-    - `R0::prec`                         : Reference radius scale (e.g., planetary radius).
-    - `M0::prec`                         : Reference mass scale (e.g., planetary mass).
-    - `g0::prec`                         : Reference density scale.
-
-    # Returns
-    Tuple of characteristic scales:
-    - `R0::prec`                         : Length scale (m).
-    - `M0::prec`                         : Mass scale (kg).
-    - `s0::prec`                         : Time scale (s).
-    - `ρ0::prec`                         : Density scale (kg/m^3).
-    - `G0::prec`                         : Gravitational constant scale (m^3 kg^-1 s^-2).
-    - `g0::prec`                         : Gravity scale (m/s^2).
-    - `μ0::prec`                         : Shear modulus scale (Pa).
-    - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
-    - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
-    """
-    function get_scales(R0, M0, g0)
-
-        ρ0 = M0 / R0^3
-        P0 = g0 * R0
-        μ0 = ρ0 * g0 * R0
-
-        s0 = sqrt(g0 / R0)
-        G0 = R0^3 / (M0 * s0^2)   
-
-        S = Diagonal(precc[
-            R0,       # y1: radial displacement (m)
-            R0,       # y2: tangential displacement (m)
-            μ0,       # y3: radial stress (Pa)
-            μ0,       # y4: tangential stress (Pa)
-            P0,       # y5: potential (m^2/s^2)
-            g0        # y6: potential gradient/gravity (m/s^2)
-        ])
-
-        Sinv = inv(S)
-        return R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv
-    end
-
-
-    """
         doublefactorial(n)
 
     Compute the double factorial of an integer n, defined as n!! = n * (n-2) * (n-4) * ... until 1 or 0.
@@ -290,205 +247,6 @@ module solid1d_relax
             result *= k
         end
         return result
-    end
-
-
-    """
-        get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
-            
-    Get the core solution vector.
-    https://academic.oup.com/gji/article/203/3/2150/2594863
-    
-    # Arguments
-    - `ω::prec`                          : Angular frequency.
-    - `r::prec`                          : Radius of the core boundary.
-    - `ρ::prec`                          : Density of the core.
-    - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                          : Shear modulus of the core.
-    - `K::prec`                          : Bulk modulus of the core.
-    - `type::String`                     : Type of core, either "liquid" or "solid".
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `M::Int=6`                         : Number of rows in the Ic matrix. This should be 6 for the solid-body problem.
-    - `N::Int=3`                         : Number of linearly independent solutions to compute. This should be 3 for the solid-body problem.
-
-    # Returns
-    - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
-    """
-    function get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
-        Ic = zeros(precc, M, N)
-
-        G_norm = G / G0
-
-        if type=="liquid"
-            Ic[1,1] = -r^n / g
-            Ic[1,3] = 1.0
-            Ic[2,2] = 1.0
-            Ic[3,3] = g*ρ
-            Ic[5,1] = r^n
-            Ic[6,1] = 2(n-1)*r^(n-1)
-            Ic[6,3] = 4π * G_norm * ρ 
-        elseif type == "inertial"
-
-            @warn "Inertial core boundary conditions have not been fully implemented. Use with caution."
-
-            φ = 4π * G_norm * ρ / 3
-
-            Ic[1,1] = n * r^(n-1)
-            Ic[2,1] = r^(n-1)
-            Ic[3,1] = 0.0
-            Ic[4,1] = 0.0
-            Ic[5,1] = -(n*φ - ω^2) * r^n
-            Ic[6,1] = -(2*(n-1)*n*φ - (2*n + 1)*ω^2) * r^(n-1)
-
-            α = sqrt(K / ρ)
-            f = -ω^2 / φ
-            h = f - (n + 1)
-            k2 = (ω^2 + 4φ - n*(n+1)*φ^2 / ω^2) / α^2
-            k = sqrt(Complex{BigFloat}(k2))
-            x = k * r
-
-            x64 = ComplexF64(x)
-
-            jl_n   = sphericalbesselj(n, x64)
-            jl_np1 = sphericalbesselj(n+1, x64)
-
-            ϕl   = doublefactorial(2n+1) / x^n * jl_n
-            ϕlp1 = doublefactorial(2n+3) / x^(n+1) * jl_np1
-            ψl = 2*(2n+3)/x^2 * (1 - ϕl)
-            pref = -r^(n+1) / (2n + 3)
-
-            Ic[1,2] = pref * (0.5 * n * h * ψl + f * ϕlp1)
-            Ic[2,2] = pref * (0.5 * h * ψl - ϕlp1)
-            Ic[3,2] = -φ * r^n * f * ϕl
-            Ic[4,2] = 0.0
-            Ic[5,2] = -r^(n+2) * (
-                (α^2 * f)/r^2 - (3φ*f)/(2*(2n+3)) * ψl
-            )
-            Ic[6,2] = -r^(n+1) * (
-                (2n+1)*(α^2*f)/r^2 -
-                (3φ*((2n+1)*f - n*h))/(2*(2n+3)) * ψl
-            )
-
-            Ic[:,3] .= 0.0
-            Ic[2,3] = 1.0   # tangential slip
-        elseif type == "solid" # incompressible solid core
-            # First column
-            Ic[1, 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
-            Ic[2, 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
-            Ic[3, 1] = ( n*ρ*g*r + 2*( n^2 - n - 3)*μ ) * r^n / ( 2*( 2n + 3) )
-            Ic[4, 1] = n *( n+2 ) * μ * r^n / ( ( 2n + 3 )*( n+1 ) )
-            Ic[6, 1] = 2π*G_norm*ρ*n*r^( n+1 ) / ( 2n + 3 )
-
-            # Second column
-            Ic[1, 2] = r^( n-1 )
-            Ic[2, 2] = r^( n-1 ) / n
-            Ic[3, 2] = ( ρ*g*r + 2*( n-1 )*μ ) * r^( n-2 )
-            Ic[4, 2] = 2*( n-1 ) * μ * r^( n-2 ) / n
-            Ic[6, 2] = 4π*G_norm*ρ*r^( n-1 )
-
-            # Third column
-            Ic[3, 3] = -ρ * r^n
-            Ic[5, 3] = -r^n
-            Ic[6, 3] = -( 2n + 1) * r^( n-1 )
-        else
-            error("Invalid core type: $type. Must be 'liquid', 'inertial', or 'solid'.")
-        end
-
-        return Ic
-    end
-
-
-    """
-        get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
-
-    # Arguments
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-
-    # Returns
-    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    """
-    function get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
-        A = zeros(precc, 6, 6) 
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ)
-        return A
-    end
-
-
-    """
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
-    (2016) Eq. 1.95.
-
-    # Arguments
-    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-    """
-    function get_A!(A::Matrix, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing)
-        if isnothing(λ)
-            λ = K - 2μ/3
-        end
-
-        G_norm = G / G0
-
-        r_inv = 1.0/r
-        β_inv = 1.0/(2μ + λ)
-        rβ_inv = r_inv * β_inv
-
-        A[1,1] = -2λ * r_inv*β_inv
-        A[2,1] = -r_inv
-        A[3,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) - ω^2 * ρ 
-        A[4,1] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
-        A[5,1] = 4π * G_norm * ρ
-        A[6,1] = 4π*(n+1)*G_norm*ρ*r_inv
-
-        A[1,2] = n*(n+1) * λ * r_inv*β_inv
-        A[2,2] = r_inv
-        A[3,2] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[4,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) - ω^2 * ρ 
-        A[6,2] = -4π*n*(n+1)*G_norm*ρ*r_inv
-
-        A[1,3] = β_inv
-        A[3,3] = r_inv*β_inv * (-4μ )
-        A[4,3] = -λ * r_inv*β_inv
-        
-        A[2,4] = 1.0 / μ
-        A[3,4] = n*(n+1)*r_inv
-        A[4,4] = -3r_inv
-
-        A[3,5] = ρ * (n+1)*r_inv
-        A[4,5] = -ρ*r_inv
-        A[5,5] = -(n+1)r_inv     
-
-        A[3,6] = -ρ
-        A[5,6] = 1.0
-        A[6,6] = (n-1)r_inv
     end
 
 
@@ -756,10 +514,10 @@ module solid1d_relax
     # Arguments
     - `ω::Float64`                       : Forcing frequency.
     - `r::prec`                          : Radial position of the core-mantle boundary.
-    - `ρ::prec`                          : Density at the core-mantle boundary.
+    - `ρ::prec`                          : Average core density.
     - `g::prec`                          : Gravity at the core-mantle boundary.
-    - `μ::precc`                         : Complex shear modulus at the core-mantle boundary.
-    - `K::prec`                          : Bulk modulus at the core-mantle boundary.
+    - `μ::precc`                         : Average core complex shear modulus.
+    - `K::prec`                          : Average core bulk modulus.
     - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `n::Int`                           : Tidal degree.
 
@@ -771,9 +529,9 @@ module solid1d_relax
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
     """
-    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
+    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1)
 
-        Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, M=M, N=N)
+        Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0)
 
         # Define indices based on Takeuchi & Saito (1972)
         # u vectors (Displacements/Potential): U=1, V=2, phi=5
@@ -789,7 +547,7 @@ module solid1d_relax
 
         # Construct the 3x6 B matrix
         T = eltype(b)
-        B = zeros(T, 3, M)
+        B = zeros(T, 3, 6)
 
         for i in 1:3
             B[i, idx_u[i]] = 1.0               # Identity for u components
@@ -906,11 +664,6 @@ module solid1d_relax
         for i in Nr-1:-1:1
             y_t[:, i] = R[i] * y_t[:, i+1]
         end
-
-        # # apply scaling to get dimensional solution
-        # for i in 1:Nr
-        #     y_t[:, i] = S * y_t[:, i] 
-        # end
 
         return y_t, y_l
     end
