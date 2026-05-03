@@ -33,46 +33,35 @@ module Hansen
     - `k_max::Int`                      : Maximum k-index for Hansen coefficients.
     """
     function get_k_range(e, n::Int, m::Int)::Tuple{Int, Int}
-
         path = joinpath(RES_DIR, "hansen_k_table.nc")
 
-        ds = NCDataset(path, "r")
+        # Use a do-block to ensure the file handle is closed automatically
+        k_min, k_max = NCDataset(path, "r") do ds
+            n_vals   = ds["n"][:]
+            m_vals   = ds["m"][:]
+            
+            # Filter matching (n, m) indices first to minimize work
+            mask_nm = (n_vals .== n) .& (m_vals .== m)
 
-        n_vals   = ds["n"][:]
-        m_vals   = ds["m"][:]
-        ecc_vals = ds["ecc"][:]
-        kmin_vals = ds["k_min"][:]
-        kmax_vals = ds["k_max"][:]
+            if !any(mask_nm)
+                error("No entries found for n=$n, m=$m in Hansen table.")
+            end
 
-        close(ds)
+            # Pull sub-arrays only for valid (n, m) entries
+            ecc_sub   = ds["ecc"][mask_nm]
+            kmin_sub  = ds["k_min"][mask_nm]
+            kmax_sub  = ds["k_max"][mask_nm]
 
-        # filter matching (n, m)
-        mask_nm = (n_vals .== n) .& (m_vals .== m)
+            # Find smallest eccentricity >= e
+            e_val = Float64(e)
+            valid = ecc_sub .>= e_val
 
-        if !any(mask_nm)
-            error("No entries found for n=$n, m=$m in Hansen table.")
+            idx_local = any(valid) ? findfirst(valid) : argmax(ecc_sub)
+
+            return Int(kmin_sub[idx_local]), Int(kmax_sub[idx_local])
         end
 
-        ecc_sub  = ecc_vals[mask_nm]
-        kmin_sub = kmin_vals[mask_nm]
-        kmax_sub = kmax_vals[mask_nm]
-
-        # find smallest ecc >= e
-        # convert e to Float64 for comparison (table is Float64)
-        e_val = Float64(e)
-
-        valid = ecc_sub .>= e_val
-
-        if any(valid)
-            idx_local = findfirst(valid)  # assumes ecc_list was sorted ascending
-        else
-            # if e is larger than any tabulated value → fallback to largest available
-            idx_local = argmax(ecc_sub)
-        end
-
-        k_max = kmax_sub[idx_local]
-        k_min = kmin_sub[idx_local]
-
+        # Handle the specific m=0 case logic outside the block
         if m == 0 
             k_min = 0 
         end
