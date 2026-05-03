@@ -461,7 +461,7 @@ module solid1d_mush
 
 
     """
-        compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core; core="liquid")
 
     Compute the 4x4 M matrix, which relates the solution at the surface and porous layer interface to the core solution.
      
@@ -480,6 +480,9 @@ module solid1d_mush
     - `ϕ::Array{prec,1}`                 : 1D array of porosities at layer boundaries.
     - `k::Array{prec,1}`                 : 1D array of permeabilities at layer boundaries.
     - `n::Int`                           : Tidal degree.
+    - `ρ_core::prec`                     : Density of the core.
+    - `μ_core::prec`                     : Shear modulus of the core.
+    - `κ_core::prec`                     : Bulk modulus of the core.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
@@ -488,7 +491,7 @@ module solid1d_mush
     - `M::Array{precc,2}`               : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core; core="liquid")
+    function compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core; core="liquid")
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -500,7 +503,7 @@ module solid1d_mush
         nsublayers = size(r)[1]
 
         # Define starting vector as the core solution matrix, Y_r_C (Eq. S5.15)
-        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ[1], K[1], core, n; Y=[1,2,3,4,5,6,7,8])
+        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ_core, κ_core, core, n; Y=[1,2,3,4,5,6,7,8])
 
         y1_4 = zeros(precc, 8,   4, nsublayers-1, nlayers)  # Four linearly independent y solutions
         

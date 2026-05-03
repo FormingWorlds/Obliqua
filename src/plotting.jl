@@ -327,14 +327,44 @@ module plotting
     end
 
 
+    function plot_surface_heating(H, res; filename="tidal_heating_map_surface.png", title_str="Surface heating map")
+        
+        # convert to Float64
+        H_f64 = Float64.(H)
+
+        # lat-lon grid
+        lons = collect(0:res:360-0.001)
+        lats = collect(0:res:180)
+
+        # heatmap
+        plt = heatmap(
+            lons,
+            lats,
+            log10.(H_f64);
+            xlabel = "Latitude",
+            ylabel = "Longitude",
+            colorbar_title = "log10(surface heating)",
+            title = title_str,
+            aspect_ratio = :equal
+        )
+
+        savefig(plt, filename)
+        @info "Saved surface heating map to $filename"
+
+        return plt
+    end
+
+
     function plot_relaxation_solution(y, r; filename="relaxation_solution.png")
 
         R = maximum(r)
         rnorm = r ./ R
 
-        plt = plot(layout=(2,3), size=(1000,600))
+        N = Int(size(y, 1))
 
-        for i in 1:6
+        plt = plot(layout=(2,Int(N/2)), size=(1000,600))
+
+        for i in 1:N
             yi = y[i, :]
 
             # plot directly into subplot
@@ -369,6 +399,5 @@ module plotting
 
         return plt
     end
-
 
 end

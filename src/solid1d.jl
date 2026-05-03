@@ -183,6 +183,7 @@ module solid1d
         # save grids
         solid1d.clats = clats
         solid1d.lons  = lons
+
     end
 
 
@@ -326,7 +327,7 @@ module solid1d
 
 
     """
-        compute_M(ω, r, ρ, g, μ, K, n, ρ_core; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core; core="liquid")
 
     Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
 
@@ -339,6 +340,8 @@ module solid1d
     - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
     - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
+    - `μ_core::prec`                     : Shear modulus of the core.
+    - `κ_core::prec`                     : Bulk modulus of the core.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
@@ -347,13 +350,13 @@ module solid1d
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(ω, r, ρ, g, μ, K, n, ρ_core; core="liquid")
+    function compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core; core="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ[1], K[1], core, n; Y=[1,2,3,4,5,6])
+        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ_core, κ_core, core, n; Y=[1,2,3,4,5,6])
 
         y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
                 
@@ -452,6 +455,8 @@ module solid1d
     """
     function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
         i = 1
+
+        println(sin.(clats))
 
         @views Y    = solid1d.Y[i,:,:]
         @views dYdθ = solid1d.dYdθ[i,:,:]

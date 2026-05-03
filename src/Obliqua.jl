@@ -63,7 +63,7 @@ module Obliqua
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
     const M_Earth::prec = prec(5.9724e24)        # kg
 
-    const res::Float64 = 20.0               # angular resolution in degrees
+    const res::Float64 = 10.0               # angular resolution in degrees
 
 
     """
@@ -377,6 +377,8 @@ module Obliqua
         end
 
         # get core mass from core density and radius
+        μ_core = convert(prec, cfg["struct"]["core_shear"])
+        κ_core = convert(prec, cfg["struct"]["core_bulk"])
         ρ_core = convert(prec, cfg["struct"]["core_density"])
         m_core = (4/3)*π*r[1]^3*ρ_core
 
@@ -438,6 +440,7 @@ module Obliqua
         
         # initiate forcing frequency dependent heating profile 
         prf_total = zeros(prec, N_σ, N_layers)
+        map_total = zeros(prec, N_σ, length(segments), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
         # core density for bottom boundary
         ρ_mean_lower = ρ_core
@@ -477,6 +480,7 @@ module Obliqua
 
             # preallocate heating profile for segment
             prf_seg = zeros(prec, N_σ, length(r_seg)-1)
+            map_seg = zeros(prec, N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
             # mean density in current segment
             if length(ρ_seg) == 1
@@ -515,30 +519,23 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d"
-                        # calculate tides in solid region 
                         prf_seg[iss,:], kT, kL = run_solid1d( 
                             σ, ρ_seg,
                             r_seg, η_seg,                               
                             μc_seg[:, iss], 
-                            κ_seg, R, m_core, ρ_core; 
-                            ncalc=ncalc, n=n, m=m
-                        )
-                    elseif module_solid=="solid1d-qr"
-                        # calculate tides in solid region 
-                        prf_seg[iss,:], kT, kL = run_solid1d_qr( 
-                            σ, ρ_seg,
-                            r_seg, η_seg,                               
-                            μc_seg[:, iss], 
-                            κ_seg, R, m_core, ρ_core; 
+                            κ_seg, R, 
+                            m_core, ρ_core, 
+                            μ_core, κ_core;
                             ncalc=ncalc, n=n, m=m
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        # calculate tides in solid region 
-                        prf_seg[iss,:], kT, kL = run_solid1d_relax( 
+                        prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, R, m_core, ρ_core; 
+                            κ_seg, R, 
+                            m_core, ρ_core, 
+                            μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n, m=m, core=core
                         )
@@ -547,15 +544,19 @@ module Obliqua
                         prf_seg[iss,:], kT, kL = run_solid1d_mush( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, ϕ_seg, R, m_core, ρ_core;
+                            κ_seg, ϕ_seg, R, 
+                            m_core, ρ_core, 
+                            μ_core, κ_core;
                             ncalc=ncalc, n=n, m=m, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
-                        prf_seg[iss,:], kT, kL = run_solid1d_mush_relax( 
+                        prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, ϕ_seg, R, m_core, ρ_core;
+                            κ_seg, ϕ_seg, R, 
+                            m_core, ρ_core,
+                            μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n, m=m, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             permea=permea, porosity_thresh=porosity_thresh
@@ -671,6 +672,7 @@ module Obliqua
 
             # append segment heating profile to global heating profile
             prf_total[:, i_start:i_end] .= prf_seg[:, :]
+            map_total[:, iseg, :, :] .= map_seg[:, :, :]
 
             # turn off interpolator after completion
             interp_previous = false
@@ -781,7 +783,7 @@ module Obliqua
                 ratio = P_T_1_blk[iss] / integrated_profile_power
                 
                 # Print formatted results
-                @debug("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
+                @info("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
             end          
 
             @info "Mapping 1 --> $(σ_range[1]) /s, and $N_σ --> $(σ_range[end]) /s."
@@ -827,6 +829,7 @@ module Obliqua
 
         # initialize frequency dependent heating profile
         P_T_s_prf = zeros(prec,  length(s_range), length(shear))
+        P_T_s_map = zeros(prec,  length(s_range), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
         # loop over tidal modes 
         for (iss, ss) in pairs(s_range)
@@ -856,9 +859,11 @@ module Obliqua
             
             # get global heating profile at forcing frequency
             unorm_prf = prf_total[iss, :] 
+            unorm_map = sum(map_total[iss, :, :, :], dims=1) # sum over layers to get surface map
 
             # Hansen renorm
             P_T_s_prf[iss, :] = unorm_prf .* U2
+            P_T_s_map[iss, :, :] = unorm_map .* U2
 
             # For debugging purposes log the ratio between expected and radially integrated heating
             ratio = P_T_s_blk[iss] / sum(dv .* P_T_s_prf[iss, :])
@@ -879,6 +884,15 @@ module Obliqua
 
         # get radial heating profile W/m^3
         P_T_prf = [sum(P_T_s_prf[:,j]) for j in 1:size(P_T_s_prf,2)]
+        P_T_map = sum(P_T_s_map, dims=1) # sum over frequencies to get total surface map
+
+        # plot map of surface heating
+        plt = plotting.plot_surface_heating(
+                            P_T_map[1, :, :],
+                            res;
+                            filename="$OUT_DIR/tidal_heating_map_surface.png",
+                            title_str="Surface heating map"
+                        )
 
         # determine the total heat input from heating profile
         P_T_prf_blk = sum(dv .* P_T_prf)
@@ -1137,7 +1151,7 @@ module Obliqua
 
 
     """
-        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core; ncalc=2000, n=2, m=2, core="liquid")
+        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid")
 
     Use 1D solid tides model to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
     This method ignores inertia effects, since they break the numerical stability.
@@ -1152,6 +1166,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
+    - `μ_core::prec`                    : Core shear modulus.
+    - `κ_core::prec`                    : Core bulk modulus.
     
     # Keyword Arguments
     - `ncalc::Int=2000`                 : Number of sublayers.
@@ -1172,7 +1188,9 @@ module Obliqua
                         bulk::Array{prec,1},
                         R::prec,
                         m_core::prec,
-                        ρ_core::prec;
+                        ρ_core::prec,
+                        μ_core::prec,
+                        κ_core::prec;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
@@ -1197,7 +1215,7 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κ, n, ρ_core; core=core)
+        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κ, n, ρ_core, μ_core, κ_core; core=core)
         #   Tidal
         tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n; load=false)
         #   Load
@@ -1208,7 +1226,7 @@ module Obliqua
         k2_L = (tidal_solution_L[5, end, end] - 1) .* (maximum(r) ./ R)
         
         # Get profile power output (W m-3), converted to W/kg
-        (Eμ, Eκ) = solid1d.get_heating_profile(tidal_solution_T, rr, ρ, g, μc, κ, n, omega; lay=nothing)
+        Eμ, Eκ = solid1d.get_heating_profile(tidal_solution_T, rr, ρ, g, μc, κ, n, omega; lay=nothing)
 
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
@@ -1221,7 +1239,7 @@ module Obliqua
     
 
     """
-        run_solid1d_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
+        run_solid1d_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
 
     Use 1D solid tides model with relaxation method to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
     This method includes inertia effects, but is more computationally expensive. 
@@ -1236,6 +1254,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
+    - `μ_core::prec`                    : Core shear modulus.
+    - `κ_core::prec`                    : Core bulk modulus.
 
     # Keyword Arguments
     - `dr_min::Int=300`                 : Minimum layer thickness in m.
@@ -1246,6 +1266,7 @@ module Obliqua
 
     # Returns
     - `power_prf::Array{prec,1}`        : Heating profile.
+    - `power_map::Array{prec,4}`        : Heating map (frequency, colatitude, longitude).
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
@@ -1257,13 +1278,15 @@ module Obliqua
                         bulk::Array{prec,1},
                         R::prec,
                         m_core::prec,
-                        ρ_core::prec;
+                        ρ_core::prec,
+                        μ_core::prec,
+                        κ_core::prec;
                         dr_min::Int=300,
                         dr_max::Int=3000,
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{prec,1},precc,precc}
+                        )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
 
         # convert inputs
         ρ = convert(Vector{prec}, rho)
@@ -1279,10 +1302,10 @@ module Obliqua
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
 
         # define angular grid
-        solid1d_relax.define_spherical_grid(res, n, m)
+        SphericalGrid = solid1d_relax.define_spherical_grid(res, n, m)
 
         # solve y functions across grid
-        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, M_tot; core=core)
+        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         # for debugging: plot y-function relaxation solution
         # in particular, observe the oscillating behavior near transition zones
@@ -1295,11 +1318,16 @@ module Obliqua
         k2_L = (y_l[5, 1]   - 1) .* (maximum(r) ./ R)
 
         # heating profile
-        (Eμ_tot, Eκ_tot) = solid1d_relax.get_heating_profile(
-            y_t, r_grid, ρ, g, μ, κ, n, omega
+        Eμ_tot, Eκ_tot = solid1d_relax.get_heating_profile(
+            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
         )
 
-        power_prf = abs.(Eμ_tot .+ Eκ_tot)
+        Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
+            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
+        )
+
+        power_prf = abs.(Eμ_tot .+ Eκ_tot) 
+        power_map = abs.(Eμ_map .+ Eκ_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
@@ -1309,12 +1337,12 @@ module Obliqua
 
         power_prf = itp.(r_orig_centers)
 
-        return power_prf, k2_T, k2_L
+        return power_prf, power_map, k2_T, k2_L
     end
     
 
     """
-        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, phi, R; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, phi, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
 
     Use 1D solid tides model with mush interface to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
@@ -1329,6 +1357,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
+    - `μ_core::prec`                    : Core shear modulus.
+    - `κ_core::prec`                    : Core bulk modulus.
     
     # Keyword Arguments
     - `ncalc::Int=2000`                 : Number of sublayers.
@@ -1354,7 +1384,9 @@ module Obliqua
                         phi::Array{prec,1},
                         R::prec,
                         m_core::prec,
-                        ρ_core::prec;
+                        ρ_core::prec,
+                        μ_core::prec,
+                        κ_core::prec;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
@@ -1414,7 +1446,7 @@ module Obliqua
         solid1d_mush.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core; core=core)
+        M, y1_4 = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core; core=core)
         #   Tidal
         tidal_solution_T = solid1d_mush.compute_y(rr, g, M, y1_4, n; load=false)
         #   Load
@@ -1425,7 +1457,7 @@ module Obliqua
         k2_L = (tidal_solution_L[5, end, end] - 1) .* (maximum(r) ./ R)
         
         # Get profile power output (W m-3), converted to W/kg
-        (Eμ, Eκ, El) = solid1d_mush.get_heating_profile(tidal_solution_T,
+        Eμ, Eκ, El = solid1d_mush.get_heating_profile(tidal_solution_T,
                                rr, ρs, g, μc, κs,
                                omega, ρl, κl, κd, 
                                α, ηl, ϕ, k, n)
@@ -1442,7 +1474,7 @@ module Obliqua
 
 
     """
-        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
+        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
 
     Use 1D solid tides model with relaxation method to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
     This method includes inertia effects, but is more computationally expensive. 
@@ -1458,6 +1490,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
+    - `μ_core::prec`                    : Core shear modulus.
+    - `κ_core::prec`                    : Core bulk modulus.
 
     # Keyword Arguments
     - `dr_min::Int=300`                 : Minimum layer thickness in m.
@@ -1472,6 +1506,7 @@ module Obliqua
 
     # Returns
     - `power_prf::Array{prec,1}`        : Heating profile.
+    - `power_map::Array{prec,4}`        : Heating map (frequency, colatitude, longitude).
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
@@ -1484,7 +1519,9 @@ module Obliqua
                         phi::Array{prec,1},
                         R::prec,
                         m_core::prec,
-                        ρ_core::prec;
+                        ρ_core::prec,
+                        μ_core::prec,
+                        κ_core::prec;
                         dr_min::Int=300,
                         dr_max::Int=3000,
                         n::Int=2,
@@ -1494,7 +1531,7 @@ module Obliqua
                         bulk_l::Float64=1e9,
                         permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
-                        )::Tuple{Array{prec,1},precc,precc}
+                        )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
@@ -1513,10 +1550,13 @@ module Obliqua
         ηl = zeros(prec, length(r))
         k  = zeros(prec, length(r))
 
+        # add small non-zero porosity to avoid numerical issues with zero porosity layers
+        ϕ[ϕ .< prec(porosity_thresh)] .= prec(10*porosity_thresh)
+
         # find where the mush interface occurs (excluding the CMB layer)
         # get all indices above the threshold
         ii_all = findall(ϕ .> porosity_thresh)
-
+        
         # update the liquid arrays
         κl .= prec(bulk_l)   # liquid bulk modulus
         ηl .= prec(visc_l)   # liquid viscosity
@@ -1532,21 +1572,29 @@ module Obliqua
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
 
         # define angular grid
-        solid1d_mush_relax.define_spherical_grid(res, n, m)
+        SphericalGrid = solid1d_mush_relax.define_spherical_grid(res, n, m)
         
         # solve y functions across grid
-        y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, M_tot; core=core)
+        y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
+
+        # plotting.plot_relaxation_solution(y_t, r_centers, 
+        #         filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
-        k2_T = (y_t[3, end] - 1) .* (maximum(r) ./ R)
-        k2_L = (y_l[3, 1]   - 1) .* (maximum(r) ./ R)
+        k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
+        k2_L = (y_l[5, 1]   - 1) .* (maximum(r) ./ R)
 
         # heating profile
-        (Eμ_tot, Eκ_tot) = solid1d_mush_relax.get_heating_profile(
-            y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n
+        Eμ_tot, Eκ_tot, El_tot = solid1d_mush_relax.get_heating_profile(
+            y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         )
 
-        power_prf = abs.(Eμ_tot .+ Eκ_tot)
+        Eμ_map, Eκ_map, El_map = solid1d_mush_relax.get_heating_map(
+            y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
+        )
+
+        power_prf = abs.(Eμ_tot .+ Eκ_tot .+ El_tot) 
+        power_map = abs.(Eμ_map .+ Eκ_map .+ El_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
@@ -1556,7 +1604,7 @@ module Obliqua
 
         power_prf = itp.(r_orig_centers)
 
-        return power_prf, k2_T, k2_L
+        return power_prf, power_map, k2_T, k2_L
     end
 
 

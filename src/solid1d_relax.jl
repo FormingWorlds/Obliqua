@@ -17,14 +17,14 @@ module solid1d_relax
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
-    clats = 0.0
-    lons  = 0.0
-    Y     = 0.0
-    dYdθ  = 0.0
-    dYdϕ  = 0.0
-    Z     = 0.0
-    X     = 0.0
-    res   = 20.0
+    # clats = 0.0
+    # lons  = 0.0
+    # Y     = 0.0
+    # dYdθ  = 0.0
+    # dYdϕ  = 0.0
+    # Z     = 0.0
+    # X     = 0.0
+    # res   = 20.0
 
 
     """
@@ -128,105 +128,6 @@ module solid1d_relax
 
 
     """
-        Ynm(n, m, theta, phi)
-
-    Compute the spherical harmonic Ynm for given n, m, theta, and phi.
-
-    # Arguments
-    - `n::Int`                          : Tidal degree.
-    - `m::Int`                          : Tidal order.
-    - `theta::Array{Float64,1}`         : Array of colatitudes in radians.
-    - `phi::Array{Float64,1}`           : Array of longitudes in radians.
-
-    # Returns
-    - `Ynm::Array{ComplexF64,2}`        : 2D array of spherical harmonic values for each combination of theta and phi.
-    """
-    function Ynm(n, m, theta, phi)
-        return Plm.(n, m, cos.(theta)) .* exp.(1im * m .* phi)
-    end
-
-
-    """
-        define_spherical_grid(res)
-
-    Create the spherical grid of angular resolution `res` in degrees. This is used for 
-    numerical integrations over solid angle. A new grid can easily be defined by 
-    recalling the function with a new `res`.
-
-    # Arguments
-    - `res::Float64`                     : Desired angular resolution in degrees.
-    - `n::Int`                           : Tidal degree.
-    - `m::Int`                           : Tidal order.
-
-    # Notes
-    The grid is internal to solid1d_relax, but can be accessed with 
-
-        solid1d_relax.clats[:] # colatitude grid
-        solid1d_relax.lons[:]  # longitude grid
-    """
-    function define_spherical_grid(res, n, m)
-        solid1d_relax.res = res
-
-        # θ and φ grids
-        lons = deg2rad.(collect(0:res:360-0.001))'
-        clats = deg2rad.(collect(0:res:180))
-        clats[1] += 1e-6
-        clats[end] -= 1e-6
-
-        # allocate arrays
-        solid1d_relax.Y    = zeros(ComplexF64, 1, length(clats), length(lons))
-        solid1d_relax.dYdθ = similar(solid1d_relax.Y)
-        solid1d_relax.dYdϕ = similar(solid1d_relax.Y)
-        solid1d_relax.Z    = similar(solid1d_relax.Y)
-        solid1d_relax.X    = similar(solid1d_relax.Y)
-
-        sinθ = sin.(clats)
-        cosθ = cos.(clats)
-        cotθ = cosθ ./ sinθ
-        cscθ = csc.(clats)
-
-        # Normalization factor for spherical harmonics
-        norm = sqrt((2*n+1)  * factorial(n-m) / (4π * factorial(n+m)))
-        
-        i = 1
-
-        # Y
-        solid1d_relax.Y[i,:,:] = Ynm(n,m,clats,lons)
-
-        # ∂Y/∂θ
-        Pn = Plm.(n, m, cosθ)
-        if n > m
-            Pn_1 = Plm.(n-1, m, cosθ)
-            dPdθ = (n .* cosθ .* Pn .- (n + m) .* Pn_1) ./ (sinθ)
-        else
-            # m == n -> P_{n-1}^m = 0
-            dPdθ = (n .* cosθ .* Pn) ./ (sinθ)
-        end
-        solid1d_relax.dYdθ[i,:,:] .= dPdθ .* exp.(1im .* m .* lons)
-
-        # ∂Y/∂ϕ
-        solid1d_relax.dYdϕ[i,:,:] .= 1im * m .* solid1d_relax.Y[i,:,:]
-
-        # Z = 2 ((1/sinθ) ∂²Y/∂θ∂ϕ - cotθ cscθ ∂Y/∂ϕ)
-        solid1d_relax.Z[i,:,:] .= 2 .* (1im * m ./ sinθ .* solid1d_relax.dYdθ[i,:,:] .- cotθ .* cscθ .* solid1d_relax.dYdϕ[i,:,:])
-
-        # X = -2 (cotθ ∂Y/∂θ + csc²θ ∂²Y/∂ϕ²) - n(n+1)) Y
-        solid1d_relax.X[i,:,:] .= -2 .* (cotθ .* solid1d_relax.dYdθ[i,:,:] .- cscθ.^2 .* m^2 .* solid1d_relax.Y[i,:,:]) .- n*(n+1) .* solid1d_relax.Y[i,:,:]
-
-        # Normalize
-        solid1d_relax.Y[i,:,:]    .*= norm
-        solid1d_relax.dYdθ[i,:,:] .*= norm
-        solid1d_relax.dYdϕ[i,:,:] .*= norm
-        solid1d_relax.Z[i,:,:]    .*= norm
-        solid1d_relax.X[i,:,:]    .*= norm
-
-        # save grids
-        solid1d_relax.clats = clats
-        solid1d_relax.lons  = lons
-    end
-
-
-    """
         doublefactorial(n)
 
     Compute the double factorial of an integer n, defined as n!! = n * (n-2) * (n-4) * ... until 1 or 0.
@@ -251,7 +152,7 @@ module solid1d_relax
 
 
     """
-        solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet, ρ_core; core="liquid")
+        solve_radial_system(r, ρ, g, μ, K, ω, n, R_planet, ρ_core, μ_core, κ_core, M_tot; core="liquid")
 
     Solve the radial system of ODEs for the solid-body problem using a relaxation method. This function 
     implements the forward-backward relaxation scheme described in the main text of N. Kobayashi (2006).
@@ -265,6 +166,8 @@ module solid1d_relax
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
+    - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
+    - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
     - `M_tot::prec`                     : Total mass of the planet, used for gravity calculations.
 
     # Keyword Arguments
@@ -276,7 +179,7 @@ module solid1d_relax
     - `R::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the coefficients of the ODE system at each radial layer.
     - `S::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the normalization.
     """    
-    function solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, M_tot; core="liquid")
+    function solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
 
         Nr = length(r)
 
@@ -301,7 +204,7 @@ module solid1d_relax
         R = Vector{Matrix{precc}}(undef, Nr)
 
         # component 1: apply core boundary condition and get first solution
-        C1l, D2l = core_boundary(R, ids[1], rs, ρs, gs, μs, Ks, ωs, ρ_core/ρ0, core, n; G0=G0)
+        C1l, D2l = core_boundary(R, ids[1], rs, ρs, gs, μs, Ks, ωs, ρ_core/ρ0, μ_core/μ0, κ_core/μ0, core, n; G0=G0)
 
         # component 2: propagate the solution up to the surface (6x6)
         C1l, D2l = propagate_solid(R, C1l, D2l, ids[2], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
@@ -315,7 +218,7 @@ module solid1d_relax
 
 
     """
-        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n)
+        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n)
 
     Perform the forward-backward relaxation step at the core boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the initial step of the relaxation scheme, where we apply the core boundary condition and 
@@ -331,6 +234,8 @@ module solid1d_relax
     - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
+    - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
+    - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
     - `core::String`                    : Type of core boundary condition to apply.
     - `n::Int`                          : Tidal degree.
 
@@ -341,12 +246,12 @@ module solid1d_relax
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, core, n; G0=1)
+    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n; G0=1)
 
         start_id, end_id = ids
 
         # boundary conditions
-        B1 = get_core_bc!(ω, r[start_id], ρ_core, g[start_id], μ[start_id], K[start_id], core, n; G0=G0)        
+        B1 = get_core_bc!(ω, r[start_id], ρ_core, g[start_id], μ_core, κ_core, core, n; G0=G0)        
         
         # first layer (n = 1)
         dr = r[end_id] - r[start_id]
@@ -619,7 +524,7 @@ module solid1d_relax
 
 
     """
-        compute_y(r, ρ, g, μ, K, ω, n, R, ρ_core; core="liquid")
+        compute_y(r, ρ, g, μ, K, ω, n, R, ρ_core, μ_core, κ_core, M_tot; core="liquid")
 
     Compute the solution `y` to the solid-body problem using a relaxation method. This function performs the 
     forward-backward relaxation scheme described in the main text of N. Kobayashi (2006), where we first solve 
@@ -635,6 +540,8 @@ module solid1d_relax
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
+    - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
+    - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
     - `M_tot::prec`                     : Total mass of the planet, used for non-dimensionalization.
 
     # Keyword Arguments
@@ -643,10 +550,10 @@ module solid1d_relax
     # Returns
     - `y::Matrix{precc}`                : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     """    
-    function compute_y(r, ρ, g, μ, K, ω, n, ρ_core, M_tot; core="liquid")
+    function compute_y(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, S = solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, M_tot; core=core)
+        yN_t, yN_l, R, S = solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         Nr = length(r)
         T = eltype(yN_t)
@@ -666,121 +573,6 @@ module solid1d_relax
         end
 
         return y_t, y_l
-    end
-
-
-    """
-        compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
-
-    Calculate the strain tensor ϵ at a particular radial level. 
-
-    # Arguments
-    - `ϵ::Array{ComplexF64,3}`          : 3D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
-    - `n::Int`                          : Tidal degree.
-    - `rr::prec`                        : Radius at which to compute the strain tensor.
-    - `ρr::prec`                        : Density at radius rr.
-    - `gr::prec`                        : Gravity at radius rr.
-    - `μr::prec`                        : Shear modulus at radius rr.
-    - `Ksr::prec`                       : Bulk modulus at radius rr.
-    """
-    function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
-               
-        i = 1
-
-        @views Y    = solid1d_relax.Y[i,:,:]
-        @views dYdθ = solid1d_relax.dYdθ[i,:,:]
-        @views dYdϕ = solid1d_relax.dYdϕ[i,:,:]
-        @views Z    = solid1d_relax.Z[i,:,:]
-        @views X    = solid1d_relax.X[i,:,:]
-
-        y1 = y[1]
-        y2 = y[2]
-        y3 = y[3]
-        y4 = y[4]
-
-        λr = Ksr .- 2μr/3
-        βr = λr + 2μr
-
-        # Compute strain tensor
-        ϵ[:,:,1] = (-2λr*y1 + n*(n+1)λr*y2 + rr*y3)/(βr*rr)  * Y
-        ϵ[:,:,2] = 1/rr * ((y1 - 0.5n*(n+1)y2)Y + 0.5y2*X)
-        ϵ[:,:,3] = 1/rr * ((y1 - 0.5n*(n+1)y2)Y - 0.5y2*X)
-        ϵ[:,:,4] = 0.5/μr * y4 * dYdθ        
-        ϵ[:,:,5] = 0.5/μr * y4 * dYdϕ .* 1.0 ./ sin.(clats) 
-        ϵ[:,:,6] = 0.5 * y2/rr * Z
-    end
-
-
-    """
-        function get_heating_profile(y, r, ρ, g, μ, κ, n, ω)
-
-    Get the radial volumetric heating for solid-body tides and eccentricity forcing,
-    assuming synchronous rotation. Heating rate is computed with numerical integration 
-    using the solution `y`, using Eq. 2.39a/b integrated over solid angle.
-
-    # Arguments
-    - `y::Array{ComplexF64,6}`           : 6D array of the solution vector y across the interior, returned by `compute_y`.
-    - `r::AbstractVector`                : 1D vector of radial coordinates or shell boundaries.  
-    - `ρ::AbstractVector`                : 1D vector of densities at each radial shell.  
-    - `g::AbstractVector`                : 1D vector of gravitational acceleration values at each radial shell.  
-    - `μ::AbstractVector`                : 1D vector of complex shear moduli at each radial shell.  
-    - `κ::AbstractVector`                : 1D vector of complex bulk moduli at each radial shell.  
-    - `n::Int`                           : Tidal degree.  
-    - `ω`                                : Tidal frequency in radians per second.  
-
-    # Returns
-    - `Eμ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each radial shell due to shear, in W.
-    - `Eκ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each radial shell due to compaction, in W.
-    """
-    function get_heating_profile(y, r, ρ, g, μ, κ, n, ω)
-
-        dres = deg2rad(solid1d_relax.res)
-
-        clats = solid1d_relax.clats
-        lons  = solid1d_relax.lons
-
-        Nr = length(r)
-        nlats = length(clats)
-        nlons = length(lons)
-
-        # strain tensor per radius
-        ϵ = zeros(ComplexF64, nlats, nlons, 6)
-
-        # outputs
-        Eμ_tot = zeros(Float64, Nr-1)
-        Eκ_tot = zeros(Float64, Nr-1)
-
-        for i in 1:Nr-1
-
-            rr = r[i]
-            dr = r[i+1] - r[i]
-
-            dvol = 4π/3 * (r[i+1]^3 - r[i]^3)
-
-            yrr = y[:, i]
-
-            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], κ[i])
-
-            # shear heating
-            Eμ_loc = sum(abs.(ϵ[:,:,1:3]).^2, dims=3) .+
-                    2sum(abs.(ϵ[:,:,4:6]).^2, dims=3) .-
-                    1/3 .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-
-            Eμ_loc .*= ω * imag(μ[i])
-
-            # bulk heating
-            Eκ_loc = ω/2 * imag(κ[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-
-            # angular integration
-            weight = sin.(clats)
-
-            Eμ_tot[i] = sum(weight .* Eμ_loc * dres^2) * rr^2 * dr / dvol
-            Eκ_tot[i] = sum(weight .* Eκ_loc * dres^2) * rr^2 * dr / dvol
-
-        end
-
-        return Eμ_tot, Eκ_tot
     end
 
 end
