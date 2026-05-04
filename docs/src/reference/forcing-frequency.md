@@ -1,5 +1,5 @@
 
-### Reference (5)
+### Reference (1)
 
 # Forcing Frequency
 
@@ -12,13 +12,16 @@ Given the fact that the tidal forcing magnitude decreases exponentially with har
 where ``\Omega`` is spin rate and ``n_{\mathrm{orb}}`` orbital mean motion, and for integer values of order ``-2 \leq m \leq 2`` and harmonic ``\infty \leq k \leq \infty``. In our formalism tides are occuring over a large time interval, a time step ``\Delta t``. As such, we must account for tidal excitations that occur over a wide range of frequencies. We calculate the imaginary part of the ``n``th harmonic degree (``k_n``) Love number (``\Im[k_{n}(\sigma)]``) for all relevant harmonnic frequencies for which the Hansen coefficient 
 
 ```math
-X_{nmk}(e) =
+X^{-(n+1), m}_k(e) =
 \frac{1}{2\pi} \int_0^{2\pi}
 \left(\frac{r}{a}\right)^n
 e^{im\Omega - ikn_{\mathrm{orb}}}\,dn_{\mathrm{orb}} \geq 0.01,
 ```
 
-(i.e. ~1% corrections). 
+(i.e. ~1% corrections). This implies that we are considering the following set $K$ of harmonnic frequencies $k$:
 
+```math
+\{k \in K \, \forall \, k : X^{-(n+1), m}_k \geq 0.01\ | k \in Z\}
+```
 
 ---
