@@ -188,7 +188,7 @@ module solid1d_mush_relax
         ρₗs, Kls, Kds, ηₗs, ks = ρₗ./ρ0, Kl./μ0, Kd./μ0, ηₗ./(μ0*s0), k./R0^2
 
         # 3. Initialize Matrices
-        R = [Matrix{precc}(I, 8, 8) for _ in 1:Nr]
+        R = [zeros(precc, 8, 8) for _ in 1:Nr]
         B = [zeros(precc, 8, 1) for _ in 1:Nr]
         idx_6 = [1, 2, 3, 5, 6, 7]
         R6_view = [view(R[i], idx_6, idx_6) for i in 1:Nr]
@@ -379,7 +379,6 @@ module solid1d_mush_relax
 
         Cn  = I8
         Cn[Y[7], Y[7]] = 0.0 
-        Cn[Y[8], Y[8]] = 0.0
         Dnp = -I8
         
         # forward recursion
@@ -414,17 +413,28 @@ module solid1d_mush_relax
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
         Kn = zeros(precc, 8, 8)
-        Kn[Y[8], Y[8]] = 1.0
+        Kn[Y[8], Y[8]] = -1.0
 
         # 4. Perform recursion
-        Xn = Pn * R[i-1] + Sn + Kn
+        R_prev = R[i-1]
+        Xn = Pn * R_prev + Sn + Kn
 
         if i == start_id
             # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
-            R[i] .= -pinv(Xn) * Qn
+            R_ifc = -pinv(Xn) * Qn
         else
-            R[i] .= -Xn \ Qn
+            R_ifc = -Xn \ Qn
         end
+
+        # this line makes it such that y8 is zero at the interface
+        # its exact derivation is a wip, but it produces the expected bahavior.
+        # More generally, it seems like for the mush, the lower bound has zeros on 
+        # the rows of y7 and y8 in R, and for the upper bound the columns of y7 and y8
+        # should be zero in R. The added K term is still required so this probably all
+        # has to do with the way the system is rearranged in the interface step, but 
+        # its exact form is still being worked out.
+        R[i][1:7, 1:8] .= R_ifc[1:7, 1:8] # 7 and 8 here are only valid for the current Y ordering! (i.e. y8 at 8th position in order)
+        # Note the current implementation already sets the y7 row to zero.
 
         # 5. Update the "stored" lower halves for the next iteration
         Cn_l  = Cn[5:8, :]
@@ -1061,7 +1071,6 @@ module solid1d_mush_relax
 
         # back-substitution
         for i in Nr-1:-1:1
-            # if this is not a transition point, we perform the recursion step as normal
             y_t[:, i] = R[i] * y_t[:, i+1]        
         end
 
@@ -1070,121 +1079,6 @@ module solid1d_mush_relax
         y_l = y_l[Y8, :]
 
         return y_t, y_l
-    end
-
-
-    """
-        compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr, SphericalGrid)
-
-    Calculate the strain tensor ϵ at a particular radial level. 
-
-    # Arguments
-    - `ϵ::Array{ComplexF64,4}`          : 4D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
-    - `n::Int`                          : Tidal degree.
-    - `rr::prec`                        : Radius at which to compute the strain tensor.
-    - `ρr::prec`                        : Density at radius rr.
-    - `gr::prec`                        : Gravity at radius rr.
-    - `μr::prec`                        : Shear modulus at radius rr.
-    - `Ksr::prec`                       : Bulk modulus at radius rr.
-    - `ω::prec`                         : Forcing frequency.
-    - `ρlr::prec`                       : Liquid density at radius rr.
-    - `Klr::prec`                       : Liquid bulk modulus at radius rr.
-    - `Kdr::prec`                       : Drained bulk modulus at radius rr.
-    - `αr::prec`                        : Biot coefficient at radius rr.
-    - `ηlr::prec`                       : Liquid viscosity at radius rr.
-    - `ϕr::prec`                        : Porosity at radius rr.
-    - `kr::prec`                        : Permeability at radius rr.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
-    """
-    function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr, SphericalGrid)
-        i = 1
-
-        @views clats = SphericalGrid.clats
-        @views Y    = SphericalGrid.Y[i,:,:]
-        @views dYdθ = SphericalGrid.dYdθ[i,:,:]
-        @views dYdϕ = SphericalGrid.dYdϕ[i,:,:]
-        @views Z    = SphericalGrid.Z[i,:,:]
-        @views X    = SphericalGrid.X[i,:,:]
-
-        y1 = y[1]
-        y2 = y[2]
-        y3 = y[3]
-        y4 = y[4]
-        y7 = y[7]
-
-        λr = Kdr - 2μr/3
-        βr = λr + 2μr
-
-        # Compute strain tensor
-        ϵ[:,:,1] = (-2λr*y1 + n*(n+1)λr*y2 + rr*y3 + rr*αr*y7)/(βr*rr)  * Y     # e_rr
-        ϵ[:,:,2] = 1/rr * ((y1 - 0.5n*(n+1)y2)Y + 0.5y2*X)                      # e_
-        ϵ[:,:,3] = 1/rr * ((y1 - 0.5n*(n+1)y2)Y - 0.5y2*X)                      # e_
-        ϵ[:,:,4] = 0.5/μr * y4 * dYdθ                                           # e_rθ
-        ϵ[:,:,5] = 0.5/μr * y4 * dYdϕ .* 1.0 ./ sin.(clats)                     # e_rϕ
-        ϵ[:,:,6] = 0.5 * y2/rr * Z                                              # e_        
-    end
-
-
-    """
-        compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl, SphericalGrid)
-
-    Calculate the Darcy displacement vector at a particular radial level. 
-
-    # Arguments
-    - `dis_rel::Array{ComplexF64,4}`    : 4D array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
-    - `n::Int`                          : Tidal degree. 
-    - `r::prec`                         : Radius at which to compute the Darcy displacement vector.
-    - `ω::prec`                         : Forcing frequency.
-    - `ϕ::prec`                         : Porosity at radius r.
-    - `ηl::prec`                        : Liquid viscosity at radius r.
-    - `k::prec`                         : Permeability at radius r.
-    - `g::prec`                         : Gravity at radius r.
-    - `ρl::prec`                        : Liquid density at radius r.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
-    """
-    function compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl, SphericalGrid)
-        i = 1
-
-        @views clats = SphericalGrid.clats
-        @views Y    = SphericalGrid.Y[i,:,:]
-        @views dYdθ = SphericalGrid.dYdθ[i,:,:]
-        @views dYdϕ = SphericalGrid.dYdϕ[i,:,:]
-        
-        y1 = y[1]
-        y5 = y[5]
-        y7 = y[7]
-        y8 = y[8]
-        y9 = 1im * k / (ω*ϕ*ηl*r) * (ρl*g*y1 - ρl * y5 + ρl*g*y8 + y7)
-        
-        dis_rel[:,:,1] = Y * y8 
-        dis_rel[:,:,2] = dYdθ * y9
-        dis_rel[:,:,3] = dYdϕ * y9 ./ sin.(clats)
-    end
-
-
-    """
-        compute_pore_pressure!(p, y, n, SphericalGrid)
-
-    Calculate the fluid pore pressur at a particular radial level. 
-
-    # Arguments
-    - `p::Array{ComplexF64,4}`          : 4D array to store the pore pressure at a particular radial level, with dimensions corresponding to latitude and longitude.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
-    - `n::Int`                          : Tidal degree.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
-    """
-    function compute_pore_pressure!(p, y, n, SphericalGrid)
-        i = 1
-
-        @views Y    = SphericalGrid.Y[i,:,:]
-        @views dYdθ = SphericalGrid.dYdθ[i,:,:]
-        @views dYdϕ = SphericalGrid.dYdϕ[i,:,:]
-        
-        y7 = y[7]
-        
-        p[:,:] = Y * y7 
     end
 
 end
