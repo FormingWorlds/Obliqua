@@ -63,7 +63,7 @@ module Obliqua
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
     const M_Earth::prec = prec(5.9724e24)        # kg
 
-    const res::Float64 = 10.0               # angular resolution in degrees
+    const res::Float64 = 20.0                    # angular resolution in degrees
 
 
     """
@@ -530,7 +530,8 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_relax( 
+                        prf_seg[iss,:], kT, kL = run_solid1d_relax( 
+                        # prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, R, 
@@ -551,7 +552,8 @@ module Obliqua
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
-                        prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_mush_relax( 
+                        # prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_mush_relax( 
+                        prf_seg[iss,:], kT, kL = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, ϕ_seg, R, 
@@ -1286,7 +1288,8 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
+                        )::Tuple{Array{prec,1},precc,precc}
+                        # )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
 
         # convert inputs
         ρ = convert(Vector{prec}, rho)
@@ -1308,8 +1311,6 @@ module Obliqua
         y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         # for debugging: plot y-function relaxation solution
-        # in particular, observe the oscillating behavior near transition zones
-        # and also near the surface for high frequencies
         # plotting.plot_relaxation_solution(y_t, r_centers, 
         #         filename="$OUT_DIR/relaxation_solution.png")
 
@@ -1337,7 +1338,8 @@ module Obliqua
 
         power_prf = itp.(r_orig_centers)
 
-        return power_prf, power_map, k2_T, k2_L
+        return power_prf, k2_T, k2_L
+        # return power_prf, power_map, k2_T, k2_L
     end
     
 
@@ -1531,7 +1533,8 @@ module Obliqua
                         bulk_l::Float64=1e9,
                         permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
-                        )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
+                        )::Tuple{Array{prec,1},precc,precc}
+                        # )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
@@ -1550,13 +1553,13 @@ module Obliqua
         ηl = zeros(prec, length(r))
         k  = zeros(prec, length(r))
 
-        # add small non-zero porosity to avoid numerical issues with zero porosity layers
-        ϕ[ϕ .< prec(porosity_thresh)] .= prec(10*porosity_thresh)
-
         # find where the mush interface occurs (excluding the CMB layer)
         # get all indices above the threshold
-        ii_all = findall(ϕ .> porosity_thresh)
+        ii_all = findall(ϕ .>= porosity_thresh)
         
+        # set all porosity values below the threshold to zero (otherwise code cannot solve system)
+        ϕ[ϕ .< porosity_thresh] .= 0.0
+
         # update the liquid arrays
         κl .= prec(bulk_l)   # liquid bulk modulus
         ηl .= prec(visc_l)   # liquid viscosity
@@ -1589,12 +1592,21 @@ module Obliqua
             y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         )
 
-        Eμ_map, Eκ_map, El_map = solid1d_mush_relax.get_heating_map(
-            y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
-        )
+        # check if nan in heating profile, if so, set to zero
+        # warn user if nan in heating profile
+        if any(isnan.(Eμ_tot)) || any(isnan.(Eκ_tot)) || any(isnan.(El_tot))
+            @info "NaN values found in heating profile, setting to zero. This can occur when the solution is unstable, e.g. for high frequencies or high porosities."
+        end
+        Eμ_tot[isnan.(Eμ_tot)] .= 0.0
+        Eκ_tot[isnan.(Eκ_tot)] .= 0.0
+        El_tot[isnan.(El_tot)] .= 0.0
+
+        # Eμ_map, Eκ_map, El_map = solid1d_mush_relax.get_heating_map(
+        #     y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
+        # )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot .+ El_tot) 
-        power_map = abs.(Eμ_map .+ Eκ_map .+ El_map) 
+        # power_map = abs.(Eμ_map .+ Eκ_map .+ El_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
@@ -1604,7 +1616,8 @@ module Obliqua
 
         power_prf = itp.(r_orig_centers)
 
-        return power_prf, power_map, k2_T, k2_L
+        return power_prf, k2_T, k2_L
+        # return power_prf, power_map, k2_T, k2_L
     end
 
 

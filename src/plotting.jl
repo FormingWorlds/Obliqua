@@ -327,6 +327,22 @@ module plotting
     end
 
 
+    """
+        plot_surface_heating(H, res; filename="tidal_heating_map_surface.png", title_str="Surface heating map")
+
+    Create and save a heatmap of the surface tidal heating as function of latitude and longitude.
+
+    # Arguments
+    - `H::AbstractMatrix`               : Surface tidal heating values for each lat-lon grid point.
+    - `res::Float64`                    : Angular resolution of the lat-lon grid in degrees.
+
+    # Keyword Arguments
+    - `filename::String="tidal_heating_map_surface.png"` : Path to save the heatmap figure.
+    - `title_str::String="Surface heating map"` : Title for the heatmap figure.
+
+    # Returns
+    - `plt` : The `Plots.Plot` object.    
+    """
     function plot_surface_heating(H, res; filename="tidal_heating_map_surface.png", title_str="Surface heating map")
         
         # convert to Float64
@@ -353,8 +369,23 @@ module plotting
 
         return plt
     end
+       
 
+    """
+        plot_relaxation_solution(y, r; filename="relaxation_solution.png")
 
+    Create and save a plot of the y-function relaxation solution as function of radius.
+
+    # Arguments
+    - `y::AbstractMatrix`               : y-function values for each radius and function index.
+    - `r::AbstractVector`               : Radius values corresponding to rows of y.
+
+    # Keyword Arguments
+    - `filename::String="relaxation_solution.png"` : Path to save the figure.
+
+    # Returns
+    - `plt` : The `Plots.Plot` object.    
+    """
     function plot_relaxation_solution(y, r; filename="relaxation_solution.png")
 
         R = maximum(r)
@@ -362,40 +393,47 @@ module plotting
 
         N = Int(size(y, 1))
 
-        plt = plot(layout=(2,Int(N/2)), size=(1000,600))
+        # layout remains the same
+        plt = plot(layout=(2, Int(N/2)), size=(1200, 800))
 
         for i in 1:N
             yi = y[i, :]
 
-            # plot directly into subplot
-            plot!(
+            # 1. Scatter for Real part
+            scatter!(
                 plt[i],
                 real(yi), rnorm,
                 label = "Re(y$i)",
-                lw = 2
+                markersize = 3,
+                markerstrokewidth = 0,
+                color = :blue,
+                alpha = 0.7
             )
 
-            plot!(
+            # 2. Scatter for Imaginary part
+            scatter!(
                 plt[i],
                 imag(yi), rnorm,
                 label = "Im(y$i)",
-                lw = 2,
-                ls = :dash
+                markersize = 3,
+                markerstrokewidth = 0,
+                marker = :diamond, # Different shape to distinguish from Real
+                color = :red,
+                alpha = 0.7
             )
 
             xlabel!(plt[i], "y$i")
             ylabel!(plt[i], "r / R")
             title!(plt[i], "y$i")
 
-            # fix axis direction explicitly
-            ylims!(plt[i], minimum(rnorm), 1)
-
-            # zero reference line
+            # Keep vertical reference line as a dotted line
             vline!(plt[i], [0], color=:black, lw=1, ls=:dot, label=false)
+            
+            ylims!(plt[i], minimum(rnorm), 1)
         end
 
         savefig(plt, filename)
-        @info "Saved relaxation solution plot to $filename"
+        @info "Saved relaxation scatter plot to $filename"
 
         return plt
     end
