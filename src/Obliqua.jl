@@ -888,13 +888,13 @@ module Obliqua
         P_T_prf = [sum(P_T_s_prf[:,j]) for j in 1:size(P_T_s_prf,2)]
         P_T_map = sum(P_T_s_map, dims=1) # sum over frequencies to get total surface map
 
-        # plot map of surface heating
-        plt = plotting.plot_surface_heating(
-                            P_T_map[1, :, :],
-                            res;
-                            filename="$OUT_DIR/tidal_heating_map_surface.png",
-                            title_str="Surface heating map"
-                        )
+        # # plot map of surface heating
+        # plt = plotting.plot_surface_heating(
+        #                     P_T_map[1, :, :],
+        #                     res;
+        #                     filename="$OUT_DIR/tidal_heating_map_surface.png",
+        #                     title_str="Surface heating map"
+        #                 )
 
         # determine the total heat input from heating profile
         P_T_prf_blk = sum(dv .* P_T_prf)

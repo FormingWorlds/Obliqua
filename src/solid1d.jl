@@ -456,8 +456,6 @@ module solid1d
     function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
         i = 1
 
-        println(sin.(clats))
-
         @views Y    = solid1d.Y[i,:,:]
         @views dYdθ = solid1d.dYdθ[i,:,:]
         @views dYdϕ = solid1d.dYdϕ[i,:,:]

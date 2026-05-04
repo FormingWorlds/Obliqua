@@ -107,3 +107,5 @@ version = "1.0"                 # Version of this configuration file
 [struct]
     mass_tot     = 1.0          # M_earth
     core_density = 10738.33     # Core density [kg m-3]
+    core_shear   = 0.0          # Core viscosity [Pa s]
+    core_bulk    = 5e11         # Core bulk modulus [Pa]
