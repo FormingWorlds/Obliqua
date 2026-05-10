@@ -40,10 +40,16 @@ makedocs(
             "4 - Mush layer" => "reference/mush-layer.md", 
             "5 - Liquid-phase" => "reference/liquid-phase.md",
             "6 - Surface Loading" => "reference/surface-loading.md",
-            "7 - Tidal Potentials" => "reference/tidal-potentials.md"
+            "7 - Tidal potential" => "reference/tidal-potential.md"
             ]
         ),
-        "Explanation" => "explanation/index.md",
+        PageNode("Explanation" => "explanation/index.md", [
+            "1 - Technical overview" => "explanation/technical_overview.md",
+            "2 - Main loop" => "explanation/main_loop.md",
+            "3 - Iterative process" => "explanation/iter_proc.md",
+            "4 - Post-processing" => "explanation/post_proc.md"
+            ]
+        ),
         "Troubleshooting" => "troubleshooting.md",
         "Development" => "development.md",
         "Related codes" => "ecosystem.md"

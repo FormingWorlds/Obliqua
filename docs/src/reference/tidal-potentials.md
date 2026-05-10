@@ -5,28 +5,43 @@
 
 ### Tidal Dissipation
 
-The mode amplitude of the external tidal potential is
+To determine the total tidal heating, `Obliqua` loops over all $(n,m,k)$ pairs and calculates heating rates based on general eccentric expressions. While the model currently assumes **co-planarity** (precluding obliquity tides), it fully accounts for eccentricity through Hansen coefficients.
 
-```math
-U_{22k} =
-\frac{G M_\star}{a}
-\left(\frac{R}{a}\right)^2
-\sqrt{\frac{6\pi}{5}}\,X_{22k}(e),
-```
+### Tidal Potential and Normalization
+For every triplet $(n, m, k)$, we calculate the Hansen coefficient $X_k^{-(n+1),m}(e)$ and the normalization factor $A_{n,m,k}$:
 
-The tidal power per mode is
+$$A_{n,m,k} = (2 - \delta_{m,0}\delta_{k,0}) (1 - \delta_{m,0}\delta_{k<0}) \sqrt{\frac{4\pi}{2n+1}\frac{(n-m)!}{(n+m)!}} P_n^m(0) X_k^{-(n+1),m}(e)$$
 
-```math
-P_{T,k} =
-\frac{5 R \sigma}{8\pi G}
-\,\Im\!\bigl[k_{2}(\sigma)\bigr]
-\,|U_{22k}|^2.
-```
+The associated tidal potential $U_{n,m,k}$ is defined as:
 
-Such that the total tidal dissipation:
+$$U_{n,m,k} = \frac{GM}{a} \left(\frac{R}{a}\right)^n A_{n,m,k}(e)$$
 
-```math
-P_{\mathrm{tidal}} = -\sum_k P_{T,k}.
-```
+---
+
+### Heating Rates
+The "black box" tidal models return an unnormalized heating profile $\tilde{H}(r, \sigma)$. To obtain the physical heating profile $H(r, \sigma)$ at a specific forcing frequency $\sigma$, we scale the output by the square of the tidal potential:
+
+$$H(r, \sigma) = \tilde{H}(r, \sigma) \times |U_{n,m,k}|^2$$
+
+The **global heating rate** $H(\sigma)$ for a given frequency is determined using the imaginary part of the tidal Love number $k_n(\sigma)$:
+
+$$H(\sigma) = \text{prefactor} \times (-\text{Im}[k_n(\sigma)]) \times |U_{n,m,k}|^2$$
+
+where the energy dissipation prefactor is:
+
+$$\text{prefactor} = \frac{(2n + 1)R}{8\pi G} \sigma$$
+
+---
+
+### Spectral Summation
+Since the tidal forcing consists of a discrete set of frequencies, the total heating is determined by summing across the forcing frequency domain:
+
+*   **Radial Heating Profile:** $H(r) = \sum_{\sigma} H(r, \sigma)$
+*   **Total Global Heating:** $H = \sum_{\sigma} H(\sigma)$
+
+> **Consistency Check:** The volume integration of the radial profile $H(r)$ should match the global heating rate $H$, provided the surface load Love number $k'_n(\sigma)$ remains small compared to unity ($k'_n \ll 1$).
+
+### Outputs for Orbital Dynamics
+In addition to the heating rates, `Obliqua` returns the complex tidal Love numbers $k_n(\sigma)$ and their corresponding forcing frequencies $\sigma$. these are required for calculating tidal torques and the long-term orbital evolution of the system.
 
 ---
