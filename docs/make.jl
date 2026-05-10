@@ -40,7 +40,7 @@ makedocs(
             "4 - Mush layer" => "reference/mush-layer.md", 
             "5 - Liquid-phase" => "reference/liquid-phase.md",
             "6 - Surface Loading" => "reference/surface-loading.md",
-            "7 - Tidal potential" => "reference/tidal-potential.md"
+            "7 - Tidal potential" => "reference/tidal-potentials.md"
             ]
         ),
         PageNode("Explanation" => "explanation/index.md", [
