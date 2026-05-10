@@ -194,7 +194,7 @@ module solid1d_mush
     - `r::Array{Float64,2}`               : 2D array of layer boundaries.
     - `ρ::Array{Float64,1}`               : 1D array of layer densities. 
     - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. 
-    - `μ::Array{Float64,1}`               : 1D array of layer shear moduli.
+    - `μ::Array{ComplexF64,1}`            : 1D array of layer shear moduli.
     - `κs::Array{Float64,1}`              : 1D array of layer bulk moduli. 
     - `ω::Float64`                        : Forcing frequency.
     - `ρl::Array{Float64,1}`              : 1D array of layer liquid densities.
@@ -213,11 +213,11 @@ module solid1d_mush
         ρ_prec = convert(Array{prec}, ρ)
         g_prec = convert(Array{prec}, g)
         μ_prec = convert(Array{precc}, μ)
-        κs_prec = convert(Array{precc}, κs)
+        κs_prec = convert(Array{prec}, κs)
         ρl_prec = convert(Array{prec}, ρl)
         κl_prec = convert(Array{prec}, κl)
-        κd_prec = convert(Array{precc}, κd)
-        α_prec = convert(Array{precc}, α)
+        κd_prec = convert(Array{prec}, κd)
+        α_prec = convert(Array{prec}, α)
         ηl_prec = convert(Array{prec}, ηl)
         ϕ_prec = convert(Array{prec}, ϕ)
         k_prec = convert(Array{prec}, k)
@@ -585,7 +585,7 @@ module solid1d_mush
         b = zeros(precc, 4)
         b[1] = -g[end,end] * zeta * G / r[end,end] - P
         b[2] = tau
-        b[3] = ((2 * n + 1) / r[end,end]) * U - 4 * pi * G * zeta
+        b[3] = ((2 * n + 1) / r[end,end]) * U + 4 * pi * G * zeta
         b[4] = 0.0
 
         C = M \ b

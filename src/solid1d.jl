@@ -206,7 +206,7 @@ module solid1d
         ρ_prec = convert(Array{prec}, ρ)
         g_prec = convert(Array{prec}, g)
         μ_prec = convert(Array{precc}, μ)
-        κs_prec = convert(Array{precc}, κs)
+        κs_prec = convert(Array{prec}, κs)
 
         return (r_prec,  ρ_prec, g_prec, μ_prec, κs_prec)
     end
@@ -422,7 +422,7 @@ module solid1d
 
         b[1] = -g[end,end] * zeta * G / r[end,end] - P
         b[2] = tau
-        b[3] = ((2 * n + 1) / r[end,end]) * U - 4 * pi * G * zeta
+        b[3] = ((2 * n + 1) / r[end,end]) * U + 4 * pi * G * zeta
 
         C = M \ b
 

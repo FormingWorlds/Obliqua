@@ -27,27 +27,27 @@ module solid1d_mush_relax
     layer boundaries). 
 
     # Arguments
-    - `radius::Vector{Float64}`           : Original radius profile (layer boundaries).
-    - `rho::Vector{Float64}`              : Original density profile (defined at layer centers).
-    - `visc::Vector{Float64}`             : Original viscosity profile (defined at layer centers).
-    - `shear::Vector{Float64}`            : Original shear modulus profile (defined at layer centers).
-    - `bulk::Vector{Float64}`             : Original bulk modulus profile (defined at layer centers).
-    - `phi::Vector{Float64}`              : Original phi profile (defined at layer centers).
-    - `m_core::Float64`                   : Mass of the core, used for gravity calculations.
-    - `Δr_min::Float64`                   : Minimum grid spacing for the new grid.
-    - `Δr_max::Float64`                   : Maximum grid spacing for the new grid.
+    - `radius::Vector{prec}`              : Original radius profile (layer boundaries).
+    - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
+    - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
+    - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
+    - `bulk::Vector{prec}`                : Original bulk modulus profile (defined at layer centers).
+    - `phi::Vector{prec}`                 : Original phi profile (defined at layer centers).
+    - `m_core::prec`                      : Mass of the core, used for gravity calculations.
+    - `Δr_min::Int64`                     : Minimum grid spacing for the new grid.
+    - `Δr_max::Int64`                     : Maximum grid spacing for the new grid.
 
     # Returns
     Tuple of resampled profiles on the new grid:
     - `r_new_b::Vector{prec}`             : New radius profile at layer boundaries.
     - `ρ_new::Vector{prec}`               : New density profile at layer centers.
     - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
-    - `μ_new::Vector{prec}`               : New shear modulus profile at layer centers.
+    - `μ_new::Vector{precc}`              : New shear modulus profile at layer centers.
     - `κ_new::Vector{prec}`               : New bulk modulus profile at layer centers.
     - `φ_new::Vector{prec}`               : New phi profile at layer centers.
     - `g_new::Vector{prec}`               : New gravity profile at layer centers.
     """ 
-    function resample_profiles(radius, rho, visc, shear, bulk_s, bulk_l, bulk_d, alpha, visc_l, phi, k, m_core, dr_min, dr_max)
+    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk_s::Vector{prec}, bulk_l::Vector{prec}, bulk_d::Vector{prec}, alpha::Vector{prec}, visc_l::Vector{prec}, phi::Vector{prec}, k::Vector{prec}, m_core::prec, dr_min::Int64, dr_max::Int64)
         # setup grids
         α = log(dr_max / dr_min)
 
@@ -56,9 +56,9 @@ module solid1d_mush_relax
         # indices i = 1:N
         i = collect(1:N)
 
-        # convert to BigFloat for consistency
-        i_bf = BigFloat.(i)
-        N_bf = BigFloat(N)
+        # convert to prec for consistency
+        i_bf = prec.(i)
+        N_bf = prec(N)
 
         # compute normalized coordinate (N - i)/(N - 1)
         ξ = (N_bf .- i_bf) ./ (N_bf - 1)
@@ -112,15 +112,15 @@ module solid1d_mush_relax
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
     # Arguments
-    - `r::Array{Float64,1}`               : 1D array of layer boundaries. 
-    - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
-    - `m_core::Float64`                   : Mass of the core.
+    - `r::Array{prec,1}`               : 1D array of layer boundaries. 
+    - `ρ::Array{prec,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::prec`                   : Mass of the core.
 
     # Returns
-    - `g::Array{Float64,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
-    - `M_enc::Float64`                    : Total mass enclosed within the outermost layer boundary.
+    - `g::Array{prec,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+    - `M_enc::prec`                    : Total mass enclosed within the outermost layer boundary.
     """
-    function get_g(r, ρ, m_core)
+    function get_g(r::Vector{prec}, ρ::Vector{prec}, m_core::prec)
 
         dm = 4.0/3.0 * π .* diff(r.^3) .* ρ
 
@@ -142,7 +142,7 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
     - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
@@ -154,8 +154,8 @@ module solid1d_mush_relax
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::precc`                   : Complex shear modulus of the core, used for core boundary conditions.
-    - `κ_core::precc`                   : Complex bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
+    - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
     - `M_tot::prec`                     : Total mass of the body, used for non-dimensionalization.
 
     # Keyword Arguments
@@ -168,8 +168,8 @@ module solid1d_mush_relax
     - `Y_inv::Vector{Int}`              : Vector of inverse ordering indices for the 8x8 case.
     - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
-    function solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n,
-                                ρ_core, μ_core, κ_core, M_tot; core="liquid")
+    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
+                                ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
 
         # Define ordering
         Y6 = [1,2,4,5,3,6]
@@ -182,7 +182,7 @@ module solid1d_mush_relax
         Nr = length(r)
 
         # 2. Dynamic Scaling
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1., 1., 1.; Y=Y8)
+        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.); Y=Y8)
         ωs = ω * s0
         rs, ρs, gs, μs, Ks = r./R0, ρ./ρ0, g./g0, μ./μ0, K./μ0
         ρₗs, Kls, Kds, ηₗs, ks = ρₗ./ρ0, Kl./μ0, Kd./μ0, ηₗ./(μ0*s0), k./R0^2
@@ -264,16 +264,29 @@ module solid1d_mush_relax
 
 
     """
-        interface_mush_solid(R8, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
+        interface_mush_solid(R, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This 
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 8x8 system to the 6x6 system.
 
     # Arguments
-    - `R8::Vector{Matrix{precc}}`       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
+    - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
+    - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
+    - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `ω::prec`                         : Angular frequency of the tidal forcing.
+    - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
+    - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
+    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
+    - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
+    - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
 
     # keyword arguments
     - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
@@ -282,7 +295,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function interface_mush_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{prec}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
         i = start_id
@@ -355,10 +368,24 @@ module solid1d_mush_relax
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 6x6 system to the 8x8 system.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
+    - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
+    - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
+    - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `ω::prec`                         : Angular frequency of the tidal forcing.
+    - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
+    - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
+    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
+    - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
+    - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
+    - `n::Int`                          : Tidal degree.
 
     # keyword arguments
     - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
@@ -367,7 +394,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.    
     """
-    function interface_solid_mush(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function interface_solid_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
         i = start_id
@@ -384,7 +411,7 @@ module solid1d_mush_relax
         # forward recursion
         dr = r[i+1] - r[i]
 
-        # Calculate A at current and next step
+        # calculate A at current and next step
         A_n  = get_A(ω, r[i],   ρ[i],   g[i],   μ[i],   K[i],
                         ρₗ[i], Kl[i], Kd[i], α[i], ηₗ[i], ϕ[i], k[i], n; G0=G0, Y=Y)
 
@@ -394,7 +421,7 @@ module solid1d_mush_relax
         Cn  .+= 0.5 * dr * A_n
         Dnp .+= 0.5 * dr * A_np
 
-        # 1. Use the "stored" lower halves from the previous step 
+        # use the "stored" lower halves from the previous step 
         # to fill the upper blocks of P and S.
         # expand the incoming 3x6 Solid Lower blocks to 4x8
         Pn_u = zeros(precc, 4, 8)
@@ -404,39 +431,40 @@ module solid1d_mush_relax
         Sn_u[1:3, target_cols] .= Dnp_l
         Qn_u = zeros(precc, 4, 8)
 
-        # 2. Get the upper halves of the NEWLY calculated Cn and Dnp
+        # get the upper halves of the NEWLY calculated Cn and Dnp
         Cn_u  = Cn[1:4, :]
         Dnp_u = Dnp[1:4, :]
 
-        # 3. Build the 6x6 blocks
+        # build the 8x8 blocks
         Pn = [Pn_u; zeros(precc, 4, 8)]
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
         Kn = zeros(precc, 8, 8)
-        Kn[Y[8], Y[8]] = -1.0
+        Kn[Y[8], Y[8]] = 1.0
 
-        # 4. Perform recursion
+        # perform recursion
         R_prev = R[i-1]
         Xn = Pn * R_prev + Sn + Kn
 
         if i == start_id
-            # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
+            # for the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
             R_ifc = -pinv(Xn) * Qn
         else
             R_ifc = -Xn \ Qn
         end
 
-        # this line makes it such that y8 is zero at the interface
-        # its exact derivation is a wip, but it produces the expected bahavior.
-        # More generally, it seems like for the mush, the lower bound has zeros on 
-        # the rows of y7 and y8 in R, and for the upper bound the columns of y7 and y8
-        # should be zero in R. The added K term is still required so this probably all
-        # has to do with the way the system is rearranged in the interface step, but 
-        # its exact form is still being worked out.
-        R[i][1:7, 1:8] .= R_ifc[1:7, 1:8] # 7 and 8 here are only valid for the current Y ordering! (i.e. y8 at 8th position in order)
-        # Note the current implementation already sets the y7 row to zero.
+        # CHECK THIS, theory needs to be double checked
+        # R[i] .= R_ifc
+        
+        # create a mask or list of all row indices EXCEPT Y[8]
+        active_rows = [idx for idx in 1:8 if idx != Y[8]]
 
-        # 5. Update the "stored" lower halves for the next iteration
+        # update R only for the rows that are not the Darcy flux constraint
+        # this ensures y8 remains zero at the interface
+        R[i][active_rows, :] .= R_ifc[active_rows, :]
+        R[i][Y[8], :]        .= 0.0  # explicitly enforce the impermeable boundary
+
+        # update the "stored" lower halves for the next iteration
         Cn_l  = Cn[5:8, :]
         Dnp_l = Dnp[5:8, :]
 
@@ -452,7 +480,7 @@ module solid1d_mush_relax
     get the first solution for the first layer above the core.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -474,7 +502,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n; G0=1, Y=[1,2,3,4,5,6])
+    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -516,7 +544,7 @@ module solid1d_mush_relax
     that includes the porous layer components.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -544,7 +572,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary_mush(R, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, ρ_core, μ_core, κ_core, core, n; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -588,7 +616,7 @@ module solid1d_mush_relax
     layers, where we propagate the solution up to the surface using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -608,7 +636,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6])
+    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -672,7 +700,7 @@ module solid1d_mush_relax
     layer components.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 4x8 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -699,7 +727,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 4x8 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 4x8 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_mush(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function propagate_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -765,7 +793,7 @@ module solid1d_mush_relax
     solve for the final solution at the surface, using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `CNm_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the CNm matrix from the previous step.
     - `DN_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -784,7 +812,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=Y)
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=Y)
 
         start_id, end_id = ids
 
@@ -819,7 +847,7 @@ module solid1d_mush_relax
     the porous layer components.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `CNm_l::Matrix{precc}`            : 4x8 matrix representing the "stored" lower half of the CNm matrix from the previous step.
     - `DN_l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -838,7 +866,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary_mush(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function surface_boundary_mush(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -876,7 +904,7 @@ module solid1d_mush_relax
     - `r::prec`                          : Radial position of the core-mantle boundary.
     - `ρ::prec`                          : Average core density.
     - `g::prec`                          : Gravity at the core-mantle boundary.
-    - `μ::precc`                         : Average core complex shear modulus.
+    - `μ::prec`                          : Average core shear modulus.
     - `K::prec`                          : Average core bulk modulus.
     - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `n::Int`                           : Tidal degree.
@@ -888,7 +916,7 @@ module solid1d_mush_relax
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
     """
-    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, Y=[1,2,3,4,5,6])
+    function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::prec, K::prec, type::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
         
         M = length(Y)
         N = Int(M / 2)
@@ -955,7 +983,7 @@ module solid1d_mush_relax
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
     - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
     """
-    function get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
         
         M = length(Y)
         N = Int(M / 2)
@@ -986,7 +1014,7 @@ module solid1d_mush_relax
             b[Y[4]] = tau
             
             # gravitational potential boundary
-            b[Y[6]] = ((2 * n + 1) / R) * U - 4 * pi * G/G0 * zeta
+            b[Y[6]] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
         else
             error("Unsupported M value. M should be either 6 or 8.")
         end
@@ -1041,17 +1069,18 @@ module solid1d_mush_relax
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::precc`                   : Complex shear modulus of the core, used for core boundary conditions.
-    - `κ_core::precc`                   : Complex bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
+    - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
     - `M_tot::prec`                     : Total mass of the planet.
 
     # Keyword Arguments
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
 
     # Returns
-    - `y::Matrix{precc}`                : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
+    - `y_t::Matrix{ComplexF64}`         : 8xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
+    - `y_l::Matrix{ComplexF64}`         : 8x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
 
         # solve radial system to get surface solution and recursion matrices
         yN_t, yN_l, R, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
@@ -1077,6 +1106,10 @@ module solid1d_mush_relax
         # reorder y-functions to standard ordering (U, V, X, Y, phi, psi, P, R)
         y_t = y_t[Y8, :]
         y_l = y_l[Y8, :]
+
+        # convert to ComplexF64
+        y_t = ComplexF64.(y_t)
+        y_l = ComplexF64.(y_l)
 
         return y_t, y_l
     end

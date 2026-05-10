@@ -17,15 +17,6 @@ module solid1d_relax
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
-    # clats = 0.0
-    # lons  = 0.0
-    # Y     = 0.0
-    # dYdθ  = 0.0
-    # dYdϕ  = 0.0
-    # Z     = 0.0
-    # X     = 0.0
-    # res   = 20.0
-
 
     """
         resample_profiles(radius, rho, visc, shear, bulk, m_core, dr_min, dr_max)
@@ -35,26 +26,26 @@ module solid1d_relax
     layer boundaries). 
 
     # Arguments
-    - `radius::Vector{Float64}`           : Original radius profile (layer boundaries).
-    - `rho::Vector{Float64}`              : Original density profile (defined at layer centers).
-    - `visc::Vector{Float64}`             : Original viscosity profile (defined at layer centers).
-    - `shear::Vector{Float64}`            : Original shear modulus profile (defined at layer centers).
-    - `bulk::Vector{Float64}`             : Original bulk modulus profile (defined at layer centers).
-    - `m_core::Float64`                   : Mass of the core, used for gravity calculations.
-    - `Δr_min::Float64`                   : Minimum grid spacing for the new grid.
-    - `Δr_max::Float64`                   : Maximum grid spacing for the new grid.
+    - `radius::Vector{prec}`              : Original radius profile (layer boundaries).
+    - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
+    - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
+    - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
+    - `bulk::Vector{prec}`                : Original bulk modulus profile (defined at layer centers).
+    - `m_core::prec`                      : Mass of the core, used for gravity calculations.
+    - `Δr_min::Int64`                     : Minimum grid spacing for the new grid.
+    - `Δr_max::Int64`                     : Maximum grid spacing for the new grid.
 
     # Returns
     Tuple of resampled profiles on the new grid:
     - `r_new_b::Vector{prec}`             : New radius profile at layer boundaries.
     - `ρ_new::Vector{prec}`               : New density profile at layer centers.
     - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
-    - `μ_new::Vector{prec}`               : New shear modulus profile at layer centers.
+    - `μ_new::Vector{precc}`              : New shear modulus profile at layer centers.
     - `κ_new::Vector{prec}`               : New bulk modulus profile at layer centers.
     - `g_new::Vector{prec}`               : New gravity profile at layer centers.
     - `M_tot::Float64`                    : Total mass enclosed within the outermost layer boundary.
     """ 
-    function resample_profiles(radius, rho, visc, shear, bulk, m_core, dr_min, dr_max)
+    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk::Vector{prec}, m_core::prec, dr_min::Int64, dr_max::Int64)
         # setup grids
         α = log(dr_max / dr_min)
 
@@ -64,8 +55,8 @@ module solid1d_relax
         i = collect(1:N)
 
         # convert to BigFloat for consistency
-        i_bf = BigFloat.(i)
-        N_bf = BigFloat(N)
+        i_bf = prec.(i)
+        N_bf = prec(N)
 
         # compute normalized coordinate (N - i)/(N - 1)
         ξ = (N_bf .- i_bf) ./ (N_bf - 1)
@@ -107,15 +98,15 @@ module solid1d_relax
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
     # Arguments
-    - `r::Array{Float64,1}`               : 1D array of layer boundaries. 
-    - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
-    - `m_core::Float64`                   : Mass of the core.
+    - `r::Array{prec,1}`               : 1D array of layer boundaries. 
+    - `ρ::Array{prec,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::prec`                   : Mass of the core.
 
     # Returns
-    - `g::Array{Float64,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
-    - `M_enc::Float64`                    : Total mass enclosed within the outermost layer boundary.
+    - `g::Array{prec,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+    - `M_enc::prec`                    : Total mass enclosed within the outermost layer boundary.
     """
-    function get_g(r, ρ, m_core)
+    function get_g(r::Vector{prec}, ρ::Vector{prec}, m_core::prec)
 
         dm = 4.0/3.0 * π .* diff(r.^3) .* ρ
 
@@ -161,7 +152,7 @@ module solid1d_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
     - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
@@ -179,7 +170,7 @@ module solid1d_relax
     - `R::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the coefficients of the ODE system at each radial layer.
     - `S::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the normalization.
     """    
-    function solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core::String="liquid")
 
         Nr = length(r)
 
@@ -191,7 +182,7 @@ module solid1d_relax
 
         # non-dimensional scaling
         # this implementation needs to be double-checked for consistency.
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(1., 1., 1.)
+        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.))
         # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r[end], M_tot, g[end])
 
         ωs = ω * s0
@@ -225,12 +216,12 @@ module solid1d_relax
     get the first solution for the first layer above the core.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `μ::Vector{precc}                 : Vector of shear moduli at the layer centers.
     - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
@@ -246,7 +237,7 @@ module solid1d_relax
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n; G0=1)
+    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1)
 
         start_id, end_id = ids
 
@@ -287,7 +278,7 @@ module solid1d_relax
     layers, where we propagate the solution up to the surface using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
     - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
     - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
@@ -307,7 +298,7 @@ module solid1d_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
+    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1)
 
         start_id, end_id = ids
 
@@ -364,7 +355,7 @@ module solid1d_relax
     solve for the final solution at the surface, using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector{Matrix{precc}}`        : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
     - `CNm_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the CNm matrix from the previous step.
     - `DN_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
@@ -383,7 +374,7 @@ module solid1d_relax
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1)
 
         start_id, end_id = ids
 
@@ -417,11 +408,11 @@ module solid1d_relax
     boundary must balance the tidal potential, and that the tangential stresses must vanish.
 
     # Arguments
-    - `ω::Float64`                       : Forcing frequency.
+    - `ω::prec`                       : Forcing frequency.
     - `r::prec`                          : Radial position of the core-mantle boundary.
     - `ρ::prec`                          : Average core density.
     - `g::prec`                          : Gravity at the core-mantle boundary.
-    - `μ::precc`                         : Average core complex shear modulus.
+    - `μ::prec`                          : Average core shear modulus.
     - `K::prec`                          : Average core bulk modulus.
     - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `n::Int`                           : Tidal degree.
@@ -434,7 +425,7 @@ module solid1d_relax
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
     """
-    function get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1)
+    function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::prec, K::prec, type::String, n::Int; G0=1)
 
         Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0)
 
@@ -490,7 +481,7 @@ module solid1d_relax
     - `BN::Array{precc,2}`               : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
     - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
     """
-    function get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1)
+    function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1)
         
         # Define surface mass load (zeta) based on Farrell/Longman relation
         zeta = ((2 * n + 1) / (4 * pi * G/G0 * R)) * U_prime
@@ -548,9 +539,10 @@ module solid1d_relax
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
 
     # Returns
-    - `y::Matrix{precc}`                : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
+    - `y_t::Matrix{ComplexF64}`         : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
+    - `y_l::Matrix{ComplexF64}`         : 6x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
 
         # solve radial system to get surface solution and recursion matrices
         yN_t, yN_l, R, S = solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core=core)
@@ -571,6 +563,10 @@ module solid1d_relax
         for i in Nr-1:-1:1
             y_t[:, i] = R[i] * y_t[:, i+1]
         end
+
+        # convert to ComplexF64
+        y_t = ComplexF64.(y_t)
+        y_l = ComplexF64.(y_l)
 
         return y_t, y_l
     end

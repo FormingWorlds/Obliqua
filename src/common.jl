@@ -19,26 +19,26 @@ module common
 
 
     """
-        Ynm(n, m, theta, phi)
+        Ynm(n::Int, m::Int, theta::Array{Float64,1}, phi::Array{Float64,1})
 
     Compute the spherical harmonic Ynm for given n, m, theta, and phi.
 
     # Arguments
     - `n::Int`                          : Tidal degree.
     - `m::Int`                          : Tidal order.
-    - `theta::Array{Float64,1}`         : Array of colatitudes in radians.
-    - `phi::Array{Float64,1}`           : Array of longitudes in radians.
+    - `theta::AbstractArray`            : Array of colatitudes in radians.
+    - `phi::AbstractArray`              : Array of longitudes in radians.
 
     # Returns
     - `Ynm::Array{ComplexF64,2}`        : 2D array of spherical harmonic values for each combination of theta and phi.
     """
-    function Ynm(n, m, theta, phi)
+    function Ynm(n::Int, m::Int, theta::AbstractArray, phi::AbstractArray)::Array{ComplexF64,2}
         return Plm.(n, m, cos.(theta)) .* exp.(1im * m .* phi)
     end
 
 
     """
-        define_spherical_grid(res, n, m)
+        define_spherical_grid(res::Float64, n::Int, m::Int)
 
     Create the spherical grid of angular resolution `res` in degrees. This is used for 
     numerical integrations over solid angle. A new grid can easily be defined by 
@@ -50,9 +50,9 @@ module common
     - `m::Int`                           : Tidal order.
 
     # Returns
-    - `SphericalGrid`                    : A tuple containing the spherical grid information.
+    - `SphericalGrid::NamedTuple`        : A named tuple containing the spherical grid information.
     """
-    function define_spherical_grid(res, n, m)
+    function define_spherical_grid(res::Float64, n::Int, m::Int)::NamedTuple
         # θ and φ grids
         lons = deg2rad.(collect(0:res:360-0.001))'
         clats = deg2rad.(collect(0:res:180))
@@ -122,7 +122,7 @@ module common
 
 
     """
-        get_scales(R0, M0, g0)
+        get_scales(R0::prec, M0::prec, g0::prec)
 
     Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravity scale 
     `g0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
@@ -144,7 +144,7 @@ module common
     - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
     - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
     """
-    function get_scales(R0, M0, g0; Y=[1,2,3,4,5,6,7,8])
+    function get_scales(R0::prec, M0::prec, g0::prec; Y=[1,2,3,4,5,6,7,8])::Tuple
 
         ρ0 = M0 / R0^3
         P0 = g0 * R0
@@ -169,17 +169,17 @@ module common
 
 
     """
-        doublefactorial(n)
+        doublefactorial(n::Int)
 
     Compute the double factorial of an integer n, defined as n!! = n * (n-2) * (n-4) * ... until 1 or 0.
 
     # Arguments
-    - `n::Integer`                     : The integer for which to compute the double factorial. Must be non-negative.
+    - `n::Int`                      : The integer for which to compute the double factorial. Must be non-negative.
 
     # Returns
-    - `result::Integer`                 : The double factorial of n.
+    - `result::Int`                 : The double factorial of n.
     """
-    function doublefactorial(n::Integer)
+    function doublefactorial(n::Int)::Int
         n < 0 && error("doublefactorial not defined for negative n")
         n == 0 && return one(n)
         n == 1 && return one(n)
@@ -191,9 +191,34 @@ module common
         return result
     end
 
+    
+    """
+        sbesselj(nu::Int, x::T) where T <: Number
+
+    Compute the scaled spherical Bessel function of the first kind, defined as:
+    sbesselj(nu, x) = sqrt(π / (2x)) * besselj(nu + 0.5, x)
+
+    # Arguments
+    - `nu::Int`                       : Order of the spherical Bessel function.
+    - `x::T`                          : Argument of the Bessel function. Can be a real or complex number.
+
+    # Returns
+    - `result::T`                     : The value of the scaled spherical Bessel function of the first kind at the given order and argument.
+    """
+    function sbesselj(nu::Int, x::T) where T <: Number
+        if T <: Complex{BigFloat} || T <: BigFloat
+            # Cast to Float64 for SpecialFunctions.jl compatibility
+            x64 = ComplexF64(x)
+            val = sqrt(π / (2 * x64)) * besselj(nu + 0.5, x64)
+            return parse(T, string(val)) # Robust way to bring back to BigFloat
+        else
+            return sqrt(π / (2 * x)) * besselj(nu + 0.5, x)
+        end
+    end
+
 
     """
-        get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, Y=[1,2,3,4,5,6])
+        get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, type::String, n::Int; G0::prec=1, Y::Vector{Int}=[1,2,3,4,5,6])
             
     Get the core solution vector. This function computes the initial solution vectors at the core-mantle boundary 
     to serve as starting conditions for numerical integration through a planetary interior. It supports three 
@@ -227,7 +252,7 @@ module common
     - `r::prec`                          : Radius of the core boundary.
     - `ρ::prec`                          : Density of the core.
     - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                          : Shear modulus of the core.
+    - `μ::prec`                         : Shear modulus of the core.
     - `K::prec`                          : Bulk modulus of the core.
     - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
     - `n::Int`                           : Tidal degree.
@@ -239,67 +264,83 @@ module common
     # Returns
     - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
     """
-    function get_Ic(ω, r, ρ, g, μ, K, type, n; G0=1, Y=[1,2,3,4,5,6])
-        
-        # determine the size of the solution vector based on the type of core
+    function get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::prec, K::prec, type::String, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    
         M = length(Y)
         N = Int(M / 2)
-
         Ic = zeros(precc, M, N)
-
         G_norm = G / G0
 
         if type=="liquid"
             Ic[Y[1],1] = -r^n / g
-            Ic[Y[1],3] = 1.0
+            Ic[Y[1],1] = -r^n / g
             Ic[Y[2],2] = 1.0
             Ic[Y[3],3] = g*ρ
             Ic[Y[5],1] = r^n
             Ic[Y[6],1] = 2(n-1)*r^(n-1)
-            Ic[Y[6],3] = 4π * G_norm * ρ 
+            Ic[Y[6],3] = 4π * G_norm * ρ
         elseif type == "inertial"
-            @warn "Inertial core boundary conditions have not been fully implemented. Use with caution."
-            
-            φ = 4π * G_norm * ρ / 3
+            # 1. Define physical parameters
+            γ = 4π * G_norm * ρ / 3
             α = sqrt(K / ρ)
-            f = -ω^2 / φ
+            f = -ω^2 / γ
             h = f - (n + 1)
-            k2 = (ω^2 + 4φ - n*(n+1)*φ^2 / ω^2) / α^2
+            
+            # 2. Calculate wavenumber k and dimensionless x
+            k2 = (ω^2 + 4γ - n*(n+1)*γ^2 / ω^2) / α^2
             k = sqrt(Complex{BigFloat}(k2))
             x = k * r
-
-            x64 = ComplexF64(x)
-
-            jl_n   = sphericalbesselj(n, x64)
-            jl_np1 = sphericalbesselj(n+1, x64)
-
-            ϕl   = doublefactorial(2n+1) / x^n * jl_n
-            ϕlp1 = doublefactorial(2n+3) / x^(n+1) * jl_np1
-            ψl = 2*(2n+3)/x^2 * (1 - ϕl)
-            pref = -r^(n+1) / (2n + 3)
-
+            
+            # 3. First Elementary Solution (Takeuchi & Saito, 1972)
             Ic[Y[1],1] = n * r^(n-1)
             Ic[Y[2],1] = r^(n-1)
             Ic[Y[3],1] = 0.0
             Ic[Y[4],1] = 0.0
-            Ic[Y[5],1] = -(n*φ - ω^2) * r^n
-            Ic[Y[6],1] = -(2*(n-1)*n*φ - (2*n + 1)*ω^2) * r^(n-1)
+            Ic[Y[5],1] = -(n*γ - ω^2) * r^n
+            Ic[Y[6],1] = -(2*(n-1)*n*γ - (2*n + 1)*ω^2) * r^(n-1)
 
-            Ic[Y[1],2] = pref * (0.5 * n * h * ψl + f * ϕlp1)
-            Ic[Y[2],2] = pref * (0.5 * h * ψl - ϕlp1)
-            Ic[Y[3],2] = -φ * r^n * f * ϕl
-            Ic[Y[4],2] = 0.0
-            Ic[Y[5],2] = -r^(n+2) * (
-                (α^2 * f)/r^2 - (3φ*f)/(2*(2n+3)) * ψl
-            )
-            Ic[Y[6],2] = -r^(n+1) * (
-                (2n+1)*(α^2*f)/r^2 -
-                (3φ*((2n+1)*f - n*h))/(2*(2n+3)) * ψl
-            )
+            # 4. Second Elementary Solution (Stability Switching)
+            # Condition: 4ω^2 << n(n+1)γ
+            is_low_freq = (4 * ω^2) < 0.00001 * (n * (n+1) * γ)
 
+            if is_low_freq
+                @debug("Using low-frequency approximation for inertial core boundary conditions.")
+                # Use the Simplified Algebraic Form
+                zn = x^2 / (2n + 3) 
+                
+                Ic[Y[1],2] = -r^(n+1) * (f * zn - n * h)
+                Ic[Y[2],2] = r^(n+1) * (zn + h)
+                Ic[Y[3],2] = -K * f * r^n * x^2  
+                Ic[Y[4],2] = 0.0
+                Ic[Y[5],2] = -3γ * f * r^(n+2)
+                Ic[Y[6],2] = -3γ * ((2n+1)*f - n*h) * r^(n+1)
+            else
+                @debug("Using full inertial solution for core boundary conditions.")
+                # Use the Scaled Analytical Solution
+                # Divided by j_n(x) to prevent numerical overflow
+                jn = sbesselj(n, x)
+                jnp1 = sbesselj(n+1, x)
+                
+                zn = x * jnp1 / jn
+                ϕl_scaled = doublefactorial(2n+1) / x^n 
+                ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
+                ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
+                
+                pref = -r^(n+1) / (2n + 3)
+
+                Ic[Y[1],2] = pref * (0.5 * n * h * ψl_scaled + f * ϕlp1_scaled)
+                Ic[Y[2],2] = pref * (0.5 * h * ψl_scaled - ϕlp1_scaled)
+                Ic[Y[3],2] = -K * r^n * f * ϕl_scaled
+                Ic[Y[4],2] = 0.0
+                Ic[Y[5],2] = -r^(n+2) * ((α^2 * f / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
+                Ic[Y[6],2] = -r^(n+1) * (((2n+1)*α^2*f / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
+            end
+
+            # 5. Boundary Condition Column
             Ic[:,3] .= 0.0
-            Ic[Y[2],3] = 1.0   # tangential slip
-        elseif type == "solid" # incompressible solid core
+            Ic[Y[2],3] = 1.0 # tangential slip at CMB
+            
+        elseif type == "solid"
             # First column
             Ic[Y[1], 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
             Ic[Y[2], 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
@@ -336,7 +377,7 @@ module common
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
     - `K::prec`                          : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
@@ -348,7 +389,7 @@ module common
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
     """
-    function get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
         M = length(Y)
         A = zeros(precc, M, M) 
         get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ, Y=Y)
@@ -380,7 +421,7 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
+    - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Ordering of the solution vector components. This allows for different conventions in the literature.
 
     # Returns
@@ -388,7 +429,7 @@ module common
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         A = zeros(precc, 8, 8)
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
         return A
@@ -408,15 +449,15 @@ module common
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
     - `K::prec`                          : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
+    - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature."""
-    function get_A!(A::Matrix, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
         if isnothing(λ)
             λ = K - 2μ/3
         end
@@ -470,7 +511,7 @@ module common
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
     - `K::prec`                          : Bulk modulus at radius r.
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
@@ -483,14 +524,13 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
+    - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Ordering of the solution vector components. This allows for different conventions in the literature.
 
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6,7,8])
-        # λ = K - 2μ/3       # Lame's second param, which uses the drained compaction modulus
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
@@ -502,7 +542,6 @@ module common
 
         G_norm = G / G0
 
-        # ϕ = 0.
         # If there is a porous layer, now add the two-phase components
         if !iszero(ϕ)
 
@@ -548,16 +587,16 @@ module common
 
     # Arguments
     - `ϵ::Array{ComplexF64,3}`          : 3D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
+    - `y::Array{ComplexF64,1}`          : 1D array of the solution vector y at a particular radial level, with 6 components.
     - `n::Int`                          : Tidal degree.
-    - `rr::prec`                        : Radius at which to compute the strain tensor.
-    - `ρr::prec`                        : Density at radius rr.
-    - `gr::prec`                        : Gravity at radius rr.
-    - `μr::prec`                        : Shear modulus at radius rr.
-    - `Ksr::prec`                       : Bulk modulus at radius rr.
-    - `SphericalGrid`                   : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
+    - `rr::Float64`                     : Radius at which to compute the strain tensor.
+    - `ρr::Float64`                     : Density at radius rr.
+    - `gr::Float64`                     : Gravity at radius rr.
+    - `μr::ComplexF64`                  : Shear modulus at radius rr.
+    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
     """
-    function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, SphericalGrid)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, SphericalGrid::NamedTuple)
                
         i = 1
 
@@ -593,24 +632,24 @@ module common
 
     # Arguments
     - `ϵ::Array{ComplexF64,4}`          : 4D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
+    - `y::Array{ComplexF64,1}`          : 1D array of the solution vector y at a particular radial level, with 6 components.
     - `n::Int`                          : Tidal degree.
-    - `rr::prec`                        : Radius at which to compute the strain tensor.
-    - `ρr::prec`                        : Density at radius rr.
-    - `gr::prec`                        : Gravity at radius rr.
-    - `μr::prec`                        : Shear modulus at radius rr.
-    - `Ksr::prec`                       : Bulk modulus at radius rr.
-    - `ω::prec`                         : Forcing frequency.
-    - `ρlr::prec`                       : Liquid density at radius rr.
-    - `Klr::prec`                       : Liquid bulk modulus at radius rr.
-    - `Kdr::prec`                       : Drained bulk modulus at radius rr.
-    - `αr::prec`                        : Biot coefficient at radius rr.
-    - `ηlr::prec`                       : Liquid viscosity at radius rr.
-    - `ϕr::prec`                        : Porosity at radius rr.
-    - `kr::prec`                        : Permeability at radius rr.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
+    - `rr::Float64`                     : Radius at which to compute the strain tensor.
+    - `ρr::Float64`                     : Density at radius rr.
+    - `gr::Float64`                     : Gravity at radius rr.
+    - `μr::ComplexF64`                  : Shear modulus at radius rr.
+    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `ω::Float64`                      : Forcing frequency.
+    - `ρlr::Float64`                    : Liquid density at radius rr.
+    - `Klr::Float64`                    : Liquid bulk modulus at radius rr.
+    - `Kdr::Float64`                    : Drained bulk modulus at radius rr.
+    - `αr::Float64`                     : Biot coefficient at radius rr.
+    - `ηlr::Float64`                    : Liquid viscosity at radius rr.
+    - `ϕr::Float64`                     : Porosity at radius rr.
+    - `kr::Float64`                     : Permeability at radius rr.
+    - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr, SphericalGrid)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::Float64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -645,19 +684,19 @@ module common
     Calculate the Darcy displacement vector at a particular radial level. 
 
     # Arguments
-    - `dis_rel::Array{ComplexF64,4}`    : 4D array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
+    - `dis_rel::Array{ComplexF64}`      : Array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
+    - `y::Matrix`                       : Solution vector y at a particular radial level, with 8 components.
     - `n::Int`                          : Tidal degree. 
-    - `r::prec`                         : Radius at which to compute the Darcy displacement vector.
-    - `ω::prec`                         : Forcing frequency.
-    - `ϕ::prec`                         : Porosity at radius r.
-    - `ηl::prec`                        : Liquid viscosity at radius r.
-    - `k::prec`                         : Permeability at radius r.
-    - `g::prec`                         : Gravity at radius r.
-    - `ρl::prec`                        : Liquid density at radius r.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
+    - `r::Float64`                      : Radius at which to compute the Darcy displacement vector.
+    - `ω::Float64`                      : Forcing frequency.
+    - `ϕ::Float64`                      : Porosity at radius r.
+    - `ηl::Float64`                     : Liquid viscosity at radius r.
+    - `k::Float64`                      : Permeability at radius r.
+    - `g::Float64`                      : Gravity at radius r.
+    - `ρl::Float64`                     : Liquid density at radius r.
+    - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl, SphericalGrid)
+    function compute_darcy_displacement!(dis_rel::Array{ComplexF64}, y::Array{ComplexF64,1}, n::Int, r::Float64, ω::Float64, ϕ::Float64, ηl::Float64, k::Float64, g::Float64, ρl::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -684,11 +723,11 @@ module common
 
     # Arguments
     - `p::Array{ComplexF64,4}`          : 4D array to store the pore pressure at a particular radial level, with dimensions corresponding to latitude and longitude.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 8 components.
+    - `y::Matrix`                       : Solution vector y at a particular radial level, with 8 components.
     - `n::Int`                          : Tidal degree.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
+    - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_pore_pressure!(p, y, n, SphericalGrid)
+    function compute_pore_pressure!(p::Array{ComplexF64,4}, y::Matrix, n::Int, SphericalGrid::NamedTuple)
         i = 1
 
         @views Y    = SphericalGrid.Y[i,:,:]
@@ -709,21 +748,29 @@ module common
     using the solution `y`, using Eq. 2.39a/b integrated over solid angle.
 
     # Arguments
-    - `y::Array{ComplexF64,6}`           : 6D array of the solution vector y across the interior, returned by `compute_y`.
+    - `y::Matrix`                        : Solution vector y across the interior, returned by `compute_y`.
     - `r::AbstractVector`                : 1D vector of radial coordinates or shell boundaries.  
     - `ρ::AbstractVector`                : 1D vector of densities at each radial shell.  
     - `g::AbstractVector`                : 1D vector of gravitational acceleration values at each radial shell.  
     - `μ::AbstractVector`                : 1D vector of complex shear moduli at each radial shell.  
     - `κ::AbstractVector`                : 1D vector of complex bulk moduli at each radial shell.  
     - `n::Int`                           : Tidal degree.  
-    - `ω`                                : Tidal frequency in radians per second.  
-    - `SphericalGrid`                    : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
+    - `ω::prec`                          : Tidal frequency in radians per second.  
+    - `SphericalGrid::NamedTuple`        : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
 
     # Returns
     - `Eμ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each radial shell due to shear, in W.
     - `Eκ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each radial shell due to compaction, in W.
     """
-    function get_heating_profile(y, r, ρ, g, μ, κ, n, ω, SphericalGrid)
+    function get_heating_profile(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, κ::AbstractVector, n::Int, ω::prec, SphericalGrid::NamedTuple)
+
+        # convert to Float64 or ComplexF64 for heating calculations
+        r = Float64.(r)
+        ρ = Float64.(ρ)
+        g = Float64.(g)
+        μ = ComplexF64.(μ)
+        κ = Float64.(κ)
+        ω = Float64(ω)
 
         dres = deg2rad(SphericalGrid.res)
 
@@ -782,13 +829,13 @@ module common
     using the solution `y`, using Eq. 2.39a/b/c integrated over solid angle. 
 
     # Arguments
-    - `y::Array{ComplexF64,2}`           : 2D array [state_vector, radius] of the solution vector.
+    - `y::Matrix`                        : Solution vector.
     - `r::AbstractVector`                : 1D vector of radial boundaries/shell coordinates.
     - `ρ::AbstractVector`                : 1D vector of layer densities.
     - `g::AbstractVector`                : 1D vector of gravity values.
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.
     - `Ks::AbstractVector`               : 1D vector of bulk moduli for shear dissipation.
-    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ω::prec`                          : Tidal frequency in radians per second.
     - `ρl::AbstractVector`               : 1D vector of liquid densities.
     - `Kl::AbstractVector`               : 1D vector of liquid bulk moduli.
     - `Kd::AbstractVector`               : 1D vector of drained bulk moduli.
@@ -797,14 +844,29 @@ module common
     - `ϕ::AbstractVector`                : 1D vector of porosities.
     - `k::AbstractVector`                : 1D vector of permeabilities.
     - `n::Int`                           : Tidal degree.
-    - `SphericalGrid`                   : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
+    - `SphericalGrid::NamedTuple`        : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
 
     # Returns
     - `Eμ_tot::Vector{Float64}`          : Total power dissipated due to shear (W/m³).
     - `Eκ_tot::Vector{Float64}`          : Total power dissipated due to compaction (W/m³).
     - `El_tot::Vector{Float64}`          : Total power dissipated due to Darcy flow (W/m³).
     """    
-    function get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n, SphericalGrid)
+    function get_heating_profile(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::prec, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
+
+        # convert to Float64 or ComplexF64 for heating calculations
+        r = Float64.(r)
+        ρ = Float64.(ρ)
+        g = Float64.(g)
+        μ = ComplexF64.(μ)
+        Ks = Float64.(Ks)
+        ω = Float64(ω)
+        ρl = Float64.(ρl)
+        Kl = Float64.(Kl)
+        Kd = Float64.(Kd)
+        α = Float64.(α)
+        ηl = Float64.(ηl)
+        ϕ = Float64.(ϕ)
+        k = Float64.(k)
 
         dres = deg2rad(SphericalGrid.res)
         clats = SphericalGrid.clats
@@ -882,22 +944,30 @@ module common
     dissipation rates determined from the solution `y` and Eq. 2.39a/b.
 
     # Arguments
-    - `y::Array{ComplexF64,2}`           : 2D array [state_vector, radius] of the solution vector.
+    - `y::Matrix`                        : Solution vector.
     - `r::AbstractVector`                : 1D vector of radial shell boundaries.  
     - `ρ::AbstractVector`                : 1D vector of densities at each radial shell.  
     - `g::AbstractVector`                : 1D vector of gravity values.  
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.  
     - `κ::AbstractVector`                : 1D vector of complex bulk moduli.  
     - `n::Int`                           : Tidal degree.  
-    - `ω`                                : Tidal frequency in radians per second.  
-    - `SphericalGrid`                    : A struct formed by `define_spherical_grid`, containing 
+    - `ω::prec`                       : Tidal frequency in radians per second.  
+    - `SphericalGrid::NamedTuple`        : A struct formed by `define_spherical_grid`, containing 
                                            the geographic grid and spherical harmonic derivatives.
 
     # Returns
     - `Eμ_map::Array{Float64,2}`         : 2D geographic map of shear dissipation (W/m²).
     - `Eκ_map::Array{Float64,2}`         : 2D geographic map of compaction/bulk dissipation (W/m²).
     """
-    function get_heating_map(y, r, ρ, g, μ, κ, n, ω, SphericalGrid)
+    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, κ::AbstractVector, n::Int, ω::prec, SphericalGrid::NamedTuple)
+
+        # convert to Float64 or ComplexF64 for heating calculations
+        r = Float64.(r)
+        ρ = Float64.(ρ)
+        g = Float64.(g)
+        μ = ComplexF64.(μ)
+        κ = Float64.(κ)
+        ω = Float64(ω)
 
         clats = SphericalGrid.clats
         lons  = SphericalGrid.lons
@@ -952,21 +1022,42 @@ module common
     radially integrated to obtain surface maps in W/m².
 
     # Arguments
-    - `y::Array{ComplexF64,2}`           : 2D array [state_vector, radius] of the solution vector.
-    - `r::AbstractVector`                : 1D vector of radial shell boundaries.
-    - `ρ`, `g`, `μ`, `Ks`                : Solid phase properties (density, gravity, shear modulus, grain bulk modulus).
-    - `ω`                                : Tidal frequency in radians per second.
-    - `ρl`, `Kl`, `Kd`, `α`, `ηl`, `ϕ`, `k`: Liquid/two-phase properties (liquid density, liquid bulk modulus, 
-                                           drained bulk modulus, Biot coefficient, viscosity, porosity, permeability).
+    - `y::Matrix`                        : Solution vector.
+    - `r::AbstractVector`                : 1D vector of radial boundaries/shell coordinates.
+    - `ρ::AbstractVector`                : 1D vector of layer densities.
+    - `g::AbstractVector`                : 1D vector of gravity values.
+    - `μ::AbstractVector`                : 1D vector of complex shear moduli.
+    - `Ks::AbstractVector`               : 1D vector of bulk moduli for shear dissipation.
+    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ρl::AbstractVector`               : 1D vector of liquid densities.
+    - `Kl::AbstractVector`               : 1D vector of liquid bulk moduli.
+    - `Kd::AbstractVector`               : 1D vector of drained bulk moduli.
+    - `α::AbstractVector`                : 1D vector of Biot coefficients.
+    - `ηl::AbstractVector`               : 1D vector of liquid viscosities.
+    - `ϕ::AbstractVector`                : 1D vector of porosities.
+    - `k::AbstractVector`                : 1D vector of permeabilities.
     - `n::Int`                           : Tidal degree.
-    - `SphericalGrid`                    : A struct containing geographic grid and spherical harmonic data.
+    - `SphericalGrid::NamedTuple`        : A struct containing geographic grid and spherical harmonic data.
 
     # Returns
     - `Eμ_map::Array{Float64,2}`         : Surface map of shear dissipation (W/m²).
     - `Eκ_map::Array{Float64,2}`         : Surface map of compaction dissipation (W/m²).
     - `El_map::Array{Float64,2}`         : Surface map of Darcy (percolation) dissipation (W/m²).
     """
-    function get_heating_map(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n, SphericalGrid)
+    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::Float64, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
+
+        # convert to Float64 or ComplexF64 for heating calculations
+        r = Float64.(r)
+        ρ = Float64.(ρ)
+        g = Float64.(g)
+        μ = ComplexF64.(μ)
+        Ks = Float64.(Ks)
+        ρl = Float64.(ρl)
+        Kl = Float64.(Kl)
+        Kd = Float64.(Kd)
+        α = Float64.(α)
+        ηl = Float64.(ηl)
+        ϕ = Float64.(ϕ)
 
         clats = SphericalGrid.clats
         lons  = SphericalGrid.lons

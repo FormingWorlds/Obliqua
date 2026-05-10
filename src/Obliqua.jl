@@ -435,12 +435,12 @@ module Obliqua
         μc = complex_mu(σ_range, μ, η; material=material, α=alpha)
 
         # initiate forcing frequency dependent k2 love and load number arrays (one spectrum for each segment)
-        knms_T = zeros(precc, N_σ, length(segments))
-        knms_L = zeros(precc, N_σ, length(segments))
+        knms_T = zeros(ComplexF64, N_σ, length(segments))
+        knms_L = zeros(ComplexF64, N_σ, length(segments))
         
         # initiate forcing frequency dependent heating profile 
-        prf_total = zeros(prec, N_σ, N_layers)
-        map_total = zeros(prec, N_σ, length(segments), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+        prf_total = zeros(Float64, N_σ, N_layers)
+        map_total = zeros(Float64, N_σ, length(segments), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
         # core density for bottom boundary
         ρ_mean_lower = ρ_core
@@ -461,10 +461,10 @@ module Obliqua
 
             # preallocate (complex for viscoelastic)
             #   (T)idal love number
-            knms_T_seg = zeros(precc, N_σ)
+            knms_T_seg = zeros(ComplexF64, N_σ)
 
             #   (L)oad  love number
-            knms_L_seg = zeros(precc, N_σ)
+            knms_L_seg = zeros(ComplexF64, N_σ)
 
             # get start and stop index for segment
             i_start, i_end = is_seg[iseg]
@@ -479,8 +479,8 @@ module Obliqua
             g_seg  = g[i_start:i_end]
 
             # preallocate heating profile for segment
-            prf_seg = zeros(prec, N_σ, length(r_seg)-1)
-            map_seg = zeros(prec, N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+            prf_seg = zeros(Float64, N_σ, length(r_seg)-1)
+            map_seg = zeros(Float64, N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
             # mean density in current segment
             if length(ρ_seg) == 1
@@ -501,8 +501,8 @@ module Obliqua
                 iszero(σ) && continue
 
                 # preallocate k2 for segment
-                kT = zero(precc)
-                kL = zero(precc)
+                kT = zero(ComplexF64)
+                kL = zero(ComplexF64)
 
                 # if segment is solid
                 if seg == "solid"
@@ -823,15 +823,15 @@ module Obliqua
 
         # calculate tidal heating
         # initialize frequency dependent quentities
-        A_nms_e   = zeros(prec,  length(s_range))
-        U_nms_e   = zeros(precc, length(s_range))
+        A_nms_e   = zeros(Float64,  length(s_range))
+        U_nms_e   = zeros(ComplexF64, length(s_range))
 
         # initialize frequency dependent total heating
-        P_T_s_blk = zeros(prec,  length(s_range))
+        P_T_s_blk = zeros(Float64,  length(s_range))
 
         # initialize frequency dependent heating profile
-        P_T_s_prf = zeros(prec,  length(s_range), length(shear))
-        P_T_s_map = zeros(prec,  length(s_range), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+        P_T_s_prf = zeros(Float64,  length(s_range), length(shear))
+        P_T_s_map = zeros(Float64,  length(s_range), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
         # loop over tidal modes 
         for (iss, ss) in pairs(s_range)
@@ -905,7 +905,7 @@ module Obliqua
         P_T_prf ./ ρ # convert to mass heating rate (W/kg)
 
         # convert everything to Float64
-        return Float64.(P_T_prf), P_T_blk, Float64.(σ_range), Float64.(imag_k2)
+        return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_k2)
 
     end
 
@@ -1122,14 +1122,14 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
 
     # Returns
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_solid0d( μc::Array{precc,1},
                         radius::Array{prec,1},
                         mass_tot::prec;
                         n::Int64=2
-                        )::Tuple{precc,precc}
+                        )::Tuple{ComplexF64,ComplexF64}
 
         # internal structure arrays
         μc = convert(Vector{precc}, μc)
@@ -1147,7 +1147,7 @@ module Obliqua
         # return zero for now
         k2_L = 0.
 
-        return k2_T, k2_L
+        return ComplexF64(k2_T), ComplexF64(k2_L)
 
     end
 
@@ -1178,9 +1178,9 @@ module Obliqua
     - `core::String="liquid"`           : Core state, either "liquid" or "solid".
 
     # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `power_prf::Array{Float64,1}`     : Heating profile.
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_solid1d( omega::Float64,
                         rho::Array{prec,1},
@@ -1197,10 +1197,11 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{prec,1},precc,precc}
+                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
+        omega = prec(omega)
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
@@ -1236,7 +1237,7 @@ module Obliqua
         # Renormalization factor
         power_prf = (Eμ_tot .+ Eκ_tot) # Compute total volumetric heating (W/m3)
 
-        return power_prf, k2_T, k2_L
+        return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
     end
     
 
@@ -1267,10 +1268,10 @@ module Obliqua
     - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
 
     # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    - `power_map::Array{prec,4}`        : Heating map (frequency, colatitude, longitude).
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `power_prf::Array{Float64,1}`     : Heating profile.
+    - `power_map::Array{Float64,4}`     : Heating map (frequency, colatitude, longitude).
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_solid1d_relax( omega::Float64,
                         rho::Array{prec,1},
@@ -1288,10 +1289,11 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{prec,1},precc,precc}
-                        # )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
+                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
+                        # )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
 
         # convert inputs
+        omega = prec(omega)
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
@@ -1311,8 +1313,8 @@ module Obliqua
         y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         # for debugging: plot y-function relaxation solution
-        # plotting.plot_relaxation_solution(y_t, r_centers, 
-        #         filename="$OUT_DIR/relaxation_solution.png")
+        plotting.plot_relaxation_solution(y_t, r_centers, 
+                filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers (we scale them based on radius fraction of the planet)
         k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
@@ -1323,12 +1325,12 @@ module Obliqua
             y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
         )
 
-        Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
-            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
-        )
+        # Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
+        #     y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
+        # )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot) 
-        power_map = abs.(Eμ_map .+ Eκ_map) 
+        # power_map = abs.(Eμ_map .+ Eκ_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
@@ -1336,7 +1338,7 @@ module Obliqua
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
 
-        power_prf = itp.(r_orig_centers)
+        power_prf = Float64.(itp.(r_orig_centers))
 
         return power_prf, k2_T, k2_L
         # return power_prf, power_map, k2_T, k2_L
@@ -1373,9 +1375,9 @@ module Obliqua
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
 
     # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `power_prf::Array{Float64,1}`     : Heating profile.
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_solid1d_mush( omega::Float64,
                         rho::Array{prec,1},
@@ -1397,10 +1399,11 @@ module Obliqua
                         bulk_l::Float64=1e9,
                         permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
-                        )::Tuple{Array{prec,1},precc,precc}
+                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
+        omega = prec(omega)
         ρ  = copy(convert(Vector{prec}, rho))
         r  = copy(convert(Vector{prec}, radius))
         η  = copy(convert(Vector{prec}, visc))
@@ -1471,7 +1474,7 @@ module Obliqua
         # Renormalization factor
         power_prf = (Eμ_tot .+ Eκ_tot .+ El_tot) # Compute total volumetric heating (W/m3)
 
-        return power_prf, k2_T, k2_L
+        return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
     end
 
 
@@ -1533,11 +1536,12 @@ module Obliqua
                         bulk_l::Float64=1e9,
                         permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
-                        )::Tuple{Array{prec,1},precc,precc}
-                        # )::Tuple{Array{prec,1},Matrix{prec},precc,precc}
+                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
+                        # )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
+        omega = prec(omega)
         ρ  = copy(convert(Vector{prec}, rho))
         r  = copy(convert(Vector{prec}, radius))
         η  = copy(convert(Vector{prec}, visc))
@@ -1580,8 +1584,8 @@ module Obliqua
         # solve y functions across grid
         y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
-        # plotting.plot_relaxation_solution(y_t, r_centers, 
-        #         filename="$OUT_DIR/relaxation_solution.png")
+        plotting.plot_relaxation_solution(y_t, r_centers, 
+                filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
         k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
@@ -1614,7 +1618,7 @@ module Obliqua
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
 
-        power_prf = itp.(r_orig_centers)
+        power_prf = Float64.(itp.(r_orig_centers))
 
         return power_prf, k2_T, k2_L
         # return power_prf, power_map, k2_T, k2_L
@@ -1637,8 +1641,8 @@ module Obliqua
     - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient.
 
     # Returns
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_fluid0d( omega::Float64,
                         rho::Array{prec,1},
@@ -1646,7 +1650,7 @@ module Obliqua
                         ρ_ratio::prec;
                         n::Int64=2,
                         sigma_R::Float64=1e-3
-                        )::Tuple{precc,precc}
+                        )::Tuple{ComplexF64,ComplexF64}
 
         # internal structure arrays
         ρ = convert(Vector{prec}, rho)
@@ -1663,7 +1667,7 @@ module Obliqua
         # get k2 Lovenumbers
         k2_T, k2_L = fluid0d.compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, sigma_R)
 
-        return k2_T, k2_L
+        return ComplexF64(k2_T), ComplexF64(k2_L)
 
     end
 
@@ -1674,27 +1678,27 @@ module Obliqua
     Compute tidal heating profile and Love numbers for a 1D fluid model.
 
     # Arguments
-    - `omega::Float64`        : Forcing frequency
-    - `rho::Vector{prec}`     : Density profile
-    - `radius::Vector{prec}`  : Radial grid (core → surface)
-    - `gravity::Vector{prec}` : Gravity profile
-    - `ρ_ratio::prec`         : Density ratio of lower layer
-    - `S_mass::prec`          : Stellar mass
-    - `sma::prec`             : Semi-major axis
-    - `R::prec`               : Planet radius
+    - `omega::Float64`                  : Forcing frequency
+    - `rho::Vector{prec}`               : Density profile
+    - `radius::Vector{prec}`            : Radial grid (core → surface)
+    - `gravity::Vector{prec}`           : Gravity profile
+    - `ρ_ratio::prec`                   : Density ratio of lower layer
+    - `S_mass::prec`                    : Stellar mass
+    - `sma::prec`                       : Semi-major axis
+    - `R::prec`                         : Planet radius
 
     # Keyword Arguments
-    - `n::Int=2`              : Radial power (dominant term n=2)
-    - `sigma_R::Float64=1e-3` : Rayleigh drag at interface
-    - `sigma_inf::Float64=1e-7` : Drag in fluid interior
-    - `sigma_R_prf::String="uniform"` : Drag profile type
-    - `H_R::Float64=1e3`      : Drag scale height
-    - `efficiency::Float64=0.3` : Interface efficiency factor
+    - `n::Int=2`                        : Radial power (dominant term n=2)
+    - `sigma_R::Float64=1e-3`           : Rayleigh drag at interface
+    - `sigma_inf::Float64=1e-7`         : Drag in fluid interior
+    - `sigma_R_prf::String="uniform"`   : Drag profile type
+    - `H_R::Float64=1e3`                : Drag scale height
+    - `efficiency::Float64=0.3`         : Interface efficiency factor
 
     # Returns
-    - `power_prf::Vector{prec}` : Heating profile
-    - `k2_T::precc`             : Tidal Love number
-    - `k2_L::precc`             : Load Love number
+    - `power_prf::Vector{Float64}`      : Heating profile
+    - `k2_T::ComplexF64`                : Tidal Love number
+    - `k2_L::ComplexF64`                : Load Love number
     """
     function run_fluid1d(   omega::Float64,
                             rho::Vector{prec},
@@ -1710,7 +1714,7 @@ module Obliqua
                             sigma_R_prf::String = "uniform",
                             H_R::Float64 = 1e3,
                             efficiency::Float64 = 0.3
-                        )::Tuple{Vector{prec}, precc, precc}
+                        )::Tuple{Vector{Float64}, ComplexF64, ComplexF64}
 
         # internal structure arrays 
         r = convert(Vector{prec}, radius) 
@@ -1764,130 +1768,7 @@ module Obliqua
             power_prf .*= power_blk / unorm
         end
 
-        return power_prf, k2_T, k2_L
-    end
-
-
-    """
-        run_fluid1d(omega, rho, radius, gravity, ρ_mean_lower, S_mass, sma; n=2, sigma_R=1e-3, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3)
-
-    Calculate k2 Lovenumbers in the 1D fluid, and compute 1d heating profile from density-contrast and Rayleigh-drag.
-
-    # Arguments
-    - `omega::Float64`                  : Forcing frequency.
-    - `rho::Array{prec,1}`              : Density profile of the planet.
-    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
-    - `gravity::Array{prec,1}`          : Cumulative gravity profile.
-    - `ρ_mean_lower::prec`              : Mean density of lower (non-fluid) layer.
-    - `S_mass::prec`                    : Stellar mass.
-    - `sma::prec`                       : Semimajor axis.
-    - `R::prec`                         : Planet Radius.
-
-    # Keyword Arguments
-    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
-    - `σ_R::Float64=1e-3`               : Rayleigh drag coefficient at interface.
-    - `σ_inf::Float64=1e-3`             : Rayleigh drag coefficient in pure fluid.
-    - `sigma_R_prf::String="uniform"`   : Rayleigh drag profile.
-    - `H_R::Float64=1e3`                : Rayleigh drag scale height.
-    - `efficiency::Float64=0.3`         : Rayleigh drag efficiency at core interface.
-
-    # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
-    """
-    function run_fluid1d_RD(omega::Float64,
-                            rho::Vector{prec},
-                            radius::Vector{prec},
-                            gravity::Vector{prec},
-                            ρ_mean_lower::prec,
-                            S_mass::prec,
-                            sma::prec,
-                            R::prec;
-                            n::Int = 2,
-                            sigma_R::Float64 = 1e-3,
-                            sigma_inf::Float64 = 1e-7,
-                            sigma_R_prf::String = "uniform",
-                            H_R::Float64 = 1e3,
-                            efficiency::Float64 = 0.3
-                        )::Tuple{Vector{prec}, precc, precc}
-
-        # internal structure arrays 
-        ρ = convert(Vector{prec}, rho) 
-        r = convert(Vector{prec}, radius) 
-        g = convert(Vector{prec}, gravity)
-
-        ns = length(r) - 1  # number of shells
-
-        # volumes
-        dVs = (4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3)  # shell volumes
-
-        # magma ocean height
-        H_magma = diff(r)
-
-        # density contrast 
-        ρs = vcat(ρ_mean_lower, ρ)
-        ρ_ratios = ρs[2:end] ./ ρs[1:end-1]
-
-        # radial coordinates
-        r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
-        z     = abs.(r_mid .- r[1])  # distance from interface
-
-        # Rayleigh drag contrast
-        Δσ = max(efficiency * sigma_R - sigma_inf, 0.0)
-
-        # shape function
-        shape = ones(ns)
-
-        if sigma_R_prf == "exp"
-            shape .= exp.(-z ./ H_R)
-
-        elseif sigma_R_prf == "linear"
-            shape .= max.(0.0, 1 .- z ./ H_R)
-
-        elseif sigma_R_prf == "quadratic"
-            shape .= max.(0.0, 1 .- z ./ H_R).^2
-
-        elseif sigma_R_prf == "dynamic"
-            l_mix = max.(min.(z, H_R), 1e-12)
-            shape .= exp.(-z ./ l_mix)
-
-        elseif sigma_R_prf != "uniform"
-            error("Unknown sigma_R_prf: $sigma_R_prf")
-        end
-
-        # Rayleigh drag profile 
-        sigma_profile = sigma_inf .+ Δσ .* shape
-
-        # outputs
-        power_prf = zeros(prec, ns)
-        k2_T = zeros(precc, ns)
-        k2_L = zeros(precc, ns)
-
-        # prefactor 
-        prefactor = (2n + 1) * R * omega / (8π * G)
-
-        # loop over shells 
-        for i in 1:ns
-            k2_T[i], k2_L[i] = fluid0d.compute_fluid_lovenumbers(
-                omega,
-                r[i+1],
-                H_magma[i],
-                g[i],
-                ρ_ratios[i],
-                n,
-                sigma_profile[i]
-            )
-
-            power_prf[i] = prefactor * -imag(k2_T[i]) / dVs[i]
-        end
-
-        # effective Love numbers (volume-weighted)
-        Vtot = sum(dVs)
-        k2_T_eff = sum(k2_T .* dVs) / Vtot
-        k2_L_eff = sum(k2_L .* dVs) / Vtot
-
-        return power_prf, k2_T_eff, k2_L_eff
+        return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
     end
 
 
@@ -1908,9 +1789,9 @@ module Obliqua
     - `b_width::Float64=0.1`            : Fraction of segment height as standard deviation for lower dissipation peak.
 
     # Returns
-    - `power_prf::Array{prec,1}`        : Heating profile.
-    - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
-    - `k2_L::precc`                     : Complex Load k2 Lovenumber.
+    - `power_prf::Array{Float64,1}`     : Heating profile.
+    - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
+    - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
     function run_interp(omega::Float64,
                         radius::Vector{prec},
@@ -1919,7 +1800,7 @@ module Obliqua
                         P_b::Real;
                         t_width::Real = 0.1,
                         b_width::Real = 0.1
-                    )::Tuple{Vector{prec}, precc, precc}
+                    )::Tuple{Vector{Float64}, ComplexF64, ComplexF64}
 
         # radial grid
         r = convert(Vector{prec}, radius)
@@ -1963,7 +1844,7 @@ module Obliqua
             k2_T[is] = -im * power_prf[is] * Vs[is] / prefactor
         end
 
-        return power_prf, sum(k2_T), sum(k2_L)
+        return Float64.(power_prf), ComplexF64(sum(k2_T)), ComplexF64(sum(k2_L))
     end
 
 end
