@@ -273,7 +273,7 @@ module common
 
         if type=="liquid"
             Ic[Y[1],1] = -r^n / g
-            Ic[Y[1],1] = -r^n / g
+            Ic[Y[1],3] = 1.0
             Ic[Y[2],2] = 1.0
             Ic[Y[3],3] = g*ρ
             Ic[Y[5],1] = r^n
