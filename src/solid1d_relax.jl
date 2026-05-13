@@ -12,8 +12,11 @@ module solid1d_relax
     using SpecialFunctions
     using SparseArrays
 
-    prec = BigFloat
+    prec  = BigFloat
     precc = Complex{BigFloat}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 

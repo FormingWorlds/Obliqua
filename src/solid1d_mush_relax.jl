@@ -8,13 +8,20 @@ module solid1d_mush_relax
     using LinearAlgebra
     import GenericLinearAlgebra
     using DoubleFloats
+    using MultiFloats
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
     using Printf
 
-    prec = BigFloat
+    prec  = BigFloat
     precc = Complex{BigFloat}
+
+    # prec  = Float64x4
+    # precc = Complex{Float64x4}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
@@ -440,7 +447,7 @@ module solid1d_mush_relax
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
         Kn = zeros(precc, 8, 8)
-        Kn[Y[8], Y[8]] = 1.0
+        Kn[Y[8], Y[8]] = -1.0
 
         # perform recursion
         R_prev = R[i-1]

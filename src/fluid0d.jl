@@ -2,11 +2,19 @@
 
 module fluid0d
 
+    using MultiFloats
+
     export compute_fluid_lovenumbers
 
     # Precision types
-    prec = BigFloat
+    prec  = BigFloat
     precc = Complex{BigFloat}
+
+    # prec  = Float64x4
+    # precc = Complex{Float64x4}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
 
     # Constants

@@ -5,6 +5,7 @@ module common
 
     import GenericLinearAlgebra
     using DoubleFloats
+    using MultiFloats
     using AssociatedLegendrePolynomials    
     using StaticArrays
     using SpecialFunctions
@@ -12,8 +13,14 @@ module common
 
     export define_spherical_grid, get_scales, get_Ic, get_A, get_A!, get_heating_profile, get_heating_map
 
-    prec = BigFloat
+    prec  = BigFloat
     precc = Complex{BigFloat}
+
+    # prec  = Float64x4
+    # precc = Complex{Float64x4}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 

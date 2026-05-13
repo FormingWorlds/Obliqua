@@ -15,6 +15,7 @@ module Obliqua
     using Interpolations
     using LinearAlgebra
     using DoubleFloats
+    using MultiFloats
     using AssociatedLegendrePolynomials
 
     # Include local jl files
@@ -58,6 +59,12 @@ module Obliqua
 
     prec  = BigFloat
     precc = Complex{BigFloat}
+
+    # prec  = Float64x4
+    # precc = Complex{Float64x4}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
     const AU::prec      = prec(1.495978707e11)   # m
     const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
@@ -1313,8 +1320,8 @@ module Obliqua
         y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         # for debugging: plot y-function relaxation solution
-        plotting.plot_relaxation_solution(y_t, r_centers, 
-                filename="$OUT_DIR/relaxation_solution.png")
+        # plotting.plot_relaxation_solution(y_t, r_centers, 
+        #         filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers (we scale them based on radius fraction of the planet)
         k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
@@ -1584,8 +1591,8 @@ module Obliqua
         # solve y functions across grid
         y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
-        plotting.plot_relaxation_solution(y_t, r_centers, 
-                filename="$OUT_DIR/relaxation_solution.png")
+        # plotting.plot_relaxation_solution(y_t, r_centers, 
+        #         filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
         k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
