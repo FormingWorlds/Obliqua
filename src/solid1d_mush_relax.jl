@@ -27,7 +27,7 @@ module solid1d_mush_relax
 
 
     """
-        resample_profiles(radius, rho, visc, shear, bulk, phi, m_core, dr_min, dr_max)
+        resample_profiles(radius, rho, visc, shear, bulk_s, bulk_l, bulk_d, alpha, visc_l, phi, k, m_core, dr_min, dr_max)
 
     Resample the input profiles onto a new grid with `ncalc` points. The new grid is generated using a 
     stretched and refined scheme, which allows for better resolution in regions of interest (e.g., near 
@@ -38,7 +38,11 @@ module solid1d_mush_relax
     - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
     - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
     - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
-    - `bulk::Vector{prec}`                : Original bulk modulus profile (defined at layer centers).
+    - `bulk_s::Vector{prec}`              : Original solid bulk modulus profile (defined at layer centers).
+    - `bulk_l::Vector{prec}`              : Original liquid bulk modulus profile (defined at layer centers).
+    - `bulk_d::Vector{prec}`              : Original deep bulk modulus profile (defined at layer centers).
+    - `alpha::Vector{prec}`               : Original alpha profile (defined at layer centers).
+    - `visc_l::Vector{prec}`              : Original liquid viscosity profile (defined at layer centers).
     - `phi::Vector{prec}`                 : Original phi profile (defined at layer centers).
     - `m_core::prec`                      : Mass of the core, used for gravity calculations.
     - `Δr_min::Int64`                     : Minimum grid spacing for the new grid.
@@ -271,7 +275,7 @@ module solid1d_mush_relax
 
 
     """
-        interface_mush_solid(R, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
+        interface_mush_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This 
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 8x8 system to the 6x6 system.
@@ -296,6 +300,7 @@ module solid1d_mush_relax
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
 
     # keyword arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
     - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
 
     # Returns
@@ -374,7 +379,7 @@ module solid1d_mush_relax
 
 
     """
-        interface_solid_mush(R, Cn_l, Dnp_l, ids; Y=[1,2,3,4,5,6,7,8])
+        interface_solid_mush(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the interface between the solid layer and the mushy layer. This 
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 6x6 system to the 8x8 system.
@@ -400,6 +405,7 @@ module solid1d_mush_relax
     - `n::Int`                          : Tidal degree.
 
     # keyword arguments
+    - `G0::prec=1`                      : Gravitational constant scale for non-dimensionalization.
     - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
 
     # Returns
@@ -571,10 +577,11 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]`: Ordering of the solution vector components.
 
     # Returns
     - `C1l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
-    - `D2l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
+    - `D2l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
     function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
@@ -790,7 +797,7 @@ module solid1d_mush_relax
 
 
     """
-        surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
+        surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6])
 
     Perform the forward-backward relaxation step at the surface boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the final step of the relaxation scheme, where we apply the surface boundary condition and 
@@ -811,12 +818,13 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]`: Ordering of the solution vector components.
 
     # Returns
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=Y)
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -843,7 +851,7 @@ module solid1d_mush_relax
 
 
     """
-        surface_boundary_mush(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n)
+        surface_boundary_mush(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1, Y=[1,2,3,4,5,6,7,8])
 
     Perform the forward-backward relaxation step at the surface boundary for the two-phase problem. This function implements 
     the recursion described in N. Kobayashi (2007) for the final step of the relaxation scheme, where we apply the surface 
@@ -865,6 +873,7 @@ module solid1d_mush_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]`: Ordering of the solution vector components.
 
     # Returns
     - `y_t::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the tidal problem.

@@ -212,7 +212,7 @@ module solid1d_relax
 
 
     """
-        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n)
+        core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n; G0=1)
 
     Perform the forward-backward relaxation step at the core boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the initial step of the relaxation scheme, where we apply the core boundary condition and 
@@ -274,7 +274,7 @@ module solid1d_relax
 
     
     """
-        propagate_solid(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n)
+        propagate_solid(R, B, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
 
     Perform the forward-backward relaxation step for the solid propagation segments. This function implements the 
     recursion described in N. Kobayashi (2007) for the segments of the radial grid that correspond to the solid 
@@ -351,7 +351,7 @@ module solid1d_relax
 
 
     """
-        surface_boundary(R, B, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n, R_planet)
+        surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
 
     Perform the forward-backward relaxation step at the surface boundary. This function implements the recursion described 
     in N. Kobayashi (2007) for the final step of the relaxation scheme, where we apply the surface boundary condition and 
@@ -365,7 +365,7 @@ module solid1d_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
     - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
@@ -404,7 +404,7 @@ module solid1d_relax
 
 
     """
-        get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1, M=6, N=3)
+        get_core_bc!(ω, r, ρ, g, μ, K, type, n; G0=1)
 
     Get the core boundary condition matrix `B` for the solid-body problem. The core boundary 
     conditions are derived from the requirement that the radial stress at the core-mantle 
@@ -422,9 +422,7 @@ module solid1d_relax
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `M::Int=6`                         : Number of rows in the Ic matrix. This should be 6 for the solid-body problem.
-    - `N::Int=3`                         : Number of linearly independent solutions to compute. This should be 3 for the solid-body problem.
-
+    
     # Returns
     - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
     """
