@@ -302,7 +302,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{prec}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
         i = start_id
@@ -350,7 +350,7 @@ module solid1d_mush_relax
         # 4. Perform recursion
         Xn = Pn * R[i-1] + Sn + Kn
 
-        R_ifc .= -pinv(Xn) * Qn
+        R_ifc = -pinv(Xn) * Qn
 
         # create a mask or list of all column indices EXCEPT Y[7] and Y[8]
         active_cols = [idx for idx in 1:8 if idx != Y[7] && idx != Y[8]]
@@ -459,7 +459,7 @@ module solid1d_mush_relax
         Xn = Pn * R_prev + Sn + Kn
 
         R_ifc = -pinv(Xn) * Qn
-        
+
         # create a mask or list of all row indices EXCEPT Y[8]
         active_rows = [idx for idx in 1:8 if idx != Y[8]]
 
@@ -577,8 +577,6 @@ module solid1d_mush_relax
     - `D2l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
     function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
-
-        println("Bad")
 
         start_id, end_id = ids
 

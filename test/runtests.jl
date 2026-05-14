@@ -394,6 +394,97 @@ if suite > 4
 
 end
 
+
+if suite > 4
+    # test solid1d-mush-relax module with andrade rheology
+    @info " "
+    @info "Testing solid1d-mush-relax module with andrade rheology"
+
+    # update config to use only solid1d-mush-relax
+    cfg["orbit"]["obliqua"]["module_solid"] = "solid1d-mush-relax"
+    cfg["orbit"]["obliqua"]["module_fluid"] = "none"
+    cfg["orbit"]["obliqua"]["module_mushy"] = "none"
+
+    cfg["orbit"]["obliqua"]["material"]     = "andrade"
+
+    # lower visc_sus to include mush
+    visc_sus = cfg["orbit"]["obliqua"]["visc_sus"] = 5e10
+
+    omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+        load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
+
+    power_prf_expt  = [0.0, 8.74351929600201e-15, 7.989822610372303e-15, 7.414357486004026e-15, 6.9903349870719045e-15, 6.610536772586215e-15, 6.250219315451601e-15, 5.907839423696174e-15, 3.847794467433342e-13, 3.7602963735237755e-13, 3.7821403882429245e-13, 3.755688275096694e-13, 3.6466650136154196e-13, 3.6218289299356724e-13, 3.498424065639542e-13, 3.3578880779258607e-13, 3.1142492251997875e-13, 2.7888784172442886e-13, 2.4067411322774943e-13, 2.0618867972042614e-13, 1.8185229307490638e-13, 1.9593218070240336e-13, 2.4264228253900505e-13, 3.0368770742530933e-13, 3.2959863443734273e-13, 2.85511135227396e-13, 1.7904773557765943e-13, 9.079975626260086e-14, 1.2268593552292066e-13, 2.6093493239577975e-13, 3.473651439126167e-13, 2.4789279079589914e-13, 7.19425263293606e-14, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    power_blk_expt  = 2.3322822301750936e7
+    imag_k2_expt    = [0.03195660623239862]
+
+    power_prf, power_blk, _, imag_k2 = Obliqua.run_tides(
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, cfg
+    )
+    test_pass = true
+
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= all(isapprox.(imag_k2, imag_k2_expt; rtol=rtol))
+
+    @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W"
+    @info "Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2): $(imag_k2_expt)"
+    @info "Modelled imag(k2): $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    @info " "
+    @info "Testing solid1d-mush-relax module with maxwell rheology"
+
+    # update config to use maxwell rheology
+    cfg["orbit"]["obliqua"]["material"] = "maxwell"
+
+    omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+        load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
+
+    power_prf_expt  = [0.0, 7.75383624571581e-15, 1.92697256529584e-18, 1.7084323937987319e-18, 1.5981073286540342e-18, 1.511049911419673e-18, 1.4287862784121927e-18, 1.3506250476775037e-18, 9.182142839201793e-14, 8.250060731715999e-14, 8.631387374789046e-14, 8.681746558266561e-14, 7.837069034933429e-14, 7.881598823431243e-14, 7.297217606240423e-14, 7.090883070546616e-14, 6.534752948270942e-14, 5.784562948163095e-14, 4.45022033344104e-14, 3.058831774403776e-14, 1.5101318147024206e-14, 4.713628266289685e-15, 3.6846633767230745e-15, 1.2885674315548983e-14, 3.207407421406593e-14, 5.0144700080866385e-14, 5.672346564376264e-14, 4.552903385255474e-14, 2.2155190422890972e-14, 4.319509144233177e-15, 6.8952783311108974e-15, 2.7946013816443167e-14, 4.661646947084847e-14, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    power_blk_expt  = 4.215267225204773e6
+    imag_k2_expt    = [0.0057757004335659504]
+
+    power_prf, power_blk, _, imag_k2 = Obliqua.run_tides(
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, cfg
+    )
+    test_pass = true
+
+    test_pass &= all(isapprox.(power_prf, power_prf_expt; rtol=rtol, atol=atol))
+    test_pass &= isapprox(power_blk, power_blk_expt; rtol=rtol)
+    test_pass &= all(isapprox.(imag_k2, imag_k2_expt; rtol=rtol))
+
+    @info "First 5 expected profile elements: $(power_prf_expt[1:5])"
+    @info "First 5 modelled profile elements: $(power_prf[1:5])"
+    @info "Expected total power = $(power_blk_expt) W"
+    @info "Modelled total power = $(power_blk) W"
+    @info "Expected imag(k2): $(imag_k2_expt)"
+    @info "Modelled imag(k2): $(imag_k2)"
+
+    if test_pass
+        @info "Pass"
+    else
+        @warn "Fail"
+        failed += 1
+    end
+    total += 1
+    @info "--------------------------"
+
+    visc_sus = cfg["orbit"]["obliqua"]["visc_sus"] = 5e13
+
+end
+
+
 if suite > 2
     # test fluid0d model
     @info " "
