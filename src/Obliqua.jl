@@ -1603,15 +1603,6 @@ module Obliqua
             y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         )
 
-        # check if nan in heating profile, if so, set to zero
-        # warn user if nan in heating profile
-        if any(isnan.(Eμ_tot)) || any(isnan.(Eκ_tot)) || any(isnan.(El_tot))
-            @info "NaN values found in heating profile, setting to zero. This can occur when the solution is unstable, e.g. for high frequencies or high porosities."
-        end
-        Eμ_tot[isnan.(Eμ_tot)] .= 0.0
-        Eκ_tot[isnan.(Eκ_tot)] .= 0.0
-        El_tot[isnan.(El_tot)] .= 0.0
-
         # Eμ_map, Eκ_map, El_map = solid1d_mush_relax.get_heating_map(
         #     y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         # )

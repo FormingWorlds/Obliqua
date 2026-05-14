@@ -307,6 +307,7 @@ module solid1d_mush_relax
         start_id, end_id = ids
         i = start_id
 
+        # define target columns for the 6x6 system variables in the 8x8 system
         target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
 
         I8 = Matrix{precc}(I, 8, 8)
@@ -349,12 +350,16 @@ module solid1d_mush_relax
         # 4. Perform recursion
         Xn = Pn * R[i-1] + Sn + Kn
 
-        if i == start_id
-            # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
-            R[i] .= -pinv(Xn) * Qn
-        else
-            R[i] .= -Xn \ Qn
-        end
+        R_ifc .= -pinv(Xn) * Qn
+
+        # create a mask or list of all column indices EXCEPT Y[7] and Y[8]
+        active_cols = [idx for idx in 1:8 if idx != Y[7] && idx != Y[8]]
+
+        # update R only for the rows that are not the Darcy flux constraint
+        # this ensures y8 remains zero at the interface
+        R[i][:, active_cols] .= R_ifc[:, active_cols]
+        R[i][:, Y[7]]        .= 0.0  # explicitly enforce the impermeable boundary
+        R[i][:, Y[8]]        .= 0.0  # explicitly enforce the impermeable boundary
 
         # 5. Update the "stored" lower halves for the next iteration
         Cn_l  = Cn[5:8, :]
@@ -406,9 +411,9 @@ module solid1d_mush_relax
         start_id, end_id = ids
         i = start_id
 
-        # target_cols
-        target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
-        
+        # define target columns for the 6x6 system variables in the 8x8 system
+        target_cols = [1,2,3,5,6,7]
+
         I8 = Matrix{precc}(I, 8, 8)
 
         Cn  = I8
@@ -447,21 +452,13 @@ module solid1d_mush_relax
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
         Kn = zeros(precc, 8, 8)
-        Kn[Y[8], Y[8]] = -1.0
+        Kn[Y[8], Y[8]] = 1.0
 
         # perform recursion
         R_prev = R[i-1]
         Xn = Pn * R_prev + Sn + Kn
 
-        if i == start_id
-            # for the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
-            R_ifc = -pinv(Xn) * Qn
-        else
-            R_ifc = -Xn \ Qn
-        end
-
-        # CHECK THIS, theory needs to be double checked
-        # R[i] .= R_ifc
+        R_ifc = -pinv(Xn) * Qn
         
         # create a mask or list of all row indices EXCEPT Y[8]
         active_rows = [idx for idx in 1:8 if idx != Y[8]]
@@ -580,6 +577,8 @@ module solid1d_mush_relax
     - `D2l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
     function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+
+        println("Bad")
 
         start_id, end_id = ids
 
