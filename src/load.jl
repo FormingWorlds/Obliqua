@@ -9,10 +9,18 @@ module load
     using JSON
     using LoggingExtras
     using Printf
+    using MultiFloats
 
     export load_interior
 
-    prec = BigFloat
+    prec  = BigFloat
+    precc = Complex{BigFloat}
+
+    # prec  = Float64x4
+    # precc = Complex{Float64x4}
+
+    # prec  = Float64
+    # precc = Complex{Float64}
 
     """
         load_interior(fname::String)

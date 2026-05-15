@@ -14,7 +14,7 @@ using Obliqua
 using Plots
 using Printf
 
-@info "Begin Love tests"
+@info "Begin Obliqua tests"
 
 # Prepare
 RES_DIR         = joinpath(ROOT_DIR,"res/")
@@ -63,7 +63,11 @@ if suite > 10
 
     # Load interior model
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
-        load.load_interior_mush_full("$RES_DIR/interior_data/test_mantle_mush_full_test.json", false)
+        # load.load_interior_mush_full("/home/marijn/PROTEUS/Obliqua_data/output252556.0.json", false)
+        # load.load_interior_mush_full("/home/marijn/PROTEUS/Obliqua_data/output391705.0.json", false)
+        # load.load_interior_mush_full("/home/marijn/PROTEUS/Obliqua_data/output2022589.0.json", false)
+        load.load_interior_mush_full("/home/marijn/PROTEUS/Obliqua_data/output272353.0.json", false)
+        # load.load_interior_mush_full("$RES_DIR/interior_data/test_mantle_mush_full_test.json", false)
 
     # Run tidal calculation
     power_prf, power_blk, σ_range, imag_k2 = Obliqua.run_tides(

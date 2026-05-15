@@ -4,7 +4,7 @@ In this component you will be guided through the employed formalism and theoreti
 
 - [Rheology](@ref)
 - [Solid-Phase](@ref)
-- [Mush layer](@ref)
+- [Mush layer - interp](@ref)
 - [Liquid-Phase](@ref)
 - [Forcing Frequency](@ref)
 - [Surface Loading](@ref)

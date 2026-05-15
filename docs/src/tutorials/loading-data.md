@@ -31,13 +31,13 @@ Depending on which module is being used the following parameters need to be prov
 
 ##### Table of inputs
 
-| Input   | solid-phase      | solid-phase + mush interface | liquid-phase | Description | Symbol |
+| Input   | solid1d          | solid1d\_mush    | fluid1d  | Description                      | Symbol |
 |:--------|:----------------:|:----------------:|:--------:|:---------------------------------|-------------:|
 | omega   | ✔️              | ✔️               | ✔️       | Orbital Frequency                | ``\omega``   |
-| axial   | ❌              | ❌               | ✔️       | Axial Frequency                  | ``\Omega``   |
+| axial   | ✔️              | ✔️               | ✔️       | Axial Frequency                  | ``\Omega``   |
 | ecc     | ✔️              | ✔️               | ✔️       | Eccentricity                     | ``\epsilon`` |
-| sma     | ❌              | ❌               | ✔️       | Semi major axis                  | ``a``        |
-| S_mass  | ❌              | ❌               | ✔️       | Stellar mass                     | ``M_\star `` |
+| sma     | ✔️              | ✔️               | ✔️       | Semi major axis                  | ``a``        |
+| S_mass  | ✔️              | ✔️               | ✔️       | Stellar mass                     | ``M_\star `` |
 | density | ✔️              | ✔️               | ✔️       | Density profile                  | ``\rho``     |
 | radius  | ✔️              | ✔️               | ✔️       | Radii                            | ``r``        |
 | visc    | ✔️              | ✔️               | ✔️       | Viscosity profile                | ``\eta``     |
@@ -48,7 +48,7 @@ Depending on which module is being used the following parameters need to be prov
 
 It is important to note that the `radius` array contains the radial values at the boundaries of the spherical shells that make up the planetary mantle, whilst the `density`, `visc`, `shear`, `bulk`, and `phi` arrays contain the mean of these in the spherical shells. As such it follows that there are ``N+1`` values in the `radius` array, and ``N`` values in the`density`, `visc`, `shear`, `bulk`, and `phi` arrays, where ``N`` is the number of spherical shells. Please do not confuse `ncalc` with ``N``, since the former expands the number of layers through interpolation, whereas the latter is the initial resolution of the data. 
 
-For now the user is provided with four different functions, they are given below. The most simple way to use these functions is as follows. First let's test if the provided data is compatible.
+For now, the user is provided with four different functions, they are given below. The most simple way to use these functions is as follows. First let's test if the provided data is compatible.
 
 ```julia
 using Obliqua
@@ -74,6 +74,15 @@ Next, let's load the data from the data file.
 omega, ecc, rho, radius, visc, shear, bulk, ncalc = load.load_interior("$RES_DIR/interior_data/test_mantle.json", false)
 
 ```
+
+Obliqua still expects the user to provide all quantities, in this case one can simply pass an array of zeros (e.g. for the `phi` array, since this is not used in the `solid1d` module.) Recommnende is to use 
+
+```julia
+omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+        load.load_interior_mush_full("$RES_DIR/interior_data/test_mantle_mush_full_test.json", false)
+```
+
+to get started, as it provides all the necessary parameters for all modules.
 
 ---
 ---

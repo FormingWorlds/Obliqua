@@ -1,5 +1,5 @@
 
-### Reference (4)
+### Reference (5)
 
 # Liquid-Phase
 
@@ -53,9 +53,9 @@ This corresponds to the simplest assumption that turbulence or small-scale mixin
 
 The exponential profile concentrates dissipation near the lower boundary and decreases with height:
 
-[
+```math
 D(z) \propto e^{-z/H_R}
-]
+```
 
 This can approximate scenarios where dissipation is strongest near the interface with the underlying solid layer, for example when tidal flows interact with boundary roughness or generate shear-driven turbulence.
 
@@ -69,9 +69,9 @@ This provides a simple way to model dissipation that is concentrated toward the 
 
 The quadratic profile falls off more steeply with height:
 
-[
+```math
 D(z) \propto (1 - z/H_R)^2
-]
+```
 
 This concentrates dissipation even more strongly toward the base of the layer. It can approximate cases where turbulence is primarily generated near the boundary and decays rapidly away from it.
 
@@ -79,9 +79,9 @@ This concentrates dissipation even more strongly toward the base of the layer. I
 
 The dynamic profile introduces a depth-dependent mixing length
 
-[
+```math
 \ell_{\text{mix}} = \min(z, H_R)
-]
+```
 
 so that the dissipation scale adjusts with distance from the boundary.
 

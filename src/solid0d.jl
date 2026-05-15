@@ -11,18 +11,15 @@ module solid0d
     
     
     """
-        compute_solid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, σ_R)    
+        compute_solid_lovenumbers(μc, mass_tot, R, n)    
     
     Calculate k2 lovenumbers in solid.
 
     # Arguments
-    - `omega::Float64`                  : Forcing frequency range.
-    - `R::prec`                         : Outer radius of fluid segment in mantle.
-    - `H_magma::prec`                   : Height of fluid segment in mantle.
-    - `g::prec`                         : Surface gravity at top of fluid segment in mantle.
-    - `ρ_ratio::prec`                   : Density contrast between current (fluid) and lower (non-fluid) layer.
+    - `μc::precc`                       : Complex shear modulus.
+    - `mass_tot::prec`                  : Total mass of the planet.
+    - `R::prec`                         : Outer radius of the planet.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
-    - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient.
 
     # Returns
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.

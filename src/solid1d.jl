@@ -2,6 +2,9 @@
 
 module solid1d
     
+    include("common.jl")
+    using .common
+
     using LinearAlgebra
     using DoubleFloats
     using AssociatedLegendrePolynomials    
@@ -29,17 +32,17 @@ module solid1d
     Discretize the primary layers given by `r` into `nr` discrete secondary layers.
 
     # Arguments
-    - `r::Array{Float64,2}`               : 2D array of primary layer boundaries.
+    - `r::Array{prec,1}`               : 1D array of primary layer boundaries.
 
     # Keyword Arguments
     - `nr::Int=80`                        : Number of secondary layers to discretize.
 
     # Returns
-    - `rs::Array{Float64,2}`              : 2D array of secondary layer boundaries/
+    - `rs::Array{prec,2}`              : 2D array of secondary layer boundaries/
     """
-    function expand_layers(r; nr::Int=80)
+    function expand_layers(r::Array{prec,1}; nr::Int=80)
         
-        rs = zeros(Float64, (nr+1, length(r)-1))
+        rs = zeros(prec, (nr+1, length(r)-1))
         
         for i in 1:length(r)-1
             rfine = LinRange(r[i], r[i+1], nr+1)
@@ -51,28 +54,31 @@ module solid1d
 
 
     """
-        get_g(r, ρ)
+        get_g(r, ρ, m_core)
 
     Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
 
     # Arguments
-    - `r::Array{Float64,2}`               : 2D array of layer boundaries. 
-    - `ρ::Array{Float64,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `r::Array{prec,2}`               : 2D array of layer boundaries. 
+    - `ρ::Array{prec,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::prec`                   : Mass of the core, which is used to compute the gravity at the core boundary.
 
     # Returns
-    - `g::Array{Float64,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+    - `g::Array{prec,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
 
     # Notes
     `r` must be be a 2D array, with index 1 representing the top radius of secondary layers, and index 2
     representing the top radius of primary layers. 
     """
-    function get_g(r, ρ)
-        g = zeros(Float64, size(r))
-        M = zeros(Float64, size(r))
+    function get_g(r::Array{prec,2}, ρ::Array{prec,1}, m_core::prec)
+        g = zeros(prec, size(r))
+        M = zeros(prec, size(r))
 
         for i in 1:size(r)[2]
             M[2:end,i] = 4.0/3.0 * π .* diff(r[:,i].^3) .* ρ[i]
         end
+
+        M[2,1] += m_core
     
         g[2:end,:] .= G*accumulate(+,M[2:end,:]) ./ r[2:end,:].^2
         g[1,2:end] = g[end,1:end-1]
@@ -89,19 +95,19 @@ module solid1d
     # Arguments
     - `n::Int`                          : Tidal degree.
     - `m::Int`                          : Tidal order.
-    - `theta::Array{Float64,1}`         : Array of colatitudes in radians.
-    - `phi::Array{Float64,1}`           : Array of longitudes in radians.
+    - `theta::AbstractArray`            : Array of colatitudes in radians.
+    - `phi::LinearAlgebra.Adjoint`      : Array of longitudes in radians.
 
     # Returns
     - `Ynm::Array{ComplexF64,2}`        : 2D array of spherical harmonic values for each combination of theta and phi.
     """
-    function Ynm(n, m, theta, phi)
+    function Ynm(n::Int, m::Int, theta::AbstractArray, phi::LinearAlgebra.Adjoint)
         return Plm.(n, m, cos.(theta)) .* exp.(1im * m .* phi)
     end
 
 
     """
-        define_spherical_grid(res)
+        define_spherical_grid(res, n, m)
 
     Create the spherical grid of angular resolution `res` in degrees. This is used for 
     numerical integrations over solid angle. A new grid can easily be defined by 
@@ -118,7 +124,7 @@ module solid1d
         solid1d.clats[:] # colatitude grid
         solid1d.lons[:]  # longitude grid
     """
-    function define_spherical_grid(res, n, m)
+    function define_spherical_grid(res::Float64, n::Int, m::Int)
         solid1d.res = res
 
         # θ and φ grids
@@ -177,6 +183,7 @@ module solid1d
         # save grids
         solid1d.clats = clats
         solid1d.lons  = lons
+
     end
 
 
@@ -199,169 +206,25 @@ module solid1d
         ρ_prec = convert(Array{prec}, ρ)
         g_prec = convert(Array{prec}, g)
         μ_prec = convert(Array{precc}, μ)
-        κs_prec = convert(Array{precc}, κs)
+        κs_prec = convert(Array{prec}, κs)
 
         return (r_prec,  ρ_prec, g_prec, μ_prec, κs_prec)
     end
 
 
     """
-        get_Ic(r, ρ, g, μ, type, n; M=6, N=3)
-            
-    Get the core solution vector.
-    
-    # Arguments
-    - `r::prec`                          : Radius of the core boundary.
-    - `ρ::prec`                          : Density of the core.
-    - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                          : Shear modulus of the core.
-    - `type::String`                     : Type of core, either "liquid" or "solid".
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `M::Int=6`                         : Number of rows in the Ic matrix. This should be 6 for the solid-body problem.
-    - `N::Int=3`                         : Number of linearly independent solutions to compute. This should be 3 for the solid-body problem.
-
-    # Returns
-    - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
-    """
-    function get_Ic(r, ρ, g, μ, type, n; M=6, N=3)
-        Ic = zeros(precc, M, N)
-
-        if type=="liquid"
-            Ic[1,1] = -r^n / g
-            Ic[1,3] = 1.0
-            Ic[2,2] = 1.0
-            Ic[3,3] = g*ρ
-            Ic[5,1] = r^n
-            Ic[6,1] = 2(n-1)*r^(n-1)
-            Ic[6,3] = 4π * G * ρ 
-        else # incompressible solid core
-            # First column
-            Ic[1, 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
-            Ic[2, 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
-            Ic[3, 1] = ( n*ρ*g*r + 2*( n^2 - n - 3)*μ ) * r^n / ( 2*( 2n + 3) )
-            Ic[4, 1] = n *( n+2 ) * μ * r^n / ( ( 2n + 3 )*( n+1 ) )
-            Ic[6, 1] = 2π*G*ρ*n*r^( n+1 ) / ( 2n + 3 )
-
-            # Second column
-            Ic[1, 2] = r^( n-1 )
-            Ic[2, 2] = r^( n-1 ) / n
-            Ic[3, 2] = ( ρ*g*r + 2*( n-1 )*μ ) * r^( n-2 )
-            Ic[4, 2] = 2*( n-1 ) * μ * r^( n-2 ) / n
-            Ic[6, 2] = 4π*G*ρ*r^( n-1 )
-
-            # Third column
-            Ic[3, 3] = -ρ * r^n
-            Ic[5, 3] = -r^n
-            Ic[6, 3] = -( 2n + 1) * r^( n-1 )
-
-        end
-
-        return Ic
-    end
-
-
-    """
-        get_A(r, ρ, g, μ, K, n)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
-
-    # Arguments
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Returns
-    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-
-    # Notes
-    See also [`get_A!`](@ref)
-    """
-    function get_A(r, ρ, g, μ, K, n)
-        A = zeros(precc, 6, 6) 
-        get_A!(A, r, ρ, g, μ, K, n)
-        return A
-    end
-
-
-    """
-        get_A!(A, r, ρ, g, μ, K, n; λ=nothing)
-
-    Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
-    (2016) Eq. 1.95.
-
-    # Arguments
-    - `A::Array{precc,2}`                : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-
-    # Notes
-    See also [`get_A`](@ref)
-    """
-    function get_A!(A::Matrix, r, ρ, g, μ, K, n; λ=nothing)
-        if isnothing(λ)
-            λ = K - 2μ/3
-        end
-
-        r_inv = 1.0/r
-        β_inv = 1.0/(2μ + λ)
-        rβ_inv = r_inv * β_inv
-
-        A[1,1] = -2λ * r_inv*β_inv
-        A[2,1] = -r_inv
-        A[3,1] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g)       #- ω^2 * ρ# 
-        A[4,1] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
-        A[5,1] = 4π * G * ρ
-        A[6,1] = 4π*(n+1)*G*ρ*r_inv
-
-        A[1,2] = n*(n+1) * λ * r_inv*β_inv
-        A[2,2] = r_inv
-        A[3,2] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[4,2] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) #- ω^2 * ρ# 
-        A[6,2] = -4π*n*(n+1)*G*ρ*r_inv
-
-        A[1,3] = β_inv
-        A[3,3] = r_inv*β_inv * (-4μ )
-        A[4,3] = -λ * r_inv*β_inv
-        
-        A[2,4] = 1.0 / μ
-        A[3,4] = n*(n+1)*r_inv
-        A[4,4] = -3r_inv
-
-        A[3,5] = ρ * (n+1)*r_inv
-        A[4,5] = -ρ*r_inv
-        A[5,5] = -(n+1)r_inv     
-
-        A[3,6] = -ρ
-        A[5,6] = 1.0
-        A[6,6] = (n-1)r_inv
-    end
-
-
-    """
-        get_B(r1, r2, g1, g2, ρ, μ, K, n)
+        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
 
     # Arguments
+    - `ω::prec`                          : Forcing frequency.
     - `r1::prec`                         : Starting radius for integration.
     - `r2::prec`                         : Ending radius for integration.
     - `g1::prec`                         : Gravity at radius r1.
     - `g2::prec`                         : Gravity at radius r2.
     - `ρ::prec`                          : Density at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
     - `K::prec`                          : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
@@ -371,42 +234,43 @@ module solid1d
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(r1, r2, g1, g2, ρ, μ, K, n)
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::prec, n::Int)
         B = zeros(precc, 6, 6)
-        get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
         return B
     end
 
 
     """
-        get_B!(B, r1, r2, g1, g2, ρ, μ, K)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
 
     # Arguments
     - `B::Array{precc,2}`                : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
+    - `ω::prec`                          : Forcing frequency.
     - `r1::prec`                         : Starting radius for integration.
     - `r2::prec`                         : Ending radius for integration.
     - `g1::prec`                         : Gravity at radius r1.
     - `g2::prec`                         : Gravity at radius r2.
     - `ρ::prec`                          : Density at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
     - `K::prec`                          : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::prec, n::Int)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
         ghalf = g1 + 0.5*(g2 - g1)
 
-        A1 = get_A(r1, ρ, g1, μ, K, n)
-        Ahalf = get_A(rhalf, ρ, ghalf, μ, K, n)
-        A2 = get_A(r2, ρ, g2, μ, K, n)
+        A1 = get_A(ω, r1, ρ, g1, μ, K, n)
+        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n)
+        A2 = get_A(ω, r2, ρ, g2, μ, K, n)
         
         k16 = zeros(precc, 6, 6)
         k26 = zeros(precc, 6, 6)
@@ -426,22 +290,23 @@ module solid1d
 
 
     """
-        get_B_product!(Brod, r, ρ, g, μ, K, n)
+        get_B_product!(Brod, ω, r, ρ, g, μ, K, n)
 
     Compute the product of the 6x6 B matrices within a primary layer. This is used to propgate the
     y solution across one single-phase (solid) primary layer. Bprod is denoted by D in Eq. S5.14 
     in Hay et al., (2025).
 
     # Arguments
-    - `Bprod2::Array{precc,4}`           : 6x6x(nr-1)x(nlayers-1) array to store the B products across each secondary layer within each primary layer. 
-    - `r::Array{prec,2}`                 : 2D array of layer boundaries.
-    - `ρ::Array{prec,1}`                 : 1D array of layer densities. 
-    - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
-    - `μ::Array{prec,1}`                 : 1D array of layer shear moduli.
-    - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
+    - `Bprod2::Array{precc`              : 6x6x(nr-1)x(nlayers-1) array to store the B products across each secondary layer within each primary layer. 
+    - `ω::prec`                          : Forcing frequency.
+    - `r::SubArray{prec,2}`              : 2D array of layer boundaries.
+    - `ρ::prec`                          : 1D array of layer densities. 
+    - `g::SubArray{prec,2}`              : 2D array of gravity values at the layer boundaries. 
+    - `μ::precc`                         : 1D array of layer shear moduli.
+    - `K::prec`                          : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.    
     """
-    function get_B_product!(Bprod2, r, ρ, g, μ, K, n)
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::prec, n::Int)
         Bstart = Matrix{precc}(I, 6, 6)  
         B = zeros(precc, 6, 6) 
 
@@ -453,7 +318,7 @@ module solid1d
             g1 = g[j]
             g2 = g[j+1]
 
-            get_B!(B, r1, r2, g1, g2, ρ, μ, K, n)
+            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
             Bprod2[:,:,j] .= B * (j==1 ? Bstart : Bprod2[:,:,j-1])
 
             r1 = r2
@@ -462,17 +327,21 @@ module solid1d
 
 
     """
-        compute_M(r, ρ, g, μ, K, n; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core; core="liquid")
 
     Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
 
     # Arguments
+    - `ω::prec`                          : Forcing frequency.
     - `r::Array{prec,2}`                 : 2D array of layer boundaries.
     - `ρ::Array{prec,1}`                 : 1D array of layer densities. 
     - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
-    - `μ::Array{prec,1}`                 : 1D array of layer shear moduli.
+    - `μ::Array{precc,1}`                : 1D array of layer shear moduli.
     - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
+    - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
+    - `μ_core::prec`                     : Shear modulus of the core.
+    - `κ_core::prec`                     : Bulk modulus of the core.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
@@ -481,19 +350,19 @@ module solid1d
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(r, ρ, g, μ, K, n; core="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{prec,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        y_start = get_Ic(r[end,1], ρ[1], g[end,1], μ[1], core, n; M=6, N=3)
+        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ_core, κ_core, core, n; Y=[1,2,3,4,5,6])
 
         y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
                 
         for i in 2:nlayers
             Bprod = zeros(precc, 6, 6, nsublayers-1)
-            @views get_B_product!(Bprod, r[:, i], ρ[i], g[:, i], μ[i], K[i], n)
+            @views get_B_product!(Bprod, ω, r[:, i], ρ[1], g[:, i], μ[i], K[i], n)
 
             for j in 1:nsublayers-1
                 y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
@@ -506,14 +375,14 @@ module solid1d
 
         M[1, :] .= y1_4[3,:,end,end]  # Row 1 - Radial Stress 
         M[2, :] .= y1_4[4,:,end,end]  # Row 2 - Tangential Stress
-        M[3, :] .= y1_4[6,:,end,end]  # Row 3 - Potential Stress
+        M[3, :] .= y1_4[6,:,end,end] .+ (n+1)/r[end:end] .* y1_4[5,:,end,end]  # Row 3 - Potential Stress
         
         return M, y1_4
     end
 
 
     """
-        compute_y(r, g, M, R, y1_4, n; load=false)
+        compute_y(r, g, M, y1_4, n; load=false)
 
     Compute the solution vector `y` across the entire interior, given the M matrix and the y1_4 solutions across each layer. 
     This is used to compute the strain tensor and heating profile.
@@ -522,7 +391,6 @@ module solid1d
     - `r::Array{prec,2}`                 : 2D array of layer boundaries.
     - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
     - `M::Array{precc,2}`                : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
-    - `R::prec`                          : Surface radius of the body.
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     - `n::Int`                           : Tidal degree.
 
@@ -532,18 +400,29 @@ module solid1d
     # Returns
     - `y::Array{ComplexF64,3}`           : 3D array of the solution vector y across the interior.
     """
-    function compute_y(r, g, M, R, y1_4, n; load=false)
+    function compute_y(r::Array{prec,2}, g::Array{prec,2}, M::Array{precc,2}, y1_4::Array{precc,4}, n::Int; load::Bool=false)
+
+        tau = 0.0
+        P = 0.0
+        U_prime = 0.0
+        U = 0.0
+        if load
+            U_prime = 1.0
+        else
+            U = 1.0
+        end
+
+        # Define surface mass load (zeta) based on Farrell/Longman relation
+        zeta = ((2 * n + 1) / (4 * pi * G * r[end,end])) * U_prime
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
         b = zeros(precc, 3)
-        if load
-            b[1] = -(2n+1)*g[end,end]/(4π*(R)^2) ## Fix g[end,end] !!!!!
-            b[3] = -(2n+1)*G/(R)^2
-        else
-            b[3] = (2n+1)/R 
-        end
+
+        b[1] = -g[end,end] * zeta * G / r[end,end] - P
+        b[2] = tau
+        b[3] = ((2 * n + 1) / r[end,end]) * U + 4 * pi * G * zeta
 
         C = M \ b
 
@@ -565,16 +444,16 @@ module solid1d
     Calculate the strain tensor ϵ at a particular radial level. 
 
     # Arguments
-    - `ϵ::Array{ComplexF64,3}`          : 3D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
-    - `y::Array{precc,1}`               : 1D array of the solution vector y at a particular radial level, with 6 components.
+    - `ϵ::SubArray`                     : 3D array to store the strain tensor at a particular radial level, with dimensions corresponding to latitude, longitude, and the 6 independent components of the strain tensor.
+    - `y::SubArray`                     : 1D array of the solution vector y at a particular radial level, with 6 components.
     - `n::Int`                          : Tidal degree.
-    - `rr::prec`                        : Radius at which to compute the strain tensor.
-    - `ρr::prec`                        : Density at radius rr.
-    - `gr::prec`                        : Gravity at radius rr.
-    - `μr::prec`                        : Shear modulus at radius rr.
-    - `Ksr::prec`                       : Bulk modulus at radius rr.
+    - `rr::Float64`                     : Radius at which to compute the strain tensor.
+    - `ρr::Float64`                     : Density at radius rr.
+    - `gr::Float64`                     : Gravity at radius rr.
+    - `μr::ComplexF64`                  : Shear modulus at radius rr.
+    - `Ksr::Float64`                    : Bulk modulus at radius rr.
     """
-    function compute_strain_ten!(ϵ, y, n, rr, ρr, gr, μr, Ksr)
+    function compute_strain_ten!(ϵ::SubArray, y::SubArray, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64)
         i = 1
 
         @views Y    = solid1d.Y[i,:,:]
@@ -611,14 +490,14 @@ module solid1d
     otherwise all layers will be caclulated.
 
     # Arguments
-    - `y::Array{ComplexF64,4}`           : 4D array of the solution vector y across the interior, returned by `compute_y`.
-    - `r::Array{Float64,2}`              : 2D array of layer boundaries.
-    - `ρ::Array{Float64,1}`              : 1D array of layer densities.
-    - `g::Array{Float64,2}`              : 2D array of gravity values at the layer boundaries.
-    - `μ::Array{Float64,1}`              : 1D array of layer shear moduli.
-    - `κ::Array{Float64,1}`              : 1D array of layer bulk moduli.
+    - `y::Array{ComplexF64}`             : 4D array of the solution vector y across the interior, returned by `compute_y`.
+    - `r::Matrix`                        : 2D array of layer boundaries.
+    - `ρ::AbstractVector`                : 1D array of layer densities.
+    - `g::Matrix`                        : 2D array of gravity values at the layer boundaries.
+    - `μ::AbstractVector`                : 1D array of layer shear moduli.
+    - `κ::AbstractVector`                : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
-    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ω::prec`                          : Tidal frequency in radians per second.
 
     # Keyword Arguments
     - `lay::Int=nothing`                 : If specified, compute the heating profile for only the layer corresponding to this index. Otherwise, compute for all layers.
@@ -629,7 +508,15 @@ module solid1d
     - `Eκ_tot::Array{Float64,1}`         : 1D array of total power dissipated in each primary layer due to compaction, in W.
     - `Eκ_vol::Array{Float64,2}`         : 2D array of angular averaged volumetric heating profiles in W/m^3 for dissipation due to compaction, with dimensions corresponding to the secondary layer and primary layer indices.
     """
-    function get_heating_profile(y, r, ρ, g, μ, κ, n, ω; lay=nothing)
+    function get_heating_profile(y::Array{ComplexF64}, r::Matrix, ρ::AbstractVector, g::Matrix, μ::AbstractVector, κ::AbstractVector, n::Int, ω::prec; lay::Union{Int,Nothing}=nothing)
+
+        # convert to Float64 or ComplexF64 for heating calculations
+        r = Float64.(r)
+        ρ = Float64.(ρ)
+        g = Float64.(g)
+        μ = ComplexF64.(μ)
+        κ = Float64.(κ)
+        ω = Float64(ω)
 
         dres = deg2rad(solid1d.res)
 
