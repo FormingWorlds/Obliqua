@@ -313,7 +313,7 @@ module solid1d_mush_relax
         i = start_id
 
         # define target columns for the 6x6 system variables in the 8x8 system
-        target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
+        target_cols = [1,2,3,5,6,7]
 
         I8 = Matrix{precc}(I, 8, 8)
 

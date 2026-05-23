@@ -699,7 +699,12 @@ module Obliqua
         # This implementation is currently only valid for CMB -> Solid -> Fluid -> Surface layering, 
         # and would need to be adapted for more complex layering (e.g., fluid under solid).
         for iseg in reverse(1:length(segments)-1)
+            i_start, i_end = is_seg[iseg]
+            i_start_ini, i_end_ini = is_seg[iseg+1]
             for i in 1:N_σ
+                # factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
+                # prf_total[i, i_start:i_end] .*= factor
+                # prf_total[i, i_start_ini:i_end_ini] .*= factor
                 knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
             end
         end
@@ -1232,8 +1237,8 @@ module Obliqua
         tidal_solution_L = solid1d.compute_y(rr, g, M, y1_4, n; load=true)
 
         # get k2 tidal Love Number (complex-valued)
-        k2_T = (tidal_solution_T[5, end, end] - 1) .* (maximum(r) ./ R)
-        k2_L = (tidal_solution_L[5, end, end] - 1) .* (maximum(r) ./ R)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
         
         # Get profile power output (W m-3), converted to W/kg
         Eμ, Eκ = solid1d.get_heating_profile(tidal_solution_T, rr, ρ, g, μc, κ, n, omega; lay=nothing)
@@ -1242,7 +1247,7 @@ module Obliqua
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
 
         # Renormalization factor
-        power_prf = (Eμ_tot .+ Eκ_tot) # Compute total volumetric heating (W/m3)
+        power_prf = (Eμ_tot .+ Eκ_tot) .* (R ./ maximum(r)) # Compute total volumetric heating (W/m3)
 
         return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
     end
@@ -1323,9 +1328,9 @@ module Obliqua
         # plotting.plot_relaxation_solution(y_t, r_centers, 
         #         filename="$OUT_DIR/relaxation_solution.png")
 
-        # Love numbers (we scale them based on radius fraction of the planet)
-        k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
-        k2_L = (y_l[5, 1]   - 1) .* (maximum(r) ./ R)
+        # Love numbers
+        k2_T = y_t[5, end] - 1
+        k2_L = y_l[5, 1]   - 1
 
         # heating profile
         Eμ_tot, Eκ_tot = solid1d_relax.get_heating_profile(
@@ -1345,7 +1350,7 @@ module Obliqua
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
 
-        power_prf = Float64.(itp.(r_orig_centers))
+        power_prf = Float64.(itp.(r_orig_centers) .* (R ./ maximum(r)))
 
         return power_prf, k2_T, k2_L
         # return power_prf, power_map, k2_T, k2_L
@@ -1465,8 +1470,8 @@ module Obliqua
         tidal_solution_L = solid1d_mush.compute_y(rr, g, M, y1_4, n; load=true)
 
         # get k2 tidal Love Number (complex-valued)
-        k2_T = (tidal_solution_T[5, end, end] - 1) .* (maximum(r) ./ R)
-        k2_L = (tidal_solution_L[5, end, end] - 1) .* (maximum(r) ./ R)
+        k2_T = tidal_solution_T[5, end, end] - 1
+        k2_L = tidal_solution_L[5, end, end] - 1
         
         # Get profile power output (W m-3), converted to W/kg
         Eμ, Eκ, El = solid1d_mush.get_heating_profile(tidal_solution_T,
@@ -1479,7 +1484,7 @@ module Obliqua
         El_tot, _ = El   # fluid       (W), (W/m3)
 
         # Renormalization factor
-        power_prf = (Eμ_tot .+ Eκ_tot .+ El_tot) # Compute total volumetric heating (W/m3)
+        power_prf = (Eμ_tot .+ Eκ_tot .+ El_tot) .* (R ./ maximum(r)) # Compute total volumetric heating (W/m3)
 
         return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
     end
@@ -1595,8 +1600,8 @@ module Obliqua
         #         filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
-        k2_T = (y_t[5, end] - 1) .* (maximum(r) ./ R)
-        k2_L = (y_l[5, 1]   - 1) .* (maximum(r) ./ R)
+        k2_T = y_t[5, end] - 1
+        k2_L = y_l[5, 1]   - 1
 
         # heating profile
         Eμ_tot, Eκ_tot, El_tot = solid1d_mush_relax.get_heating_profile(
@@ -1616,7 +1621,7 @@ module Obliqua
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
 
-        power_prf = Float64.(itp.(r_orig_centers))
+        power_prf = Float64.(itp.(r_orig_centers) .* (R ./ maximum(r)))
 
         return power_prf, k2_T, k2_L
         # return power_prf, power_map, k2_T, k2_L
