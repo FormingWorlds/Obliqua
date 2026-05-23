@@ -466,13 +466,6 @@ module Obliqua
                 interp_active = false
             end
 
-            # preallocate (complex for viscoelastic)
-            #   (T)idal love number
-            knms_T_seg = zeros(ComplexF64, N_σ)
-
-            #   (L)oad  love number
-            knms_L_seg = zeros(ComplexF64, N_σ)
-
             # get start and stop index for segment
             i_start, i_end = is_seg[iseg]
 
@@ -484,10 +477,6 @@ module Obliqua
             κ_seg  = κ[i_start:i_end]
             ϕ_seg  = ϕ[i_start:i_end]
             g_seg  = g[i_start:i_end]
-
-            # preallocate heating profile for segment
-            prf_seg = zeros(Float64, N_σ, length(r_seg)-1)
-            map_seg = zeros(Float64, N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
             # mean density in current segment
             if length(ρ_seg) == 1
@@ -507,18 +496,14 @@ module Obliqua
                 # if forcing frequency is zero, then skip to next frequency (no heating)
                 iszero(σ) && continue
 
-                # preallocate k2 for segment
-                kT = zero(ComplexF64)
-                kL = zero(ComplexF64)
-
                 # if segment is solid
                 if seg == "solid"
                     # don't model solid tides
                     if module_solid===nothing
-                        kT, kL = 0., 0.
+                        knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0.
                     # 0D interior but no heating profile in segment 
                     elseif module_solid=="solid0d"
-                        kT, kL = run_solid0d( 
+                        knms_T[iss, iseg], knms_L[iss, iseg] = run_solid0d( 
                             μc_seg[:, iss],
                             r_seg,
                             mass_tot;
@@ -526,7 +511,7 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d"
-                        prf_seg[iss,:], kT, kL = run_solid1d( 
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d( 
                             σ, ρ_seg,
                             r_seg, η_seg,                               
                             μc_seg[:, iss], 
@@ -537,8 +522,8 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        prf_seg[iss,:], kT, kL = run_solid1d_relax( 
-                        # prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_relax( 
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
+                        # prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, R, 
@@ -549,7 +534,7 @@ module Obliqua
                         )
                     # elseif 1D interior with mush interface and heating profile from strain tensor
                     elseif module_solid=="solid1d-mush"
-                        prf_seg[iss,:], kT, kL = run_solid1d_mush( 
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, ϕ_seg, R, 
@@ -559,8 +544,8 @@ module Obliqua
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
-                        # prf_seg[iss,:], map_seg[iss,:, :], kT, kL = run_solid1d_mush_relax( 
-                        prf_seg[iss,:], kT, kL = run_solid1d_mush_relax( 
+                        # prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, ϕ_seg, R, 
@@ -578,10 +563,10 @@ module Obliqua
                 elseif seg == "fluid"
                     # don't model fluid tides
                     if module_fluid===nothing
-                        kT, kL = 0., 0.
+                        knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0.
                     # 0D interior but no heating profile in segment 
                     elseif module_fluid=="fluid0d"
-                        kT, kL = run_fluid0d(
+                        knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid0d(
                             σ, ρ_seg, 
                             r_seg, ρ_ratio;
                             n=n, 
@@ -589,7 +574,7 @@ module Obliqua
                         ) 
                     # elseif 1D interior and heating profile from density-contrast/Rayleigh-drag
                     elseif module_fluid=="fluid1d"
-                        prf_seg[iss,:], kT, kL = run_fluid1d(
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d(
                             σ, ρ_seg, r_seg, 
                             g_seg, ρ_ratio,
                             S_mass, sma, R; n=n,
@@ -599,7 +584,7 @@ module Obliqua
                             H_R=H_R, efficiency=efficiency_seg
                         )
                     elseif module_fluid=="fluid1d_RD"
-                        prf_seg[iss,:], kT, kL = run_fluid1d_RD(
+                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d_RD(
                             σ, ρ_seg, r_seg, 
                             g_seg, ρ_ratio,
                             S_mass, sma, R; n=n,
@@ -616,7 +601,7 @@ module Obliqua
                 elseif seg == "mush"
                     # don't model mush tides
                     if module_mushy===nothing
-                        kT, kL = 0., 0.
+                        knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0.
                     elseif module_mushy=="interp"
                         # turn on interpolation mode
                         interp_active = true
@@ -627,7 +612,7 @@ module Obliqua
                             P_b = prf_total[iss, i_ep]
 
                             # first solve heating spectrum for lower interface
-                            prf_seg[iss,:], kT, kL = run_interp(
+                            prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_interp(
                                 σ, r_seg, R, 0., P_b;
                                 t_width=t_width, b_width=b_width
                             )
@@ -640,23 +625,19 @@ module Obliqua
                 # if segment is ice
                 elseif seg == "ice"
                     # calculate ice tides in ice region 
-                    kT, kL = 0., 0. # no expression for this yet
+                    knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0. # no expression for this yet
                     @warn "Ice layers are currently not supported. Skipping this segment..."
                     
                 # if segment is water
                 elseif seg == "water"
                     # calculate water tides in water region 
-                    kT, kL = 0., 0. # no expression for this yet
+                    knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0. # no expression for this yet
                     @warn "Water layers are currently not supported. Skipping this segment..."    
                 end
 
-                # update k2 spectrum for segment
-                knms_T_seg[iss] = kT
-                knms_L_seg[iss] = kL
-
                 if interp_previous
                     # Solve heating spectrum for upper interface in previous segment
-                    P_t = prf_seg[iss,1] # get heating in bottom layer of current segment
+                    P_t = prf_total[iss, i_start] # get heating in bottom layer of current segment
                     i_sp, i_ep = is_seg[iseg-1]
                     Δprf, ΔkT, ΔkL = run_interp(
                         σ, r[i_sp-1:i_ep], R, P_t, 0.;
@@ -674,14 +655,6 @@ module Obliqua
             ρ_mean_lower = ρ_mean
             # update Rayleigh drag efficiency away from core
             efficiency_seg = 1.
-
-            # store k2 spectra (max 1 per segment)
-            knms_T[:, iseg] .= knms_T_seg
-            knms_L[:, iseg] .= knms_L_seg
-
-            # append segment heating profile to global heating profile
-            prf_total[:, i_start:i_end] .= prf_seg[:, :]
-            map_total[:, iseg, :, :] .= map_seg[:, :, :]
 
             # turn off interpolator after completion
             interp_previous = false
