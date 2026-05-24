@@ -18,6 +18,8 @@ module Obliqua
     using MultiFloats
     using AssociatedLegendrePolynomials
 
+    using NCDatasets
+
     # Include local jl files
     include("solid0d.jl")
     include("solid1d.jl")
@@ -402,52 +404,89 @@ module Obliqua
         # gravity at each layer radius
         g = G .* M_enc ./ r[2:end].^2
 
+        # collect tidal modes (n, m) 
+        nm  = [(n_i, m_i) for n_i in n, m_i in m if n_i >= m_i]
+        # initiate container for (n, m, k) combinations
+        nmk = Vector{Tuple{Int,Int,Int}}()
+
+        # Initialize containers that will hold data per (n, m, k) mode
+        σ_range  = Vector{Float64}()
+        X_hansen = Vector{Float64}()
+        μc       = Matrix{ComplexF64} # layer x frequency
+
+        # Output containers that will hold data per (n, m, k) mode
+        knms_T    = Matrix{ComplexF64}
+        knms_L    = Matrix{ComplexF64}
+        prf_total = Matrix{Float64}
+        map_total = Array{Float64, 4}
+
         # orbital and axial frequencies
-        if spectrum == "adaptive"
-            # get s range for proper convergence for given eccentricity
-            s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n, m)
+        if spectrum == "adaptive"            
 
-            if s_min === nothing 
-                s_min = s_min_ecc
-            elseif s_min > s_min_ecc
-                @warn "Provided s_min=$s_min is larger than the estimated s_min=$s_min_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
+            for (n_i, m_i) in nm
+                # avoid overwriting inputs by using local scope variables
+                s_min_i = s_min === nothing ? nothing : s_min
+                s_max_i = s_max === nothing ? nothing : s_max
+
+                # get s range for proper convergence for given eccentricity
+                s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n_i, m_i)
+
+                if s_min_i === nothing 
+                    s_min_i = s_min_ecc
+                elseif s_min_i > s_min_ecc
+                    @warn "Provided s_min=$s_min_i is larger than estimated s_min=$s_min_ecc for eccentricity $(round(Float64(ecc), digits=2))."
+                end
+                if s_max_i === nothing
+                    s_max_i = s_max_ecc
+                elseif s_max_i < s_max_ecc
+                    @warn "Provided s_max=$s_max_i is smaller than estimated s_max=$s_max_ecc for eccentricity $(round(Float64(ecc), digits=2))."
+                end
+
+                @info "Using adaptive spectrum with s range [$s_min_i, $s_max_i] for eccentricity $(round(Float64(ecc), digits = 2)) and tide (n, m) = ($n_i, $m_i)."
+
+                # build s range for this mode
+                s_range = collect(s_min_i:s_max_i)
+
+                # get hansen coefficients for this specific mode
+                _, X_hansen_i = Hansen.get_hansen(ecc, n_i, m_i, s_min_i, s_max_i)
+                
+                # calculate forcing frequencies only for region of interest
+                σ_range_i = m_i .* axial .- s_range .* omega
+                σ_range_i = Float64.(σ_range_i)
+
+                for i in 1:length(s_range)
+                    push!(nmk, (n_i, m_i, s_range[i]))
+                    push!(X_hansen, X_hansen_i[i])
+                    push!(σ_range, σ_range_i[i])
+                end
             end
-            if s_max === nothing
-                s_max = s_max_ecc
-            elseif s_max < s_max_ecc
-                @warn "Provided s_max=$s_max is smaller than the estimated s_max=$s_max_ecc for eccentricity $(round(Float64(ecc), digits=2)). This may lead to underestimation of tidal heating."
-            end
 
-            @info "Using adaptive spectrum with s range [$s_min, $s_max] for eccentricity $(round(Float64(ecc), digits = 2)) and tide (n, m) = ($n, $m)."
-
-            # tidal mode range (s is the Fourier index in mean anomaly)
-            s_range = collect(s_min:s_max)
-
-            # get hansen coefficients
-            _, X_hansen = Hansen.get_hansen(ecc, n, m, s_min, s_max)
-
-            # calculate forcing frequencies only for region of interest
-            σ_range = m*axial .- s_range.*omega
-            σ_range = Float64.(σ_range)
             N_σ = length(σ_range)
 
         elseif spectrum == "full"
-            # calculate wide range of forcing frequencies (for plotting or with fixed interior)
-            t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)        # periods [1e3 yr]       
-            σ_range = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    # freq    [s-1]
-            σ_range = reshape(σ_range, :)
+            # Maintain backward compatibility for the fallback plotting spectrum
+            t_range = 10 .^ range(p_min, stop=p_max, length=N_σ)       
+            σ_range_i = 2π ./ (t_range .* 1e3 .* 365.25 .* 24 .* 3600)    
+            σ_range_i = reshape(σ_range_i, :)
+
+            # set particular nmk for full spectrum
+            for i in 1:N_σ
+                push!(nmk, (nm[1][1], nm[1][2], 1)) 
+                push!(σ_range, σ_range_i[i])
+            end
+            @info "Using (n, m, k) = ($(nm[1][1]), $(nm[1][2]), 1) for full spectrum."
         end
 
-        # get forcing frequency dependent complex shear modulus
+        # get frequency dependent complex shear modulus per mode
         μc = complex_mu(σ_range, μ, η; material=material, α=alpha)
 
-        # initiate forcing frequency dependent k2 love and load number arrays (one spectrum for each segment)
+        # allocate outputs for this specific mode's frequency count
+        # initiate forcing frequency dependent k Love numbers (one spectrum for each segment)
         knms_T = zeros(ComplexF64, N_σ, length(segments))
         knms_L = zeros(ComplexF64, N_σ, length(segments))
-        
-        # initiate forcing frequency dependent heating profile 
+        # initiate forcing frequency dependent heating profile
         prf_total = zeros(Float64, N_σ, N_layers)
-        map_total = zeros(Float64, N_σ, length(segments), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+        map_total = zeros(Float64, N_σ, length(segments), length(0:res:180), length(0:res:360-0.001))
 
         # core density for bottom boundary
         ρ_mean_lower = ρ_core
@@ -490,6 +529,9 @@ module Obliqua
 
             # get k2 spectrum for segment
             for iss in 1:N_σ
+                # specify mode
+                n_i, m_i, s_i = nmk[iss]
+
                 # specify forcing frequency
                 σ = σ_range[iss]
 
@@ -507,7 +549,7 @@ module Obliqua
                             μc_seg[:, iss],
                             r_seg,
                             mass_tot;
-                            n=n
+                            n=n_i
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d"
@@ -518,19 +560,18 @@ module Obliqua
                             κ_seg, R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
-                            ncalc=ncalc, n=n, m=m
+                            ncalc=ncalc, n=n_i, m=m_i
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
-                        # prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
+                        prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
-                            n=n, m=m, core=core
+                            n=n_i, m=m_i, core=core
                         )
                     # elseif 1D interior with mush interface and heating profile from strain tensor
                     elseif module_solid=="solid1d-mush"
@@ -540,7 +581,7 @@ module Obliqua
                             κ_seg, ϕ_seg, R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
-                            ncalc=ncalc, n=n, m=m, core=core, visc_l=visc_l, bulk_l=bulk_l,
+                            ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
@@ -552,7 +593,7 @@ module Obliqua
                             m_core, ρ_core,
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
-                            n=n, m=m, core=core, visc_l=visc_l, bulk_l=bulk_l,
+                            n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     else
@@ -569,7 +610,7 @@ module Obliqua
                         knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid0d(
                             σ, ρ_seg, 
                             r_seg, ρ_ratio;
-                            n=n, 
+                            n=n_i, 
                             sigma_R=sigma_R
                         ) 
                     # elseif 1D interior and heating profile from density-contrast/Rayleigh-drag
@@ -577,17 +618,7 @@ module Obliqua
                         prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d(
                             σ, ρ_seg, r_seg, 
                             g_seg, ρ_ratio,
-                            S_mass, sma, R; n=n,
-                            sigma_R=sigma_R,
-                            sigma_inf=sigma_R_inf,
-                            sigma_R_prf=sigma_R_prf,
-                            H_R=H_R, efficiency=efficiency_seg
-                        )
-                    elseif module_fluid=="fluid1d_RD"
-                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d_RD(
-                            σ, ρ_seg, r_seg, 
-                            g_seg, ρ_ratio,
-                            S_mass, sma, R; n=n,
+                            S_mass, sma, R; n=n_i,
                             sigma_R=sigma_R,
                             sigma_inf=sigma_R_inf,
                             sigma_R_prf=sigma_R_prf,
@@ -662,9 +693,6 @@ module Obliqua
             # step to next segment
         end  
 
-        # plot segment k2 spectra
-        plt = plotting.plot_imagk2_spectra(σ_range, abs.(.-imag.(knms_T)), segments; outpath="$OUT_DIR/all_layers_k2.png") 
-
         # initialize total k2 with the contribution from the top layer
         knms_total = copy(knms_T[:, end])  
 
@@ -672,76 +700,45 @@ module Obliqua
         # This implementation is currently only valid for CMB -> Solid -> Fluid -> Surface layering, 
         # and would need to be adapted for more complex layering (e.g., fluid under solid).
         for iseg in reverse(1:length(segments)-1)
+
+            # get the indices for the current segment and the previous segment
+            # current segemnt
             i_start, i_end = is_seg[iseg]
+            # previous segment
             i_start_ini, i_end_ini = is_seg[iseg+1]
-            for i in 1:N_σ
-                # factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
-                # prf_total[i, i_start:i_end] .*= factor
-                # prf_total[i, i_start_ini:i_end_ini] .*= factor
-                knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
+
+            load = segments[iseg] == "solid" && segments[iseg+1] == "fluid" ? true : false
+
+            if load
+                for i in 1:N_σ
+                    # calculate the load distribution factor
+                    factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
+
+                    # correct heating profile with the load distribution factor
+                    prf_total[i, i_start:i_end] .*= factor
+                    prf_total[i, i_start_ini:i_end_ini] .*= factor
+
+                    # update the total Lovenumber
+                    knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
+                end
+            else
+                for i in 1:N_σ
+                    # update the total Lovenumber
+                    knms_total[i] = knms_T[i, iseg] + knms_total[i]
+                end
             end
         end
 
         # extract imaginary part of complex global k2 spectrum
         imag_k2 = .-imag.(knms_total)
 
-        # build symmetric full spectrum for interpolation
-        full_σ_range = vcat(-σ_range, reverse(σ_range))
-        imag_full_k2 = vcat(-imag_k2, reverse(imag_k2))
-
-        # build full Imk2 spectrum and heating
-        if spectrum == "full"
-            # interpolation function for imaginary part (extrapolate outside)
-            interp_full  = extrapolate(interpolate((full_σ_range,), imag_full_k2,
-                                                Gridded(Linear())), Flat())
-
-            # nterpolate heating in each layer across forcing frequency domain using log–log interpolation
-            # build symmetric full spectrum
-            full_prf_total = vcat(prf_total, reverse(prf_total; dims=1))
-            σ_full = Float64.(full_σ_range)
-
-            # keep only positive, non-zero frequencies
-            mask = σ_full .> 0.0
-            σ_pos = σ_full[mask]
-            logσ = log10.(σ_pos)
-
-            # ensure strictly increasing (safety check)
-            @assert issorted(logσ) && length(unique(logσ)) == length(logσ)
-
-            # create an interpolator per radial shell
-            prf_itp_shells = Vector{Any}(undef, N_layers)
-
-            for j in 1:N_layers
-                # extract heating profile for this shell
-                prf_layer = Float64.(full_prf_total[:, j])[mask]
-
-                # avoid log(0)
-                prf_layer .= max.(prf_layer, 1e-40)
-                logP = log10.(prf_layer)
-
-                itp = extrapolate(
-                    interpolate((logσ,), logP, Gridded(Linear())),
-                    Flat()
-                )
-
-                prf_itp_shells[j] = itp
-            end
-
-            # radial profile at forcing frequency σ
-            function radial_profile_at_sigma(σ::Float64, prf_itp_shells::Vector)
-                if σ == 0.0
-                    return zeros(length(prf_itp_shells))
-                end
-
-                logσ = log10(abs(σ))
-                return [10.0^(itp(logσ)) for itp in prf_itp_shells]
-            end
-        end
-
         # if using full spectrum, then calculate heating profile and bulk heating at each 
         # frequency and return the full spectrum of heating profiles and bulk heating for plotting
         # the code assumes s=1 to find a solution for the Hansen coefficients and normalization.
         if spectrum == "full"
+            # get (n, m, k) mode
+            n, m, k = nmk[1]
+
             # Hansen coefficient at s=1
             _, X = Hansen.get_hansen(ecc, n, m, 1, 1)
 
@@ -757,10 +754,15 @@ module Obliqua
             P_T_1_blk = prefactor .* imag_k2 .* U2
 
             # return power profile at each frequency
-            P_T_1_prf = zeros(prec, N_σ, length(shear))
+            P_T_1_prf = zeros(Float64, N_σ, length(shear))
+            P_T_1_map = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+
             for iss in 1:N_σ
-                unorm_prf = radial_profile_at_sigma(Float64(σ_range[iss]), prf_itp_shells)
-                P_T_1_prf[iss, :] = unorm_prf .* U2
+                unorm_prf = prf_total[iss, :]
+                unorm_map = sum(map_total[iss, :, :, :], dims=1) # sum over layers to get surface map
+
+                P_T_1_prf[iss, :]    = Float64.(unorm_prf .* U2)
+                P_T_1_map[iss, :, :] = Float64.(unorm_map .* U2)
 
                 # Integrate the radial profile over the volume for this frequency
                 # Assuming 'dv' is the differential volume element array
@@ -770,27 +772,27 @@ module Obliqua
                 ratio = P_T_1_blk[iss] / integrated_profile_power
                 
                 # Print formatted results
-                @info("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
+                @debug("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
             end          
 
-            @info "Mapping 1 --> $(σ_range[1]) /s, and $N_σ --> $(σ_range[end]) /s."
-
-            # plot heating profile from full spectrum at s=1
-            plt = plotting.plot_segment_heating(
-                            P_T_1_prf, 
-                            collect(1:N_σ), 
-                            r;
-                            mask_floor=1e-50,
-                            filename="$OUT_DIR/tidal_heating_map_segment.png",
-                            title_str="Heating profile from full spectrum (s=1)")
-
-            P_T_blk = sum(P_T_1_blk) # W
+            P_T_blk = Float64(sum(P_T_1_blk)) # W
 
             # get radial heating profile W/m^3
-            P_T_prf = [sum(P_T_1_prf[:,j]) for j in 1:size(P_T_1_prf,2)]
+            P_T_prf = Float64.([sum(P_T_1_prf[:,j]) for j in 1:size(P_T_1_prf,2)])
+            P_T_map = dropdims(sum(P_T_1_map, dims=1), dims=1) # sum over frequencies to get total surface map
 
             # determine the total heat input from heating profile
-            P_T_prf_blk = sum(dv .* P_T_prf)
+            P_T_prf_blk = Float64(sum(dv .* P_T_prf))
+
+            # define data file path
+            datafile_path = joinpath(OUT_DIR, "obliqua_data.nc")
+
+            # store results in netcdf file
+            data_to_nc(
+                    nmk, is_seg, segments, knms_T, knms_L, 
+                    σ_range, P_T_1_prf, P_T_prf, P_T_blk, 
+                    P_T_prf_blk, P_T_1_map, P_T_map, datafile_path
+                )
 
             @info("Expected bulk heating: $P_T_blk")
             @info("Obtained bulk heating: $P_T_prf_blk")
@@ -808,37 +810,40 @@ module Obliqua
 
         # calculate tidal heating
         # initialize frequency dependent quentities
-        A_nms_e   = zeros(Float64,  length(s_range))
-        U_nms_e   = zeros(ComplexF64, length(s_range))
+        A_nms_e   = zeros(Float64,  N_σ)
+        U_nms_e   = zeros(ComplexF64, N_σ)
 
         # initialize frequency dependent total heating
-        P_T_s_blk = zeros(Float64,  length(s_range))
+        P_T_s_blk = zeros(Float64,  N_σ)
 
         # initialize frequency dependent heating profile
-        P_T_s_prf = zeros(Float64,  length(s_range), length(shear))
-        P_T_s_map = zeros(Float64,  length(s_range), length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+        P_T_s_prf = zeros(Float64,  N_σ, length(shear))
+        P_T_s_map = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
 
         # loop over tidal modes 
-        for (iss, ss) in pairs(s_range)
+        for iss in 1:N_σ
+            # specify mode
+            n_i, m_i, s_i = nmk[iss]
+
             # calculate physical forcing frequency
-            σ = m*axial - ss*omega
+            σ = m_i*axial - s_i*omega
 
             # if forcing frequency is zero, then skip to next frequency (no heating)
             iszero(σ) && continue
 
             # calculate coefficients
-            a = (abs(m) == 0 && ss == 0) ? 1.0 : 0.0
-            b = (abs(m) == 0 && ss < 0)  ? 1.0 : 0.0
+            a = (abs(m_i) == 0 && s_i == 0) ? 1.0 : 0.0
+            b = (abs(m_i) == 0 && s_i < 0)  ? 1.0 : 0.0
             
-            A_nms_e[iss] = (2. - a) * (1. - b) * sqrt(4π * factorial(n-m) / ((2*n+1) * factorial(n+m))) * Plm.(n, m, 0.) * X_hansen[iss]
+            A_nms_e[iss] = (2. - a) * (1. - b) * sqrt(4π * factorial(n_i-m_i) / ((2*n_i+1) * factorial(n_i+m_i))) * Plm.(n_i, m_i, 0.) * X_hansen[iss]
                       
-            U_nms_e[iss] = (G*S_mass/sma) * (R/sma)^n * A_nms_e[iss]
+            U_nms_e[iss] = (G*S_mass/sma) * (R/sma)^n_i * A_nms_e[iss]
 
             # get imaginary part of complex k2 love number from global spectrum at forcing frequency
             img_full_knm = imag_k2[iss] 
 
             # calculate prefactor and total availible heat
-            prefactor = (2*n+1) * R * σ / (8π*G)
+            prefactor = (2*n_i+1) * R * σ / (8π*G)
             U2 = abs2(U_nms_e[iss])
 
             # calculate total heat input at forcing frequency
@@ -858,31 +863,25 @@ module Obliqua
 
         end
 
-        plt = plotting.plot_segment_heating(
-                            P_T_s_prf, 
-                            s_range, 
-                            r;
-                            mask_floor=1e-25,
-                            filename="$OUT_DIR/tidal_heating_map_segment.png",
-                            title_str="Heating profile")
-
         # total tidal heating
         P_T_blk = sum(P_T_s_blk) # W
 
         # get radial heating profile W/m^3
         P_T_prf = [sum(P_T_s_prf[:,j]) for j in 1:size(P_T_s_prf,2)]
-        P_T_map = sum(P_T_s_map, dims=1) # sum over frequencies to get total surface map
-
-        # # plot map of surface heating
-        # plt = plotting.plot_surface_heating(
-        #                     P_T_map[1, :, :],
-        #                     res;
-        #                     filename="$OUT_DIR/tidal_heating_map_surface.png",
-        #                     title_str="Surface heating map"
-        #                 )
+        P_T_map = dropdims(sum(P_T_s_map, dims=1), dims=1) # sum over frequencies to get total surface map
 
         # determine the total heat input from heating profile
-        P_T_prf_blk = sum(dv .* P_T_prf)
+        P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
+
+        # define data file path
+        datafile_path = joinpath(OUT_DIR, "obliqua_data.nc")
+
+        # store results in netcdf file
+        data_to_nc(
+                nmk, is_seg, segments, knms_T, knms_L, 
+                σ_range, P_T_s_prf, P_T_prf, P_T_blk, 
+                P_T_prf_blk, P_T_s_map, P_T_map, datafile_path
+            )
 
         @info("Expected bulk heating: $P_T_blk")
         @info("Obtained bulk heating: $P_T_prf_blk")
@@ -1274,8 +1273,7 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
-                        # )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
+                        )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
 
         # convert inputs
         omega = prec(omega)
@@ -1310,12 +1308,12 @@ module Obliqua
             y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
         )
 
-        # Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
-        #     y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
-        # )
+        Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
+            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
+        )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot) 
-        # power_map = abs.(Eμ_map .+ Eκ_map) 
+        power_map = abs.(Eμ_map .+ Eκ_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
@@ -1325,8 +1323,7 @@ module Obliqua
 
         power_prf = Float64.(itp.(r_orig_centers) .* (R ./ maximum(r)))
 
-        return power_prf, k2_T, k2_L
-        # return power_prf, power_map, k2_T, k2_L
+        return power_prf, power_map, k2_T, k2_L
     end
     
 
@@ -1822,5 +1819,103 @@ module Obliqua
 
         return Float64.(power_prf), ComplexF64(sum(k2_T)), ComplexF64(sum(k2_L))
     end
+
+
+    """
+        data_to_nc(nmk, is_seg, segments, knms_T, knms_L, σ_range, P_T_s_prf, P_T_prf, P_T_blk, P_T_prf_blk, P_T_s_map, P_T_map, datafile_path)
+    
+    Write model results to a NetCDF file.
+
+    # Arguments
+    - `nmk::Vector{Tuple{Int,Int,Int}}`         : Array of (n,m,k) tuples for each segment.
+    - `is_seg::Array{Tuple{Int,Int},1}`         : Array of (il,it) tuples indicating segment indices.
+    - `segments::Array{String,1}`               : Array of segment labels.
+    - `knms_T::Matrix{ComplexF64}`              : Tidal k2 Lovenumbers for each (n,m,k) and segment.
+    - `knms_L::Matrix{ComplexF64}`              : Load k2 Lovenumbers for each (n,m,k) and segment.
+    - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
+    - `P_T_s_prf::Array{Float64,2}`             : Tidal heating profiles for each (n,m,k) and depth.
+    - `P_T_prf::Array{Float64,1}`               : Tidal heating profile for each depth.
+    - `P_T_blk::Float64`                        : Tidal heating in the black hole.
+    - `P_T_prf_blk::Float64`                    : Tidal heating profile in the black hole.
+    - `P_T_s_map::Array{Float64,3}`             : Tidal heating map for each (n,m,k) and spatial location.
+    - `P_T_map::Array{Float64,2}`               : Tidal heating map for each spatial location.
+    - `datafile_path::String`                   : Path to the output NetCDF file.
+    """
+    function data_to_nc(nmk::Vector{Tuple{Int,Int,Int}}, 
+                        is_seg::Array{Tuple{Int,Int},1}, 
+                        segments::Array{String,1},  
+                        knms_T::Matrix{ComplexF64}, 
+                        knms_L::Matrix{ComplexF64}, 
+                        σ_range::Array{Float64,1}, 
+                        P_T_s_prf::Array{Float64,2}, 
+                        P_T_prf::Array{Float64,1}, 
+                        P_T_blk::Float64, 
+                        P_T_prf_blk::Float64, 
+                        P_T_s_map::Array{Float64,3}, 
+                        P_T_map::Array{Float64,2}, 
+                        datafile_path::String
+                       )
+        
+        # helper function to convert Complex arrays to Float64 arrays with an extra dimension
+        function pack_complex(A::AbstractArray{Complex{T}}) where T
+            # Creates an array with an extra trailing dimension of size 2
+            return cat(real.(A), imag.(A), dims=ndims(A)+1)
+        end
+
+        @info "Writing results to $datafile_path"
+
+        n_vals = [t[1] for t in nmk]
+        m_vals = [t[2] for t in nmk]
+        k_vals = [t[3] for t in nmk]
+
+        il_vals = [t[1] for t in is_seg]
+        it_vals = [t[2] for t in is_seg]
+
+        NCDataset(datafile_path, "c") do ds
+            
+            # DEFINE DIMENSIONS
+            defDim(ds, "nmk",      length(nmk))
+            defDim(ds, "segments", length(segments))
+            defDim(ds, "z",        length(P_T_prf))
+            defDim(ds, "lon",      length(0:res:360-0.001))
+            defDim(ds, "lat",      length(0:res:180))
+            defDim(ds, "complex",  2)
+
+            # PART 1
+            defVar(ds, "n", n_vals, ("nmk",))
+            defVar(ds, "m", m_vals, ("nmk",))
+            defVar(ds, "k", k_vals, ("nmk",))
+
+            defVar(ds, "il", il_vals, ("segments",))
+            defVar(ds, "it", it_vals, ("segments",))
+            
+            defVar(ds, "segment_lbl", segments, ("segments",))
+            
+            # data grids, packed into ("nmk", "segments", "complex")
+            defVar(ds, "knms_T", pack_complex(knms_T), ("nmk", "segments", "complex"))
+            defVar(ds, "knms_L", pack_complex(knms_L), ("nmk", "segments", "complex"))
+            
+            defVar(ds, "sigma_range", σ_range, ("nmk",))
+
+            # PART 2
+            defVar(ds, "P_T_s_prf", P_T_s_prf, ("nmk", "z"))
+
+            # PART 3
+            defVar(ds, "P_T_prf",     P_T_prf,     ("z",))
+            defVar(ds, "P_T_blk",     P_T_blk,     ()) 
+            defVar(ds, "P_T_prf_blk", P_T_prf_blk, ()) 
+
+            # PART 4
+            defVar(ds, "P_T_s_map", P_T_s_map, ("nmk", "lat", "lon"))
+
+            # PART 5
+            defVar(ds, "lon", collect(0:res:360-0.001), ("lon",))
+            defVar(ds, "lat", collect(0:res:180), ("lat",))
+            defVar(ds, "P_T_map", P_T_map, ("lat", "lon"))
+            
+            ds.attrib["title"] = "Obliqua Model Run Data"
+        end
+    end
+        
 
 end
