@@ -789,7 +789,7 @@ module Obliqua
 
             # store results in netcdf file
             data_to_nc(
-                    nmk, is_seg, segments, knms_T, knms_L, 
+                    nmk, is_seg, segments, knms_total, knms_T, knms_L, 
                     σ_range, P_T_1_prf, P_T_prf, P_T_blk, 
                     P_T_prf_blk, P_T_1_map, P_T_map, datafile_path
                 )
@@ -878,7 +878,7 @@ module Obliqua
 
         # store results in netcdf file
         data_to_nc(
-                nmk, is_seg, segments, knms_T, knms_L, 
+                nmk, is_seg, segments, knms_total, knms_T, knms_L, 
                 σ_range, P_T_s_prf, P_T_prf, P_T_blk, 
                 P_T_prf_blk, P_T_s_map, P_T_map, datafile_path
             )
@@ -891,7 +891,7 @@ module Obliqua
         # convert everything to Float64
         return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_k2)
 
-    end
+    end 
 
 
     """Convert 'none' string into nothing literal."""
@@ -1830,6 +1830,7 @@ module Obliqua
     - `nmk::Vector{Tuple{Int,Int,Int}}`         : Array of (n,m,k) tuples for each segment.
     - `is_seg::Array{Tuple{Int,Int},1}`         : Array of (il,it) tuples indicating segment indices.
     - `segments::Array{String,1}`               : Array of segment labels.
+    - `knms_total::Array{ComplexF64}`           : Total k2 Lovenumbers for each (n,m,k).
     - `knms_T::Matrix{ComplexF64}`              : Tidal k2 Lovenumbers for each (n,m,k) and segment.
     - `knms_L::Matrix{ComplexF64}`              : Load k2 Lovenumbers for each (n,m,k) and segment.
     - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
@@ -1844,6 +1845,7 @@ module Obliqua
     function data_to_nc(nmk::Vector{Tuple{Int,Int,Int}}, 
                         is_seg::Array{Tuple{Int,Int},1}, 
                         segments::Array{String,1},  
+                        knms_total::Array{ComplexF64},
                         knms_T::Matrix{ComplexF64}, 
                         knms_L::Matrix{ComplexF64}, 
                         σ_range::Array{Float64,1}, 
@@ -1896,6 +1898,7 @@ module Obliqua
             defVar(ds, "knms_L", pack_complex(knms_L), ("nmk", "segments", "complex"))
             
             defVar(ds, "sigma_range", σ_range, ("nmk",))
+            defVar(ds, "knms_total", pack_complex(knms_total), ("nmk", "complex"))
 
             # PART 2
             defVar(ds, "P_T_s_prf", P_T_s_prf, ("nmk", "z"))
