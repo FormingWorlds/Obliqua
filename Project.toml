@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 AssociatedLegendrePolynomials = "2119f1ac-fb78-50f5-8cc0-dda848ebdb19"
+Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 DoubleFloats = "497a8b3b-efae-58df-a0af-a86822472b78"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
@@ -24,6 +25,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 
 [compat]
+Coverage = "1.8.1"
 FFTW = "1.10.0"
 GenericLinearAlgebra = "0"
 Interpolations = "0.16.2"
