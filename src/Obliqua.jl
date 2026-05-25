@@ -759,7 +759,7 @@ module Obliqua
 
             for iss in 1:N_σ
                 unorm_prf = prf_total[iss, :]
-                unorm_map = sum(map_total[iss, :, :, :], dims=1) # sum over layers to get surface map
+                unorm_map = dropdims(sum(map_total[iss, :, :, :], dims=1), dims=1) # sum over segments to get surface map
 
                 P_T_1_prf[iss, :]    = Float64.(unorm_prf .* U2)
                 P_T_1_map[iss, :, :] = Float64.(unorm_map .* U2)
@@ -851,7 +851,7 @@ module Obliqua
             
             # get global heating profile at forcing frequency
             unorm_prf = prf_total[iss, :] 
-            unorm_map = sum(map_total[iss, :, :, :], dims=1) # sum over layers to get surface map
+            unorm_map = dropdims(sum(map_total[iss, :, :, :], dims=1), dims=1) # sum over segments to get surface map
 
             # Hansen renorm
             P_T_s_prf[iss, :] = unorm_prf .* U2
@@ -891,7 +891,7 @@ module Obliqua
         # convert everything to Float64
         return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_k2)
 
-    end 
+    end
 
 
     """Convert 'none' string into nothing literal."""
@@ -1836,8 +1836,8 @@ module Obliqua
     - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
     - `P_T_s_prf::Array{Float64,2}`             : Tidal heating profiles for each (n,m,k) and depth.
     - `P_T_prf::Array{Float64,1}`               : Tidal heating profile for each depth.
-    - `P_T_blk::Float64`                        : Tidal heating in the black hole.
-    - `P_T_prf_blk::Float64`                    : Tidal heating profile in the black hole.
+    - `P_T_blk::Float64`                        : Tidal heating (bulk).
+    - `P_T_prf_blk::Float64`                    : Tidal heating (bulk from profile).
     - `P_T_s_map::Array{Float64,3}`             : Tidal heating map for each (n,m,k) and spatial location.
     - `P_T_map::Array{Float64,2}`               : Tidal heating map for each spatial location.
     - `datafile_path::String`                   : Path to the output NetCDF file.

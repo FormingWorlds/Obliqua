@@ -1,5 +1,5 @@
 #!/usr/bin/env -S julia --color=yes --startup-file=no
-# Run this function from inside the AGNI root folder
+# Run this function from inside the Obliqua root folder
 # e.g. as `julia --project test/runcoverage.jl`
 
 ROOT_DIR = abspath(joinpath(dirname(abspath(@__FILE__)),"../"))
@@ -21,7 +21,8 @@ using Glob
 target_good = 80.0
 target_bad  = 50.0
 
-TEST_DIR = joinpath(ROOT_DIR, "test")
+TEST_DIR  = joinpath(ROOT_DIR, "test")
+SRC_DIR   = joinpath(ROOT_DIR, "src")
 BADGE_DIR = joinpath(ROOT_DIR, ".github", "badges")
 
 function count_test_macros(path::String)::Int
@@ -69,15 +70,15 @@ write_test_badges()
 
 
 # process '*.cov' files
-coverage = process_folder("src")
+coverage = process_folder(SRC_DIR)
 # coverage = append!(coverage, process_folder("deps"))
 
 # process '*.info' files, if you collected them
 coverage = merge_coverage_counts(coverage, filter!(
-    let prefixes = (joinpath(pwd(), "src", ""),) #, joinpath(pwd(), "deps", ""))
+    let prefixes = (SRC_DIR,) #, joinpath(pwd(), "deps", ""))
         c -> any(p -> startswith(c.filename, p), prefixes)
     end,
-    LCOV.readfolder("test")))
+    LCOV.readfolder(TEST_DIR)))
 
 # Get total coverage for all Julia files
 covered_lines, total_lines = get_summary(coverage)
@@ -85,13 +86,13 @@ coverage_pct = round(covered_lines / total_lines * 100, digits=1)
 @info "Total coverage: $covered_lines of $total_lines ($coverage_pct% coverage)"
 
 # Write total coverage to single file
-open("coverage.total", "w") do io
+open(joinpath(ROOT_DIR, "coverage.total"), "w") do io
     write(io, "$coverage_pct")
 end
 
 # Write to files that CI can read
-LCOV.writefile("coverage.info", coverage)
-export_codecov_json(coverage, "coverage.json")
+LCOV.writefile(joinpath(ROOT_DIR, "coverage.info"), coverage)
+export_codecov_json(coverage, joinpath(ROOT_DIR, "coverage.json"))
 
 
 # Calculate per-file statistics
@@ -152,7 +153,7 @@ open(output_file, "w") do io
 
     for (filename, stats) in sorted_files
         pct = stats["total"] > 0 ? stats["covered"] / stats["total"] * 100 : 0.0
-        short_name = replace(filename, ROOT_DIR * "/" => "")
+        short_name = relpath(filename, ROOT_DIR)
 
         # Format uncovered line ranges
         uncov_lines = stats["uncovered_lines"]
@@ -206,7 +207,7 @@ open(output_file, "w") do io
     else
         for (filename, stats) in low_coverage_files
             pct = stats["covered"] / stats["total"] * 100
-            short_name = replace(filename, ROOT_DIR * "/" => "")
+            short_name = relpath(filename, ROOT_DIR)
             println(io, "### $(short_name)")
             println(io, "")
             println(io, @sprintf("- **Coverage:** %.1f%% (%d / %d lines)",
@@ -231,7 +232,7 @@ open(output_file, "w") do io
         println(io, "|------|-------------|")
 
         for (filename, stats) in sort(quick_wins, by=x->x[2]["total"])
-            short_name = replace(filename, ROOT_DIR * "/" => "")
+            short_name = relpath(filename, ROOT_DIR)
             println(io, @sprintf("| %s | %d |", short_name, stats["total"]))
         end
     end
