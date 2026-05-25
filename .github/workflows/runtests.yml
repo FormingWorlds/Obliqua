@@ -34,7 +34,7 @@ jobs:
 
       # Run tests
       - name: Run test suite
-        run: julia --project=. --code-coverage -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(coverage=true)'
 
       # Run coverage
       - name: Get coverage
