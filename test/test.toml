@@ -45,8 +45,8 @@ version = "1.0"                 # Version of this configuration file
         n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
         m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
         spectrum    = "adaptive"# Obtain k2 spectrum for whole spectrum (<"full">) or region of interest (<"adaptive">)
-        s_min       = 1         # -30 Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
-        s_max       = 1         # 40 Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        s_min       = 1         # Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
+        s_max       = 1         # Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
         
         material    = "andrade" # Material type for complex shear modulus ("andrade", "maxwell")
         alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
