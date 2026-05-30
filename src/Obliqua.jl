@@ -461,7 +461,9 @@ module Obliqua
         knms_L = zeros(ComplexF64, N_σ, length(segments))
         # initiate forcing frequency dependent heating profile
         prf_total = zeros(Float64, N_σ, N_layers)
-        map_total = zeros(Float64, N_σ, N_layers, length(0:res:180), length(0:res:360-0.001))
+        map_total_μ = zeros(Float64, N_σ, length(0:res:180), length(0:res:360-0.001), N_layers)
+        map_total_κ = zeros(Float64, N_σ, length(0:res:180), length(0:res:360-0.001), N_layers)
+        map_total_l = zeros(Float64, N_σ, length(0:res:180), length(0:res:360-0.001), N_layers)
 
         # core density for bottom boundary
         ρ_mean_lower = ρ_core
@@ -539,7 +541,7 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        prf_total[iss, i_start:i_end], map_total[iss, i_start:i_end, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
+                        prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, R, 
@@ -560,8 +562,7 @@ module Obliqua
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
-                        # prf_total[iss, i_start:i_end], map_total[iss, i_start:i_end, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
-                        prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
+                        prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], map_total_l[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, ϕ_seg, R, 
@@ -730,20 +731,21 @@ module Obliqua
 
             # return power profile at each frequency
             P_T_1_prf = zeros(Float64, N_σ, length(shear))
-            P_T_1_map = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
+
+            # return global map at each frequency
+            P_T_1_glb_μ = map_total_μ .* U2
+            P_T_1_glb_κ = map_total_κ .* U2
+            P_T_1_glb_l = map_total_l .* U2
 
             for iss in 1:N_σ
                 unorm_prf = prf_total[iss, :]
-                unorm_map = dropdims(sum(map_total[iss, :, :, :], dims=1), dims=1) # sum over segments to get surface map
+                
+                P_T_1_prf[iss, :] = Float64.(unorm_prf .* U2)
 
-                P_T_1_prf[iss, :]    = Float64.(unorm_prf .* U2)
-                P_T_1_map[iss, :, :] = Float64.(unorm_map .* U2)
-
-                # Integrate the radial profile over the volume for this frequency
-                # Assuming 'dv' is the differential volume element array
+                # integrate the radial profile over the volume for this frequency
                 integrated_profile_power = sum(dv .* P_T_1_prf[iss, :])
                 
-                # Calculate ratio
+                # calculate ratio
                 ratio = P_T_1_blk[iss] / integrated_profile_power
                 
                 # Print formatted results
@@ -754,7 +756,6 @@ module Obliqua
 
             # get radial heating profile W/m^3
             P_T_prf = Float64.([sum(P_T_1_prf[:,j]) for j in 1:size(P_T_1_prf,2)])
-            P_T_map = dropdims(sum(P_T_1_map, dims=1), dims=1) # sum over frequencies to get total surface map
 
             # determine the total heat input from heating profile
             P_T_prf_blk = Float64(sum(dv .* P_T_prf))
@@ -765,8 +766,8 @@ module Obliqua
             # store results in netcdf file
             data_to_nc(
                     nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                    σ_range, P_T_1_prf, P_T_prf, P_T_blk, 
-                    P_T_prf_blk, P_T_1_map, P_T_map, datafile_path
+                    σ_range, P_T_blk, P_T_prf_blk, r,
+                    P_T_1_glb_μ, P_T_1_glb_κ, P_T_1_glb_l, datafile_path
                 )
 
             @info("Expected bulk heating: $P_T_blk")
@@ -793,8 +794,10 @@ module Obliqua
 
         # initialize frequency dependent heating profile
         P_T_s_prf = zeros(Float64,  N_σ, length(shear))
-        P_T_s_map = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)))
-
+        P_T_s_glb_μ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
+        P_T_s_glb_κ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
+        P_T_s_glb_l = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
+        
         # loop over tidal modes 
         for iss in 1:N_σ
             # specify mode
@@ -826,11 +829,15 @@ module Obliqua
             
             # get global heating profile at forcing frequency
             unorm_prf = prf_total[iss, :] 
-            unorm_map = dropdims(sum(map_total[iss, :, :, :], dims=1), dims=1) # sum over segments to get surface map
+            unorm_map_μ = map_total_μ[iss, :, :, :]
+            unorm_map_κ = map_total_κ[iss, :, :, :]
+            unorm_map_l = map_total_l[iss, :, :, :]
 
             # Hansen renorm
             P_T_s_prf[iss, :] = unorm_prf .* U2
-            P_T_s_map[iss, :, :] = unorm_map .* U2
+            P_T_s_glb_μ[iss, :, :, :] = unorm_map_μ .* U2
+            P_T_s_glb_κ[iss, :, :, :] = unorm_map_κ .* U2
+            P_T_s_glb_l[iss, :, :, :] = unorm_map_l .* U2
 
             # For debugging purposes log the ratio between expected and radially integrated heating
             ratio = P_T_s_blk[iss] / sum(dv .* P_T_s_prf[iss, :])
@@ -843,7 +850,6 @@ module Obliqua
 
         # get radial heating profile W/m^3
         P_T_prf = [sum(P_T_s_prf[:,j]) for j in 1:size(P_T_s_prf,2)]
-        P_T_map = dropdims(sum(P_T_s_map, dims=1), dims=1) # sum over frequencies to get total surface map
 
         # determine the total heat input from heating profile
         P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
@@ -854,8 +860,8 @@ module Obliqua
         # store results in netcdf file
         data_to_nc(
                 nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                σ_range, P_T_s_prf, P_T_prf, P_T_blk, 
-                P_T_prf_blk, P_T_s_map, P_T_map, datafile_path
+                σ_range, P_T_blk, P_T_prf_blk, r,
+                P_T_s_glb_μ, P_T_s_glb_κ, P_T_s_glb_l, datafile_path
             )
 
         @info("Expected bulk heating: $P_T_blk")
@@ -1235,7 +1241,8 @@ module Obliqua
 
     # Returns
     - `power_prf::Array{Float64,1}`     : Heating profile.
-    - `power_map::Array{Float64,4}`     : Heating map (frequency, colatitude, longitude).
+    - `Eμ_glb_itp::Array{prec,4}`       : Heating map (colatitude, longitude, radius).
+    - `Eκ_glb_itp::Array{prec,4}`       : Heating map (colatitude, longitude, radius).
     - `k2_T::ComplexF64`                : Complex Tidal k2 Lovenumber.
     - `k2_L::ComplexF64`                : Complex Load k2 Lovenumber.
     """
@@ -1255,7 +1262,7 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid"
-                        )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
+                        )::Tuple{Array{Float64,1},Array{Float64, 3},Array{Float64, 3},ComplexF64,ComplexF64}
 
         # convert inputs
         omega = prec(omega)
@@ -1277,10 +1284,6 @@ module Obliqua
         # solve y functions across grid
         y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
-        # for debugging: plot y-function relaxation solution
-        # plotting.plot_relaxation_solution(y_t, r_centers, 
-        #         filename="$OUT_DIR/relaxation_solution.png")
-
         # Love numbers
         k2_T = y_t[5, end] - 1
         k2_L = y_l[5, 1]   - 1
@@ -1290,22 +1293,46 @@ module Obliqua
             y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
         )
 
-        Eμ_map, Eκ_map = solid1d_mush_relax.get_heating_map(
+        Eμ_glb, Eκ_glb = solid1d_mush_relax.get_heating_map(
             y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
         )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot) 
-        power_map = abs.(Eμ_map .+ Eκ_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
-
+        
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
+        scale_factor = R / maximum(r)
 
-        power_prf = Float64.(itp.(r_orig_centers) .* (R ./ maximum(r)))
+        power_prf = Float64.(itp.(r_orig_centers) .* scale_factor)
 
-        return power_prf, power_map, k2_T, k2_L
+        # radial interpolation for global maps
+        nlats = length(Eμ_glb[:, 1, 1])
+        nlons = length(Eμ_glb[1, :, 1])
+        Nr_orig = length(r_orig_centers)
+        
+        # pre-allocate separate 3D grids for each source on the original spacing
+        Eμ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
+        Eκ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
+
+        # loop over geographic coordinates, treating each lat/lon as a 1D radial column
+        for lon_idx in 1:nlons
+            for lat_idx in 1:nlats
+                # shear component interpolation
+                shear_col = @view Eμ_glb[lat_idx, lon_idx, :]
+                itp_shear = linear_interpolation(r_centers, shear_col, extrapolation_bc=Line())
+                Eμ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_shear.(r_orig_centers) .* scale_factor)
+
+                # compaction component interpolation
+                comp_col = @view Eκ_glb[lat_idx, lon_idx, :]
+                itp_comp = linear_interpolation(r_centers, comp_col, extrapolation_bc=Line())
+                Eκ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_comp.(r_orig_centers) .* scale_factor)
+            end
+        end
+
+        return power_prf, Eμ_glb_itp, Eκ_glb_itp, k2_T, k2_L
     end
     
 
@@ -1475,7 +1502,9 @@ module Obliqua
 
     # Returns
     - `power_prf::Array{prec,1}`        : Heating profile.
-    - `power_map::Array{prec,4}`        : Heating map (frequency, colatitude, longitude).
+    - `Eμ_glb_itp::Array{prec,4}`       : Heating map (colatitude, longitude, radius).
+    - `Eκ_glb_itp::Array{prec,4}`       : Heating map (colatitude, longitude, radius).
+    - `El_glb_itp::Array{prec,4}`       : Heating map (colatitude, longitude, radius).
     - `k2_T::precc`                     : Complex Tidal k2 Lovenumber.
     - `k2_L::precc`                     : Complex Load k2 Lovenumber.
     """
@@ -1500,8 +1529,7 @@ module Obliqua
                         bulk_l::Float64=1e9,
                         permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
-                        )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
-                        # )::Tuple{Array{Float64,1},Matrix{Float64},ComplexF64,ComplexF64}
+                        )::Tuple{Array{Float64,1},Array{Float64, 3},Array{Float64, 3},Array{Float64, 3},ComplexF64,ComplexF64}
 
         # internal structure arrays.
         # first element is the innermost layer, last element is the outermost layer
@@ -1548,9 +1576,6 @@ module Obliqua
         # solve y functions across grid
         y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
-        # plotting.plot_relaxation_solution(y_t, r_centers, 
-        #         filename="$OUT_DIR/relaxation_solution.png")
-
         # Love numbers
         k2_T = y_t[5, end] - 1
         k2_L = y_l[5, 1]   - 1
@@ -1560,23 +1585,52 @@ module Obliqua
             y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         )
 
-        # Eμ_map, Eκ_map, El_map = solid1d_mush_relax.get_heating_map(
-        #     y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
-        # )
+        Eμ_glb, Eκ_glb, El_glb = solid1d_mush_relax.get_heating_map(
+            y_t, r_grid, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
+        )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot .+ El_tot) 
-        # power_map = abs.(Eμ_map .+ Eκ_map .+ El_map) 
 
         # interpolate from grid back to original radius points 
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
 
         # original centers
         r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
+        scale_factor = R / maximum(r)
+        
+        power_prf = Float64.(itp.(r_orig_centers) .* scale_factor)
+        
+        # radial interpolation for global maps
+        nlats = length(Eμ_glb[:, 1, 1])
+        nlons = length(Eμ_glb[1, :, 1])
+        Nr_orig = length(r_orig_centers)
+        
+        # pre-allocate separate 3D grids for each source on the original spacing
+        Eμ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
+        Eκ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
+        El_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
 
-        power_prf = Float64.(itp.(r_orig_centers) .* (R ./ maximum(r)))
+        # loop over geographic coordinates, treating each lat/lon as a 1D radial column
+        for lon_idx in 1:nlons
+            for lat_idx in 1:nlats
+                # shear component interpolation
+                shear_col = @view Eμ_glb[lat_idx, lon_idx, :]
+                itp_shear = linear_interpolation(r_centers, shear_col, extrapolation_bc=Line())
+                Eμ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_shear.(r_orig_centers) .* scale_factor)
 
-        return power_prf, k2_T, k2_L
-        # return power_prf, power_map, k2_T, k2_L
+                # compaction component interpolation
+                comp_col = @view Eκ_glb[lat_idx, lon_idx, :]
+                itp_comp = linear_interpolation(r_centers, comp_col, extrapolation_bc=Line())
+                Eκ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_comp.(r_orig_centers) .* scale_factor)
+
+                # darcy / liquid component interpolation
+                darcy_col = @view El_glb[lat_idx, lon_idx, :]
+                itp_darcy = linear_interpolation(r_centers, darcy_col, extrapolation_bc=Line())
+                El_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_darcy.(r_orig_centers) .* scale_factor)
+            end
+        end
+
+        return power_prf, Eμ_glb_itp, Eκ_glb_itp, El_glb_itp, k2_T, k2_L
     end
 
 
@@ -1804,7 +1858,7 @@ module Obliqua
 
 
     """
-        data_to_nc(nmk, is_seg, segments, knms_T, knms_L, σ_range, P_T_s_prf, P_T_prf, P_T_blk, P_T_prf_blk, P_T_s_map, P_T_map, datafile_path)
+        data_to_nc(nmk, is_seg, segments, knms_T, knms_L, σ_range, P_T_s_prf, P_T_prf, P_T_blk, P_T_prf_blk, radius, P_T_s_glb_μ, P_T_s_glb_κ, P_T_s_glb_l, datafile_path)
     
     Write model results to a NetCDF file.
 
@@ -1816,12 +1870,12 @@ module Obliqua
     - `knms_T::Matrix{ComplexF64}`              : Tidal k2 Lovenumbers for each (n,m,k) and segment.
     - `knms_L::Matrix{ComplexF64}`              : Load k2 Lovenumbers for each (n,m,k) and segment.
     - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
-    - `P_T_s_prf::Array{Float64,2}`             : Tidal heating profiles for each (n,m,k) and depth.
-    - `P_T_prf::Array{Float64,1}`               : Tidal heating profile for each depth.
     - `P_T_blk::Float64`                        : Tidal heating (bulk).
     - `P_T_prf_blk::Float64`                    : Tidal heating (bulk from profile).
-    - `P_T_s_map::Array{Float64,3}`             : Tidal heating map for each (n,m,k) and spatial location.
-    - `P_T_map::Array{Float64,2}`               : Tidal heating map for each spatial location.
+    - `radius::Vector{Float64}`                 : Radial grid points.
+    - `P_T_s_glb_μ::Array{Float64,4}`           : Tidal heating map for each (n,m,k) and spatial location.
+    - `P_T_s_glb_κ::Array{Float64,4}`           : Tidal heating map for each (n,m,k) and spatial location.
+    - `P_T_s_glb_l::Array{Float64,4}`           : Tidal heating map for each (n,m,k) and spatial location.
     - `datafile_path::String`                   : Path to the output NetCDF file.
     """
     function data_to_nc(nmk::Vector{Tuple{Int,Int,Int}}, 
@@ -1831,12 +1885,12 @@ module Obliqua
                         knms_T::Matrix{ComplexF64}, 
                         knms_L::Matrix{ComplexF64}, 
                         σ_range::Array{Float64,1}, 
-                        P_T_s_prf::Array{Float64,2}, 
-                        P_T_prf::Array{Float64,1}, 
                         P_T_blk::Float64, 
                         P_T_prf_blk::Float64, 
-                        P_T_s_map::Array{Float64,3}, 
-                        P_T_map::Array{Float64,2}, 
+                        radius::Vector{Float64},
+                        P_T_s_glb_μ::Array{Float64,4},
+                        P_T_s_glb_κ::Array{Float64,4},
+                        P_T_s_glb_l::Array{Float64,4},
                         datafile_path::String
                        )
         
@@ -1860,7 +1914,8 @@ module Obliqua
             # DEFINE DIMENSIONS
             defDim(ds, "nmk",      length(nmk))
             defDim(ds, "segments", length(segments))
-            defDim(ds, "z",        length(P_T_prf))
+            defDim(ds, "r",        length(radius))
+            defDim(ds, "z",        length(P_T_s_glb_μ[1, 1, 1, :]))
             defDim(ds, "lon",      length(0:res:360-0.001))
             defDim(ds, "lat",      length(0:res:180))
             defDim(ds, "complex",  2)
@@ -1882,22 +1937,16 @@ module Obliqua
             defVar(ds, "sigma_range", σ_range, ("nmk",))
             defVar(ds, "knms_total", pack_complex(knms_total), ("nmk", "complex"))
 
-            # PART 2
-            defVar(ds, "P_T_s_prf", P_T_s_prf, ("nmk", "z"))
-
-            # PART 3
-            defVar(ds, "P_T_prf",     P_T_prf,     ("z",))
             defVar(ds, "P_T_blk",     P_T_blk,     ()) 
             defVar(ds, "P_T_prf_blk", P_T_prf_blk, ()) 
 
-            # PART 4
-            defVar(ds, "P_T_s_map", P_T_s_map, ("nmk", "lat", "lon"))
-
-            # PART 5
+            defVar(ds, "radius", radius, ("r",))
             defVar(ds, "lon", collect(0:res:360-0.001), ("lon",))
             defVar(ds, "lat", collect(0:res:180), ("lat",))
-            defVar(ds, "P_T_map", P_T_map, ("lat", "lon"))
-            
+            defVar(ds, "P_T_s_glb_μ", P_T_s_glb_μ, ("nmk", "lat", "lon", "z"))
+            defVar(ds, "P_T_s_glb_κ", P_T_s_glb_κ, ("nmk", "lat", "lon", "z"))
+            defVar(ds, "P_T_s_glb_l", P_T_s_glb_l, ("nmk", "lat", "lon", "z"))
+
             ds.attrib["title"] = "Obliqua Model Run Data"
         end
     end

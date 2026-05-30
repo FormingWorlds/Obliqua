@@ -950,13 +950,13 @@ module common
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.  
     - `κ::AbstractVector`                : 1D vector of complex bulk moduli.  
     - `n::Int`                           : Tidal degree.  
-    - `ω::prec`                       : Tidal frequency in radians per second.  
+    - `ω::prec`                          : Tidal frequency in radians per second.  
     - `SphericalGrid::NamedTuple`        : A struct formed by `define_spherical_grid`, containing 
                                            the geographic grid and spherical harmonic derivatives.
 
     # Returns
-    - `Eμ_map::Array{Float64,2}`         : 2D geographic map of shear dissipation (W/m²).
-    - `Eκ_map::Array{Float64,2}`         : 2D geographic map of compaction/bulk dissipation (W/m²).
+    - `Eμ_3d::Array{Float64,3}`          : 3D map of shear dissipation (W/m²).
+    - `Eκ_3d::Array{Float64,3}`          : 3D map of compaction/bulk dissipation (W/m²).
     """
     function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, κ::AbstractVector, n::Int, ω::prec, SphericalGrid::NamedTuple)
 
@@ -979,8 +979,8 @@ module common
         ϵ = zeros(ComplexF64, nlats, nlons, 6)
 
         # Initialize output maps (Integrated over radius)
-        Eμ_map = zeros(Float64, nlats, nlons)
-        Eκ_map = zeros(Float64, nlats, nlons)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nr-1)
 
         for i in 1:Nr-1
 
@@ -1003,12 +1003,12 @@ module common
 
             # 4. Radial Integration (W/m³ * m -> W/m²)
             # We accumulate the heat flux from each shell into the final map
-            Eμ_map .+= Eμ_loc .* dr
-            Eκ_map .+= Eκ_loc .* dr
+            Eμ_3d[:, :, i] = Eμ_loc
+            Eκ_3d[:, :, i] = Eκ_loc
 
         end
 
-        return Eμ_map, Eκ_map
+        return Eμ_3d, Eκ_3d
     end
 
 
@@ -1039,9 +1039,9 @@ module common
     - `SphericalGrid::NamedTuple`        : A struct containing geographic grid and spherical harmonic data.
 
     # Returns
-    - `Eμ_map::Array{Float64,2}`         : Surface map of shear dissipation (W/m²).
-    - `Eκ_map::Array{Float64,2}`         : Surface map of compaction dissipation (W/m²).
-    - `El_map::Array{Float64,2}`         : Surface map of Darcy (percolation) dissipation (W/m²).
+    - `Eμ_3d::Array{Float64,3}`          : 3D map of shear dissipation (W/m²).
+    - `Eκ_3d::Array{Float64,3}`          : 3D map of compaction dissipation (W/m²).
+    - `El_3d::Array{Float64,3}`          : 3D map of Darcy (percolation) dissipation (W/m²).
     """
     function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::Float64, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
 
@@ -1071,15 +1071,14 @@ module common
         d_disp = zeros(ComplexF64, nlats, nlons, 3)
         p = zeros(ComplexF64, nlats, nlons)
 
-        # Initialize output maps (Integrated over radius)
-        Eμ_map = zeros(Float64, nlats, nlons)
-        Eκ_map = zeros(Float64, nlats, nlons)
-        El_map = zeros(Float64, nlats, nlons)
+        # Initialize output 3D maps (Dimensions: lat × lon × radial_shell)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        El_3d = zeros(Float64, nlats, nlons, Nr-1)
 
         for i in 1:Nr-1
 
             rr = r[i]
-            dr = r[i+1] - r[i]
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields for the current shell
@@ -1111,13 +1110,13 @@ module common
             end
 
             # 5. Radial Integration (W/m³ * m -> W/m²)
-            Eμ_map .+= Eμ_loc .* dr
-            Eκ_map .+= Eκ_loc .* dr
-            El_map .+= El_loc .* dr
+            Eμ_3d[:, :, i] = Eμ_loc
+            Eκ_3d[:, :, i] = Eκ_loc
+            El_3d[:, :, i] = El_loc
 
         end
 
-        return Eμ_map, Eκ_map, El_map
+        return Eμ_3d, Eκ_3d, El_3d
     end
 
 end
