@@ -2,23 +2,10 @@
 
 module fluid0d
 
-    using MultiFloats
+    include("constants.jl")
+    using .constants
 
     export compute_fluid_lovenumbers
-
-    # Precision types
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-
-    # Constants
-    const G::prec  = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
     
     """

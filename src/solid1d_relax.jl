@@ -2,7 +2,9 @@
 
 module solid1d_relax
     
+    include("constants.jl")
     include("common.jl")
+    using .constants
     using .common
 
     using LinearAlgebra
@@ -11,14 +13,6 @@ module solid1d_relax
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
-
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
 
     """
@@ -52,7 +46,7 @@ module solid1d_relax
         # setup grids
         α = log(dr_max / dr_min)
 
-        N = Int(round((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
+        N = round(Int, (radius[end] - radius[1]) / dr_min * α / (exp(α) - 1))
 
         # indices i = 1:N
         i = collect(1:N)

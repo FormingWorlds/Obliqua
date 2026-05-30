@@ -3,19 +3,14 @@
 
 module Hansen
 
+    include("constants.jl")
+    using .constants
+
     using FFTW
     using LinearAlgebra
     using NCDatasets
 
     export get_hansen
-
-    # Get Obliqua root directory
-    ROOT_DIR = abspath(joinpath(dirname(abspath(@__FILE__)),"../"))
-    RES_DIR  = joinpath(ROOT_DIR,"res/")
-
-    # Precision types
-    prec = BigFloat
-    precc = Complex{BigFloat}
 
 
     """
@@ -77,7 +72,7 @@ module Hansen
     computes Hansen coefficients for given eccentricity.
     Relies on global n, m, k_min, k_max.
     """
-    function get_hansen(ecc, n::Int, m::Int, k_min::Int, k_max::Int)::Tuple{Array{Float64,1}, Array{Float64,1}}
+    function get_hansen(ecc::Float64, n::Int, m::Int, k_min::Int, k_max::Int)::Tuple{Array{Float64,1}, Array{Float64,1}}
         k_range2, X = hansen_fft(-(n+1), m, ecc, k_min, k_max; N=2^18)
         return k_range2, X
     end

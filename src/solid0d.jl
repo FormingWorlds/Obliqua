@@ -1,13 +1,9 @@
 module solid0d
 
+    include("constants.jl")
+    using .constants
+    
     export compute_solid_lovenumbers
-
-    # Precision types
-    prec = BigFloat
-    precc = Complex{BigFloat}
-
-    # Constants
-    const G::prec  = prec(6.6743e-11)       # m^3 kg^-1 s^-2
     
     
     """

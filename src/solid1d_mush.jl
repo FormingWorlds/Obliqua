@@ -2,7 +2,9 @@
 
 module solid1d_mush
     
+    include("constants.jl")
     include("common.jl")
+    using .constants
     using .common
 
     using LinearAlgebra
@@ -10,11 +12,6 @@ module solid1d_mush
     using AssociatedLegendrePolynomials    
     using StaticArrays
 
-
-    prec = BigFloat
-    precc = Complex{BigFloat}
-
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
     clats = 0.0
     lons  = 0.0
@@ -24,7 +21,7 @@ module solid1d_mush
     Z     = 0.0
     X     = 0.0
     res   = 20.0
-
+    
 
     """
         expand_layers(r; nr::Int=80)

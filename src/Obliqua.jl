@@ -14,13 +14,12 @@ module Obliqua
     import TOML:parsefile
     using Interpolations
     using LinearAlgebra
-    using DoubleFloats
-    using MultiFloats
+    using SpecialFunctions
     using AssociatedLegendrePolynomials
-
     using NCDatasets
-
+    
     # Include local jl files
+    include("constants.jl")
     include("solid0d.jl")
     include("solid1d.jl")
     include("solid1d_mush.jl")
@@ -32,6 +31,7 @@ module Obliqua
     include("plotting.jl")
 
     # Import submodules
+    using  .constants
     import .solid0d
     import .solid1d
     import .solid1d_mush
@@ -54,25 +54,6 @@ module Obliqua
     export plotting
 
     export run_tides
-
-    const ROOT_DIR::String = abspath(dirname(abspath(@__FILE__)), "../")
-    const RES_DIR::String  = joinpath(ROOT_DIR,"res/")
-    const OUT_DIR::String  = joinpath(ROOT_DIR,"out/")
-
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-    const AU::prec      = prec(1.495978707e11)   # m
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
-    const M_Earth::prec = prec(5.9724e24)        # kg
-
-    const res::Float64 = 20.0                    # angular resolution in degrees
 
 
     """
@@ -226,29 +207,29 @@ module Obliqua
     Compute the tidal heating profile of a planetary interior considering solid and fluid layers.
 
     # Arguments
-    - `omega::prec` : Orbital frequency of the body.
-    - `axial::prec` : Axial (spin) frequency of the body.
-    - `ecc::prec` : Orbital eccentricity.
-    - `sma::prec` : Semi-major axis of the orbit.
-    - `S_mass::prec` : Mass of the central body (e.g., star) inducing tides.
-    - `rho::Array{prec,1}` : Radial density profile of the planet, from core to surface.
-    - `radius::Array{prec,1}` : Radial positions of layers, from core to surface.
-    - `visc::Array{prec,1}` : Viscosity profile of the planet.
-    - `shear::Array{prec,1}` : Shear modulus profile of the solid layers.
-    - `bulk::Array{prec,1}` : Bulk modulus profile of the solid layers.
-    - `cfg::Dict` : Configuration parameters from dictionary.
+    - `omega::prec`                 : Orbital frequency of the body.
+    - `axial::prec`                 : Axial (spin) frequency of the body.
+    - `ecc::Float64`                : Orbital eccentricity.
+    - `sma::Float64`                : Semi-major axis of the orbit.
+    - `S_mass::Float64`             : Mass of the central body (e.g., star) inducing tides.
+    - `rho::Array{prec,1}`          : Radial density profile of the planet, from core to surface.
+    - `radius::Array{prec,1}`       : Radial positions of layers, from core to surface.
+    - `visc::Array{prec,1}`         : Viscosity profile of the planet.
+    - `shear::Array{prec,1}`        : Shear modulus profile of the solid layers.
+    - `bulk::Array{prec,1}`         : Bulk modulus profile of the solid layers.
+    - `cfg::Dict`                   : Configuration parameters from dictionary.
 
     # Returns
     - `power_prf::Array{Float64,1}` : Radial profile of tidal heating (W/m³).
-    - `power_blk::Float64` : Total tidal power integrated over the interior (W).
-    - `σ_range::Array{Float64,1}` : Frequencies at which the Love number `k2` was evaluated.
-    - `imag_k2::Array{Float64,1}` : Imaginary part of the Love number `k2` for the planet.
+    - `power_blk::Float64`          : Total tidal power integrated over the interior (W).
+    - `σ_range::Array{Float64,1}`   : Frequencies at which the Love number `k_n` was evaluated.
+    - `imag_kn::Array{Float64,1}`   : Imaginary part of the Love number `k_n` for the planet.
     """
     function run_tides(omega::prec,
                         axial::prec,
-                        ecc::prec,
-                        sma::prec,
-                        S_mass::prec,
+                        ecc::Float64,
+                        sma::Float64,
+                        S_mass::Float64,
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
@@ -362,7 +343,7 @@ module Obliqua
         module_fluid = nothing_if_none(module_fluid)
         module_mushy = nothing_if_none(module_mushy)
 
-        # convert interior profiles to BigFloat                 
+        # convert interior profiles to prec                 
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
@@ -414,12 +395,6 @@ module Obliqua
         X_hansen = Vector{Float64}()
         μc       = Matrix{ComplexF64} # layer x frequency
 
-        # Output containers that will hold data per (n, m, k) mode
-        knms_T    = Matrix{ComplexF64}
-        knms_L    = Matrix{ComplexF64}
-        prf_total = Matrix{Float64}
-        map_total = Array{Float64, 4}
-
         # orbital and axial frequencies
         if spectrum == "adaptive"            
 
@@ -434,15 +409,15 @@ module Obliqua
                 if s_min_i === nothing 
                     s_min_i = s_min_ecc
                 elseif s_min_i > s_min_ecc
-                    @warn "Provided s_min=$s_min_i is larger than estimated s_min=$s_min_ecc for eccentricity $(round(Float64(ecc), digits=2))."
+                    @warn "Provided s_min=$s_min_i is larger than estimated s_min=$s_min_ecc for eccentricity $(round(ecc, digits=2))."
                 end
                 if s_max_i === nothing
                     s_max_i = s_max_ecc
                 elseif s_max_i < s_max_ecc
-                    @warn "Provided s_max=$s_max_i is smaller than estimated s_max=$s_max_ecc for eccentricity $(round(Float64(ecc), digits=2))."
+                    @warn "Provided s_max=$s_max_i is smaller than estimated s_max=$s_max_ecc for eccentricity $(round(ecc, digits=2))."
                 end
 
-                @info "Using adaptive spectrum with s range [$s_min_i, $s_max_i] for eccentricity $(round(Float64(ecc), digits = 2)) and tide (n, m) = ($n_i, $m_i)."
+                @info "Using adaptive spectrum with s range [$s_min_i, $s_max_i] for eccentricity $(round(ecc, digits = 2)) and tide (n, m) = ($n_i, $m_i)."
 
                 # build s range for this mode
                 s_range = collect(s_min_i:s_max_i)
@@ -486,7 +461,7 @@ module Obliqua
         knms_L = zeros(ComplexF64, N_σ, length(segments))
         # initiate forcing frequency dependent heating profile
         prf_total = zeros(Float64, N_σ, N_layers)
-        map_total = zeros(Float64, N_σ, length(segments), length(0:res:180), length(0:res:360-0.001))
+        map_total = zeros(Float64, N_σ, N_layers, length(0:res:180), length(0:res:360-0.001))
 
         # core density for bottom boundary
         ρ_mean_lower = ρ_core
@@ -564,7 +539,7 @@ module Obliqua
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
-                        prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
+                        prf_total[iss, i_start:i_end], map_total[iss, i_start:i_end, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
                             κ_seg, R, 
@@ -585,7 +560,7 @@ module Obliqua
                             permea=permea, porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
-                        # prf_total[iss, i_start:i_end], map_total[iss, iseg, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
+                        # prf_total[iss, i_start:i_end], map_total[iss, i_start:i_end, :, :], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                         prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
@@ -730,7 +705,7 @@ module Obliqua
         end
 
         # extract imaginary part of complex global k2 spectrum
-        imag_k2 = .-imag.(knms_total)
+        imag_kn = .-imag.(knms_total)
 
         # if using full spectrum, then calculate heating profile and bulk heating at each 
         # frequency and return the full spectrum of heating profiles and bulk heating for plotting
@@ -751,7 +726,7 @@ module Obliqua
             U2 = abs2.(U)
 
             # return bulk heating at each frequency
-            P_T_1_blk = prefactor .* imag_k2 .* U2
+            P_T_1_blk = prefactor .* imag_kn .* U2
 
             # return power profile at each frequency
             P_T_1_prf = zeros(Float64, N_σ, length(shear))
@@ -800,7 +775,7 @@ module Obliqua
             P_T_prf ./ ρ # convert to mass heating rate (W/kg)
 
             # return full Imk2 spectrum for plotting
-            return Float64.(P_T_prf), Float64.(P_T_blk), Float64.(σ_range), Float64.(imag_k2)
+            return Float64.(P_T_prf), Float64.(P_T_blk), Float64.(σ_range), Float64.(imag_kn)
         end
             
         # alternatively, if using adaptive spectrum, then calculate heating profile and
@@ -840,7 +815,7 @@ module Obliqua
             U_nms_e[iss] = (G*S_mass/sma) * (R/sma)^n_i * A_nms_e[iss]
 
             # get imaginary part of complex k2 love number from global spectrum at forcing frequency
-            img_full_knm = imag_k2[iss] 
+            img_full_knm = imag_kn[iss] 
 
             # calculate prefactor and total availible heat
             prefactor = (2*n_i+1) * R * σ / (8π*G)
@@ -889,7 +864,7 @@ module Obliqua
         P_T_prf ./ ρ # convert to mass heating rate (W/kg)
 
         # convert everything to Float64
-        return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_k2)
+        return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_kn)
 
     end
 
@@ -1049,11 +1024,11 @@ module Obliqua
     - `μc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
     """
     function complex_mu(σ_range::AbstractVector,
-                            μ_profile::Array{precc,1},
-                            η_profile::Array{prec,1};
-                            material::String="andrade", 
-                            α::Float64=0.3
-                            )::Matrix{precc}
+                        μ_profile::Array{precc,1},
+                        η_profile::Array{prec,1};
+                        material::String="andrade", 
+                        α::Float64=0.3
+                        )::Matrix{precc}
 
         nlayer = length(μ_profile)
         nfreq  = length(σ_range)
@@ -1065,23 +1040,30 @@ module Obliqua
             @inbounds for i in 1:nlayer
                 μ = μ_profile[i]
                 η = η_profile[i]
+                μ_over_η = μ / η
                 for j in 1:nfreq
                     σ = σ_range[j]
-                    μc[i,j] = 1im*μ*σ / (1im*σ + μ/η)
+                    im_σ = 1im * σ
+                    μc[i,j] = im_σ * μ / (im_σ + μ_over_η)
                 end
             end
         elseif material == "andrade"
+            # Precompute the gamma factor outside the loops
+            gamma_factor = gamma(1 + α)
+            
             @inbounds for i in 1:nlayer
                 μ = μ_profile[i]
                 η = η_profile[i]
+                τM = η / μ # Maxwell time
+                τA = τM     # Andrade time 
+                
                 for j in 1:nfreq
                     σ = σ_range[j]
-                    τM = η ./ μ # Maxwell time
-                    τA = τM     # Andrade time 
-                    term_andrade = gamma(1 + α) .* (1im .* σ .* τA).^(-α)
-                    term_maxwell = (1im .* σ .* τM).^(-1)
+                    
+                    term_andrade = gamma_factor * (1im * σ * τA)^(-α)
+                    term_maxwell = 1 / (1im * σ * τM)
 
-                    μc[i,j] = μ ./ (1 .+ term_andrade .+ term_maxwell)
+                    μc[i,j] = μ / (1 + term_andrade + term_maxwell)
                 end
             end
         else

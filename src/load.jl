@@ -6,21 +6,15 @@ end
 
 module load
 
+    include("constants.jl")
+    using .constants
+
     using JSON
     using LoggingExtras
     using Printf
-    using MultiFloats
 
     export load_interior
 
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
 
     """
         load_interior(fname::String)
@@ -53,7 +47,7 @@ module load
         )::Union{
             Bool,
             Tuple{
-                prec, prec,
+                prec, Float64,
                 Array{prec,1}, Array{prec,1}, Array{prec,1},
                 Array{prec,1}, Array{prec,1}, Int
             }
@@ -81,7 +75,7 @@ module load
 
             # --- Load scalar quantities ---
             omega = prec(params["omega"])
-            ecc   = prec(params["ecc"])
+            ecc   = Float64(params["ecc"])
             ncalc = Int(params["ncalc"])
 
         end
@@ -148,7 +142,7 @@ module load
         )::Union{
             Bool,
             Tuple{
-                prec, prec,
+                prec, Float64,
                 Array{prec,1}, Array{prec,1}, Array{prec,1},
                 Array{prec,1}, Array{prec,1}, Array{prec,1}, 
                 Int
@@ -178,7 +172,7 @@ module load
 
             # --- Load scalar quantities ---
             omega = prec(params["omega"])
-            ecc   = prec(params["ecc"])
+            ecc   = Float64(params["ecc"])
             ncalc = Int(params["ncalc"])
 
         end
@@ -247,7 +241,7 @@ module load
             Bool,
             Tuple{
                 prec, prec,
-                prec, prec, prec,
+                Float64, Float64, Float64,
                 Array{prec,1}, Array{prec,1}, Array{prec,1}
             }
         }
@@ -273,9 +267,9 @@ module load
             # --- Load scalar quantities ---
             omega  = prec(params["omega"])
             axial  = prec(params["axial"])
-            ecc    = prec(params["ecc"])
-            sma    = prec(params["sma"])
-            S_mass = prec(params["S_mass"])
+            ecc    = Float64(params["ecc"])
+            sma    = Float64(params["sma"])
+            S_mass = Float64(params["S_mass"])
 
         end
 
@@ -348,7 +342,7 @@ module load
             Bool,
             Tuple{
                 prec, prec,
-                prec, prec, prec,
+                Float64, Float64, Float64,
                 Array{prec,1}, Array{prec,1}, Array{prec,1},
                 Array{prec,1}, Array{prec,1}, Int
             }
@@ -377,9 +371,9 @@ module load
             # --- Load scalar quantities ---
             omega  = prec(params["omega"])
             axial  = prec(params["axial"])
-            ecc    = prec(params["ecc"])
-            sma    = prec(params["sma"])
-            S_mass = prec(params["S_mass"])
+            ecc    = Float64(params["ecc"])
+            sma    = Float64(params["sma"])
+            S_mass = Float64(params["S_mass"])
             ncalc  = Int(params["ncalc"])
 
         end
@@ -459,7 +453,7 @@ module load
             Bool,
             Tuple{
                 prec, prec,
-                prec, prec, prec,
+                Float64, Float64, Float64,
                 Array{prec,1}, Array{prec,1}, Array{prec,1},
                 Array{prec,1}, Array{prec,1}, Array{prec,1}, Int
             }
@@ -489,9 +483,9 @@ module load
             # --- Load scalar quantities ---
             omega  = prec(params["omega"])
             axial  = prec(params["axial"])
-            ecc    = prec(params["ecc"])
-            sma    = prec(params["sma"])
-            S_mass = prec(params["S_mass"])
+            ecc    = Float64(params["ecc"])
+            sma    = Float64(params["sma"])
+            S_mass = Float64(params["S_mass"])
             ncalc  = Int(params["ncalc"])
 
         end

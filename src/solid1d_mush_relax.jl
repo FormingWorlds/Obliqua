@@ -2,7 +2,9 @@
 
 module solid1d_mush_relax
     
+    include("constants.jl")
     include("common.jl")
+    using .constants
     using .common
 
     using LinearAlgebra
@@ -13,17 +15,6 @@ module solid1d_mush_relax
     using SpecialFunctions
     using SparseArrays
     using Printf
-
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
 
     """
