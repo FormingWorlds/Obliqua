@@ -1027,7 +1027,7 @@ module common
     - `g::AbstractVector`                : 1D vector of gravity values.
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.
     - `Ks::AbstractVector`               : 1D vector of bulk moduli for shear dissipation.
-    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ω::prec`                          : Tidal frequency in radians per second.
     - `ρl::AbstractVector`               : 1D vector of liquid densities.
     - `Kl::AbstractVector`               : 1D vector of liquid bulk moduli.
     - `Kd::AbstractVector`               : 1D vector of drained bulk moduli.
@@ -1043,7 +1043,7 @@ module common
     - `Eκ_3d::Array{Float64,3}`          : 3D map of compaction dissipation (W/m²).
     - `El_3d::Array{Float64,3}`          : 3D map of Darcy (percolation) dissipation (W/m²).
     """
-    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::Float64, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
+    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::prec, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
 
         # convert to Float64 or ComplexF64 for heating calculations
         r = Float64.(r)
@@ -1057,6 +1057,8 @@ module common
         α = Float64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
+        ω = Float64(ω)
+        k = Float64.(k)
 
         clats = SphericalGrid.clats
         lons  = SphericalGrid.lons

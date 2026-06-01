@@ -694,6 +694,11 @@ module Obliqua
                     prf_total[i, i_start:i_end] .*= factor
                     prf_total[i, i_start_ini:i_end_ini] .*= factor
 
+                    # correct global maps with the load distribution factor
+                    map_total_μ[i, :, :, i_start:i_end] .*= factor
+                    map_total_κ[i, :, :, i_start:i_end] .*= factor
+                    map_total_l[i, :, :, i_start:i_end] .*= factor
+
                     # update the total Lovenumber
                     knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
                 end
@@ -722,9 +727,9 @@ module Obliqua
                         
             U = (G*S_mass/sma) * (R/sma)^n * A
 
-            prefactor = (2*n + 1) * R / (8π*G) .* σ_range
+            prefactor = Float64.((2*n + 1) * R / (8π*G) .* σ_range)
 
-            U2 = abs2.(U)
+            U2 = Float64.(abs2.(U))
 
             # return bulk heating at each frequency
             P_T_1_blk = prefactor .* imag_kn .* U2
@@ -762,11 +767,11 @@ module Obliqua
 
             # define data file path
             datafile_path = joinpath(OUT_DIR, "obliqua_data.nc")
-
+            
             # store results in netcdf file
             data_to_nc(
                     nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                    σ_range, P_T_blk, P_T_prf_blk, r,
+                    σ_range, P_T_blk, P_T_prf_blk, Float64.(r),
                     P_T_1_glb_μ, P_T_1_glb_κ, P_T_1_glb_l, datafile_path
                 )
 
@@ -815,13 +820,13 @@ module Obliqua
             
             A_nms_e[iss] = (2. - a) * (1. - b) * sqrt(4π * factorial(n_i-m_i) / ((2*n_i+1) * factorial(n_i+m_i))) * Plm.(n_i, m_i, 0.) * X_hansen[iss]
                       
-            U_nms_e[iss] = (G*S_mass/sma) * (R/sma)^n_i * A_nms_e[iss]
+            U_nms_e[iss] = Float64.( (G*S_mass/sma) * (R/sma)^n_i * A_nms_e[iss] )
 
             # get imaginary part of complex k2 love number from global spectrum at forcing frequency
             img_full_knm = imag_kn[iss] 
 
             # calculate prefactor and total availible heat
-            prefactor = (2*n_i+1) * R * σ / (8π*G)
+            prefactor = Float64.( (2*n_i+1) * R * σ / (8π*G) )
             U2 = abs2(U_nms_e[iss])
 
             # calculate total heat input at forcing frequency
@@ -860,7 +865,7 @@ module Obliqua
         # store results in netcdf file
         data_to_nc(
                 nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                σ_range, P_T_blk, P_T_prf_blk, r,
+                σ_range, P_T_blk, P_T_prf_blk, Float64.(r),
                 P_T_s_glb_μ, P_T_s_glb_κ, P_T_s_glb_l, datafile_path
             )
 
@@ -1595,8 +1600,8 @@ module Obliqua
         itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
 
         # original centers
-        r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
-        scale_factor = R / maximum(r)
+        r_orig_centers = 0.5 .* (radius[1:end-1] .+ radius[2:end])
+        scale_factor = Float64(R) / maximum(radius)
         
         power_prf = Float64.(itp.(r_orig_centers) .* scale_factor)
         
@@ -1692,6 +1697,7 @@ module Obliqua
     - `radius::Vector{prec}`            : Radial grid (core → surface)
     - `gravity::Vector{prec}`           : Gravity profile
     - `ρ_ratio::prec`                   : Density ratio of lower layer
+    - `P_b::Float64`                    : Heating at lower interface
     - `S_mass::prec`                    : Stellar mass
     - `sma::prec`                       : Semi-major axis
     - `R::prec`                         : Planet radius
@@ -1714,6 +1720,7 @@ module Obliqua
                             radius::Vector{prec},
                             gravity::Vector{prec},
                             ρ_ratio::prec,
+                            # P_b::Float64;
                             S_mass::prec,
                             sma::prec,
                             R::prec;
@@ -1866,7 +1873,7 @@ module Obliqua
     - `nmk::Vector{Tuple{Int,Int,Int}}`         : Array of (n,m,k) tuples for each segment.
     - `is_seg::Array{Tuple{Int,Int},1}`         : Array of (il,it) tuples indicating segment indices.
     - `segments::Array{String,1}`               : Array of segment labels.
-    - `knms_total::Array{ComplexF64}`           : Total k2 Lovenumbers for each (n,m,k).
+    - `knms_total::Array{ComplexF64,1}`         : Total k2 Lovenumbers for each (n,m,k).
     - `knms_T::Matrix{ComplexF64}`              : Tidal k2 Lovenumbers for each (n,m,k) and segment.
     - `knms_L::Matrix{ComplexF64}`              : Load k2 Lovenumbers for each (n,m,k) and segment.
     - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
@@ -1881,7 +1888,7 @@ module Obliqua
     function data_to_nc(nmk::Vector{Tuple{Int,Int,Int}}, 
                         is_seg::Array{Tuple{Int,Int},1}, 
                         segments::Array{String,1},  
-                        knms_total::Array{ComplexF64},
+                        knms_total::Array{ComplexF64,1},
                         knms_T::Matrix{ComplexF64}, 
                         knms_L::Matrix{ComplexF64}, 
                         σ_range::Array{Float64,1}, 
