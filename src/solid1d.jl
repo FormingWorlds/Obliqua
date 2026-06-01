@@ -203,7 +203,7 @@ module solid1d
         ρ_prec = convert(Array{prec}, ρ)
         g_prec = convert(Array{prec}, g)
         μ_prec = convert(Array{precc}, μ)
-        κs_prec = convert(Array{prec}, κs)
+        κs_prec = convert(Array{precc}, κs)
 
         return (r_prec,  ρ_prec, g_prec, μ_prec, κs_prec)
     end
@@ -222,7 +222,7 @@ module solid1d
     - `g2::prec`                         : Gravity at radius r2.
     - `ρ::prec`                          : Density at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Returns
@@ -231,7 +231,7 @@ module solid1d
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::prec, n::Int)
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int)
         B = zeros(precc, 6, 6)
         get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
         return B
@@ -253,13 +253,13 @@ module solid1d
     - `g2::prec`                         : Gravity at radius r2.
     - `ρ::prec`                          : Density at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::prec, n::Int)
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
@@ -300,10 +300,10 @@ module solid1d
     - `ρ::prec`                          : 1D array of layer densities. 
     - `g::SubArray{prec,2}`              : 2D array of gravity values at the layer boundaries. 
     - `μ::precc`                         : 1D array of layer shear moduli.
-    - `K::prec`                          : 1D array of layer bulk moduli.
+    - `K::precc`                         : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.    
     """
-    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::prec, n::Int)
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, n::Int)
         Bstart = Matrix{precc}(I, 6, 6)  
         B = zeros(precc, 6, 6) 
 
@@ -334,7 +334,7 @@ module solid1d
     - `ρ::Array{prec,1}`                 : 1D array of layer densities. 
     - `g::Array{prec,2}`                 : 2D array of gravity values at the layer boundaries. 
     - `μ::Array{precc,1}`                : 1D array of layer shear moduli.
-    - `K::Array{prec,1}`                 : 1D array of layer bulk moduli.
+    - `K::Array{precc,1}`                : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
     - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
     - `μ_core::prec`                     : Shear modulus of the core.
@@ -347,7 +347,7 @@ module solid1d
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{prec,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
@@ -448,9 +448,9 @@ module solid1d
     - `ρr::Float64`                     : Density at radius rr.
     - `gr::Float64`                     : Gravity at radius rr.
     - `μr::ComplexF64`                  : Shear modulus at radius rr.
-    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `Ksr::ComplexF64`                 : Bulk modulus at radius rr.
     """
-    function compute_strain_ten!(ϵ::SubArray, y::SubArray, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64)
+    function compute_strain_ten!(ϵ::SubArray, y::SubArray, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64)
         i = 1
 
         @views Y    = solid1d.Y[i,:,:]
@@ -512,7 +512,7 @@ module solid1d
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        κ = Float64.(κ)
+        κ = ComplexF64.(κ)
         ω = Float64(ω)
 
         dres = deg2rad(solid1d.res)

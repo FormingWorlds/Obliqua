@@ -247,7 +247,7 @@ module Obliqua
             "params.out" => ["path"],
             "orbit.obliqua" => [
                 "min_frac","visc_l","visc_lus","visc_sus",
-                "n","m","spectrum", "material",
+                "n","m","spectrum", "material_mu", "material_k",
                 "module_solid", "module_fluid", "module_mushy"
             ],
             "orbit.obliqua.solid" => [
@@ -311,7 +311,8 @@ module Obliqua
             p_max    = cfg["orbit"]["obliqua"]["p_max"]
         end
 
-        material = cfg["orbit"]["obliqua"]["material"]
+        material_μ = cfg["orbit"]["obliqua"]["material_mu"]
+        material_κ = cfg["orbit"]["obliqua"]["material_k"]
         alpha    = cfg["orbit"]["obliqua"]["alpha"]
 
         module_solid = cfg["orbit"]["obliqua"]["module_solid"]
@@ -348,7 +349,7 @@ module Obliqua
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
         μ = convert(Vector{precc},shear)
-        κ = convert(Vector{prec}, bulk)
+        κ = convert(Vector{precc},bulk)
         ϕ = convert(Vector{prec}, phi)
 
         # number of layers
@@ -394,6 +395,7 @@ module Obliqua
         σ_range  = Vector{Float64}()
         X_hansen = Vector{Float64}()
         μc       = Matrix{ComplexF64} # layer x frequency
+        κc       = Matrix{ComplexF64} # layer x frequency
 
         # orbital and axial frequencies
         if spectrum == "adaptive"            
@@ -453,8 +455,9 @@ module Obliqua
         end
 
         # get frequency dependent complex shear modulus per mode
-        μc = complex_mu(σ_range, μ, η; material=material, α=alpha)
-
+        μc = complex_modulus(σ_range, μ, η; material=material_μ, α=alpha)
+        κc = complex_modulus(σ_range, κ, η; material=material_κ, α=alpha)
+        
         # allocate outputs for this specific mode's frequency count
         # initiate forcing frequency dependent k Love numbers (one spectrum for each segment)
         knms_T = zeros(ComplexF64, N_σ, length(segments))
@@ -490,7 +493,7 @@ module Obliqua
             ρ_seg  = ρ[i_start:i_end]
             η_seg  = η[i_start:i_end]                              
             μc_seg = μc[i_start:i_end, :] 
-            κ_seg  = κ[i_start:i_end]
+            κc_seg = κc[i_start:i_end, :]
             ϕ_seg  = ϕ[i_start:i_end]
             g_seg  = g[i_start:i_end]
 
@@ -534,7 +537,7 @@ module Obliqua
                             σ, ρ_seg,
                             r_seg, η_seg,                               
                             μc_seg[:, iss], 
-                            κ_seg, R, 
+                            κc_seg[:, iss], R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             ncalc=ncalc, n=n_i, m=m_i
@@ -544,7 +547,7 @@ module Obliqua
                         prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, R, 
+                            κc_seg[:, iss], R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
@@ -555,7 +558,7 @@ module Obliqua
                         prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, ϕ_seg, R, 
+                            κc_seg[:, iss], ϕ_seg, R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
@@ -565,7 +568,7 @@ module Obliqua
                         prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], map_total_l[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κ_seg, ϕ_seg, R, 
+                            κc_seg[:, iss], ϕ_seg, R, 
                             m_core, ρ_core,
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
@@ -1018,13 +1021,13 @@ module Obliqua
 
 
     """
-        complex_mu(σ_range, μ_profile, η_profile; material="andrade", α=0.3)
+        complex_modulus(σ_range, x_profile, η_profile; material="andrade", α=0.3)
 
-    Return the complex shear modulus μ̃(σ) for Maxwell or Andrade rheology.
+    Return the complex shear modulus μ̃(σ) and complex bulk modulus κ̃(σ) for Elastic, Maxwell, or Andrade rheology.
 
     # Arguments
     - `σ_range::AbstractVector`         : Forcing frequency range.
-    - `μ_profile::Array{precc,1}`       : Shear profile of the planet (aka unrelaxed rigidity).
+    - `x_profile::Array{precc,1}`       : Shear or Bulk profile of the planet (aka unrelaxed rigidity, unrelaxed bulk).
     - `η_profile::Array{prec,1}`        : Viscosity profile of the planet.
     
     # Keyword Arguments
@@ -1032,30 +1035,30 @@ module Obliqua
     - `α::Float64=0.3"`                 : Power-law exponent (free parameter).
 
     # Returns
-    - `μc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
+    - `xc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
     """
-    function complex_mu(σ_range::AbstractVector,
-                        μ_profile::Array{precc,1},
+    function complex_modulus(σ_range::AbstractVector,
+                        x_profile::Array{precc,1},
                         η_profile::Array{prec,1};
                         material::String="andrade", 
                         α::Float64=0.3
                         )::Matrix{precc}
 
-        nlayer = length(μ_profile)
+        nlayer = length(x_profile)
         nfreq  = length(σ_range)
 
         # initialize output array
-        μc = zeros(precc, nlayer, nfreq)
+        xc = zeros(precc, nlayer, nfreq)
 
         if material == "maxwell"
             @inbounds for i in 1:nlayer
-                μ = μ_profile[i]
+                x = x_profile[i]
                 η = η_profile[i]
-                μ_over_η = μ / η
+                μ_over_η = x / η
                 for j in 1:nfreq
                     σ = σ_range[j]
                     im_σ = 1im * σ
-                    μc[i,j] = im_σ * μ / (im_σ + μ_over_η)
+                    xc[i,j] = im_σ * x / (im_σ + μ_over_η)
                 end
             end
         elseif material == "andrade"
@@ -1063,9 +1066,9 @@ module Obliqua
             gamma_factor = gamma(1 + α)
             
             @inbounds for i in 1:nlayer
-                μ = μ_profile[i]
+                x = x_profile[i]
                 η = η_profile[i]
-                τM = η / μ # Maxwell time
+                τM = η / x # Maxwell time
                 τA = τM     # Andrade time 
                 
                 for j in 1:nfreq
@@ -1074,14 +1077,23 @@ module Obliqua
                     term_andrade = gamma_factor * (1im * σ * τA)^(-α)
                     term_maxwell = 1 / (1im * σ * τM)
 
-                    μc[i,j] = μ / (1 + term_andrade + term_maxwell)
+                    xc[i,j] = x / (1 + term_andrade + term_maxwell)
                 end
             end
+        
+        elseif material == "elastic" || material == "none"
+            @inbounds for i in 1:nlayer
+                x = x_profile[i]
+                for j in 1:nfreq
+                    xc[i,j] = x
+                end
+            end
+
         else
             throw(ArgumentError("Material type for complex shear modulus not defined; options: 'maxwell' or 'andrade'"))
         end
 
-        return μc
+        return xc
     end
 
 
@@ -1141,7 +1153,7 @@ module Obliqua
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `μ_profile::Array{precc,1}`       : Complex shear modulus profile of the planet.
-    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
@@ -1164,7 +1176,7 @@ module Obliqua
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
-                        bulk::Array{prec,1},
+                        bulk::Array{precc,1},
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
@@ -1183,7 +1195,7 @@ module Obliqua
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
         μc = convert(Vector{precc},shear)
-        κ = convert(Vector{prec}, bulk)
+        κc = convert(Vector{precc},bulk)
 
         # subdivide input layers such that we have ~ncalc in total
         rr = solid1d.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
@@ -1195,7 +1207,7 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κ, n, ρ_core, μ_core, κ_core; core=core)
+        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κc, n, ρ_core, μ_core, κ_core; core=core)
         #   Tidal
         tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n; load=false)
         #   Load
@@ -1206,7 +1218,7 @@ module Obliqua
         k2_L = tidal_solution_L[5, end, end] - 1
         
         # Get profile power output (W m-3), converted to W/kg
-        Eμ, Eκ = solid1d.get_heating_profile(tidal_solution_T, rr, ρ, g, μc, κ, n, omega; lay=nothing)
+        Eμ, Eκ = solid1d.get_heating_profile(tidal_solution_T, rr, ρ, g, μc, κc, n, omega; lay=nothing)
 
         Eμ_tot, _ = Eμ   # shear       (W), (W/m3)
         Eκ_tot, _ = Eκ   # compaction  (W), (W/m3)
@@ -1230,7 +1242,7 @@ module Obliqua
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
-    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
@@ -1256,7 +1268,7 @@ module Obliqua
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
-                        bulk::Array{prec,1},
+                        bulk::Array{precc,1},
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
@@ -1274,11 +1286,11 @@ module Obliqua
         ρ = convert(Vector{prec}, rho)
         r = convert(Vector{prec}, radius)
         η = convert(Vector{prec}, visc)
-        μ = convert(Vector{precc}, shear)
-        κ = convert(Vector{prec}, bulk)
+        μc = convert(Vector{precc}, shear)
+        κc = convert(Vector{precc}, bulk)
 
         # resample profiles onto new grid
-        r_grid, ρ, η, μ, κ, g, M_tot = solid1d_relax.resample_profiles(r, ρ, η, μ, κ, m_core, dr_min, dr_max)
+        r_grid, ρ, η, μ, κ, g, M_tot = solid1d_relax.resample_profiles(r, ρ, η, μc, κc, m_core, dr_min, dr_max)
 
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
@@ -1287,7 +1299,7 @@ module Obliqua
         SphericalGrid = solid1d_relax.define_spherical_grid(res, n, m)
 
         # solve y functions across grid
-        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μ, κ, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
+        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g, μc, κc, omega, n, ρ_core, μ_core, κ_core, M_tot; core=core)
 
         # Love numbers
         k2_T = y_t[5, end] - 1
@@ -1295,11 +1307,11 @@ module Obliqua
 
         # heating profile
         Eμ_tot, Eκ_tot = solid1d_relax.get_heating_profile(
-            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
+            y_t, r_grid, ρ, g, μc, κc, n, omega, SphericalGrid
         )
 
         Eμ_glb, Eκ_glb = solid1d_mush_relax.get_heating_map(
-            y_t, r_grid, ρ, g, μ, κ, n, omega, SphericalGrid
+            y_t, r_grid, ρ, g, μc, κc, n, omega, SphericalGrid
         )
 
         power_prf = abs.(Eμ_tot .+ Eκ_tot) 
@@ -1352,7 +1364,7 @@ module Obliqua
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
-    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
@@ -1380,7 +1392,7 @@ module Obliqua
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
-                        bulk::Array{prec,1},
+                        bulk::Array{precc,1},
                         phi::Array{prec,1},
                         R::prec,
                         m_core::prec,
@@ -1404,7 +1416,7 @@ module Obliqua
         r  = copy(convert(Vector{prec}, radius))
         η  = copy(convert(Vector{prec}, visc))
         μc = copy(convert(Vector{precc}, shear))
-        κs = copy(convert(Vector{prec}, bulk))
+        κs = copy(convert(Vector{precc}, bulk))
         ϕ  = copy(convert(Vector{prec}, phi))
         κd = 0.01.*κs                        # drained bulk modulus
 
@@ -1486,7 +1498,7 @@ module Obliqua
     - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
-    - `bulk::Array{prec,1}`             : Bulk modulus profile of the planet.
+    - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
@@ -1518,7 +1530,7 @@ module Obliqua
                         radius::Array{prec,1},
                         visc::Array{prec,1},
                         shear::Array{precc,1},
-                        bulk::Array{prec,1},
+                        bulk::Array{precc,1},
                         phi::Array{prec,1},
                         R::prec,
                         m_core::prec,
@@ -1543,11 +1555,14 @@ module Obliqua
         r  = copy(convert(Vector{prec}, radius))
         η  = copy(convert(Vector{prec}, visc))
         μc = copy(convert(Vector{precc}, shear))
-        κs = copy(convert(Vector{prec}, bulk))
+        κs = copy(convert(Vector{precc}, bulk))
         ϕ  = copy(convert(Vector{prec}, phi))
+
+        # NEEDS TO BE UPDATED! --> Add proper profile; e.g. Eq. 48 of Hamish et al. 2025
         κd = 0.01.*κs                        # drained bulk modulus
 
-        α  = 1.0.-(κd./κs)                   # Biot's modulus
+        # NEEDS TO BE UPDATED! --> Add proper profile; e.g. Eq. 49 of Hamish et al. 2025
+        α  = real.(1.0.-(κd./κs))            # Biot's modulus
 
         # allocate zero arrays with same length and precision as r
         κl = zeros(prec, length(r))

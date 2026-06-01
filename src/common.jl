@@ -377,7 +377,7 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
@@ -388,7 +388,7 @@ module common
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
         M = length(Y)
         A = zeros(precc, M, M) 
         get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ, Y=Y)
@@ -407,11 +407,11 @@ module common
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `Kd::precc`                        : Drained bulk modulus at radius r.
     - `α::prec`                          : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
@@ -428,7 +428,7 @@ module common
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         A = zeros(precc, 8, 8)
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
         return A
@@ -449,14 +449,14 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature."""
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
         if isnothing(λ)
             λ = K - 2μ/3
         end
@@ -511,10 +511,10 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
+    - `Kd::precc`                        : Drained bulk modulus at radius r.
     - `α::prec`                          : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
@@ -529,7 +529,7 @@ module common
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
@@ -592,10 +592,10 @@ module common
     - `ρr::Float64`                     : Density at radius rr.
     - `gr::Float64`                     : Gravity at radius rr.
     - `μr::ComplexF64`                  : Shear modulus at radius rr.
-    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `Ksr::ComplexF64`                 : Bulk modulus at radius rr.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
     """
-    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, SphericalGrid::NamedTuple)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, SphericalGrid::NamedTuple)
                
         i = 1
 
@@ -637,18 +637,18 @@ module common
     - `ρr::Float64`                     : Density at radius rr.
     - `gr::Float64`                     : Gravity at radius rr.
     - `μr::ComplexF64`                  : Shear modulus at radius rr.
-    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `Ksr::ComplexF64`                 : Bulk modulus at radius rr.
     - `ω::Float64`                      : Forcing frequency.
     - `ρlr::Float64`                    : Liquid density at radius rr.
     - `Klr::Float64`                    : Liquid bulk modulus at radius rr.
-    - `Kdr::Float64`                    : Drained bulk modulus at radius rr.
+    - `Kdr::ComplexF64`                 : Drained bulk modulus at radius rr.
     - `αr::Float64`                     : Biot coefficient at radius rr.
     - `ηlr::Float64`                    : Liquid viscosity at radius rr.
     - `ϕr::Float64`                     : Porosity at radius rr.
     - `kr::Float64`                     : Permeability at radius rr.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::Float64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -768,7 +768,7 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        κ = Float64.(κ)
+        κ = ComplexF64.(κ)
         ω = Float64(ω)
 
         dres = deg2rad(SphericalGrid.res)
@@ -857,11 +857,11 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        Ks = Float64.(Ks)
+        Ks = ComplexF64.(Ks)
         ω = Float64(ω)
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
-        Kd = Float64.(Kd)
+        Kd = ComplexF64.(Kd)
         α = Float64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
@@ -914,7 +914,7 @@ module common
             # 3. Compaction Heating (Bulk)
             Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* (abs.(p) ./ Ks[i]).^2)
+                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.(p ./ Ks[i]).^2)       # <-- Fixed typo present in Love.jl :)
             end
 
             # 4. Darcy Dissipation (Liquid)
@@ -965,7 +965,7 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        κ = Float64.(κ)
+        κ = ComplexF64.(κ)
         ω = Float64(ω)
 
         clats = SphericalGrid.clats
@@ -1050,10 +1050,10 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        Ks = Float64.(Ks)
+        Ks = ComplexF64.(Ks)
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
-        Kd = Float64.(Kd)
+        Kd = ComplexF64.(Kd)
         α = Float64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
@@ -1102,7 +1102,7 @@ module common
             # 3. Local Volumetric Compaction Heating (Bulk)
             Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* (abs.(p) ./ Ks[i]).^2)
+                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.((p) ./ Ks[i]).^2)
             end
 
             # 4. Local Volumetric Darcy Dissipation (Liquid)
