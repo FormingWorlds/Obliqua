@@ -405,7 +405,7 @@ if suite > 4
     cfg["orbit"]["obliqua"]["module_fluid"] = "none"
     cfg["orbit"]["obliqua"]["module_mushy"] = "none"
 
-    cfg["orbit"]["obliqua"]["material"]     = "andrade"
+    cfg["orbit"]["obliqua"]["material_mu"]     = "andrade"
 
     # lower visc_sus to include mush
     visc_sus = cfg["orbit"]["obliqua"]["visc_sus"] = 5e10
@@ -446,7 +446,7 @@ if suite > 4
     @info "Testing solid1d-mush-relax module with maxwell rheology"
 
     # update config to use maxwell rheology
-    cfg["orbit"]["obliqua"]["material"] = "maxwell"
+    cfg["orbit"]["obliqua"]["material_mu"] = "maxwell"
 
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
         load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
@@ -495,7 +495,7 @@ if suite > 2
     cfg["orbit"]["obliqua"]["module_fluid"] = "fluid0d"
     cfg["orbit"]["obliqua"]["module_mushy"] = "none"
 
-    cfg["orbit"]["obliqua"]["material"]     = "andrade"
+    cfg["orbit"]["obliqua"]["material_mu"]     = "andrade"
 
     omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
         load.load_interior_mush_full("$RES_DIR/interior_data/runtests_mantle.json", false)
