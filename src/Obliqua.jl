@@ -1290,7 +1290,7 @@ module Obliqua
         κc = convert(Vector{precc}, bulk)
 
         # resample profiles onto new grid
-        r_grid, ρ, η, μ, κ, g, M_tot = solid1d_relax.resample_profiles(r, ρ, η, μc, κc, m_core, dr_min, dr_max)
+        r_grid, ρ, η, μc, κc, g, M_tot = solid1d_relax.resample_profiles(r, ρ, η, μc, κc, m_core, dr_min, dr_max)
 
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
