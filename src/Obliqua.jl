@@ -202,7 +202,7 @@ module Obliqua
 
 
     """
-        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, cfg)
+        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg)
 
     Compute the tidal heating profile of a planetary interior considering solid and fluid layers.
 
@@ -217,6 +217,9 @@ module Obliqua
     - `visc::Array{prec,1}`         : Viscosity profile of the planet.
     - `shear::Array{prec,1}`        : Shear modulus profile of the solid layers.
     - `bulk::Array{prec,1}`         : Bulk modulus profile of the solid layers.
+    - `bulkd::Array{prec,1}`        : Drained bulk modulus profile of the fluid layers.
+    - `phi::Array{prec,1}`          : Porosity profile of the fluid layers.
+    - `perm::Array{prec,1}`         : Permeability profile of the fluid layers.
     - `cfg::Dict`                   : Configuration parameters from dictionary.
 
     # Returns
@@ -235,7 +238,9 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{prec,1},
                         bulk::Array{prec,1},
+                        bulkd::Array{prec,1},
                         phi::Array{prec,1},
+                        perm::Array{prec,1},
                         cfg::Dict
                         )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
       
@@ -350,7 +355,9 @@ module Obliqua
         η = convert(Vector{prec}, visc)
         μ = convert(Vector{precc},shear)
         κ = convert(Vector{precc},bulk)
+        κd = convert(Vector{precc},bulkd)
         ϕ = convert(Vector{prec}, phi)
+        K = convert(Vector{prec}, perm)
 
         # number of layers
         N_layers = length(r)-1
@@ -396,6 +403,7 @@ module Obliqua
         X_hansen = Vector{Float64}()
         μc       = Matrix{ComplexF64} # layer x frequency
         κc       = Matrix{ComplexF64} # layer x frequency
+        κdc      = Matrix{ComplexF64} # layer x frequency
 
         # orbital and axial frequencies
         if spectrum == "adaptive"            
@@ -456,8 +464,21 @@ module Obliqua
 
         # get frequency dependent complex shear modulus per mode
         μc = complex_modulus(σ_range, μ, η; material=material_μ, α=alpha)
-        κc = complex_modulus(σ_range, κ, η; material=material_κ, α=alpha)
-        
+
+        # get frequency dependent complex bulk modulus per mode
+        if module_solid === "solid1d-mush" || module_solid === "solid1d-mush-relax"
+            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-10); material="elastic", α=alpha)
+            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-10); material=material_κ, α=alpha)
+            
+            # calculate Biot's modulus
+            α  = precc(1.0) .- (κdc ./ κc)
+        else
+            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-10); material=material_κ, α=alpha)
+            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-10); material="elastic", α=alpha)
+
+            α = fill!(similar(κc, precc), 1)
+        end
+               
         # allocate outputs for this specific mode's frequency count
         # initiate forcing frequency dependent k Love numbers (one spectrum for each segment)
         knms_T = zeros(ComplexF64, N_σ, length(segments))
@@ -494,8 +515,11 @@ module Obliqua
             η_seg  = η[i_start:i_end]                              
             μc_seg = μc[i_start:i_end, :] 
             κc_seg = κc[i_start:i_end, :]
+            κdc_seg = κdc[i_start:i_end, :]
             ϕ_seg  = ϕ[i_start:i_end]
             g_seg  = g[i_start:i_end]
+            α_seg  = α[i_start:i_end, :]
+            K_seg  = K[i_start:i_end]
 
             # mean density in current segment
             if length(ρ_seg) == 1
@@ -558,7 +582,8 @@ module Obliqua
                         prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κc_seg[:, iss], ϕ_seg, R, 
+                            κc_seg[:, iss], κdc_seg[:, iss], 
+                            ϕ_seg, α_seg[:, iss], K_seg, R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
@@ -568,7 +593,8 @@ module Obliqua
                         prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], map_total_l[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
                             σ, ρ_seg, r_seg,
                             η_seg, μc_seg[:, iss], 
-                            κc_seg[:, iss], ϕ_seg, R, 
+                            κc_seg[:, iss], κdc_seg[:, iss], 
+                            ϕ_seg, α_seg[:, iss], K_seg, R, 
                             m_core, ρ_core,
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
@@ -757,7 +783,7 @@ module Obliqua
                 ratio = P_T_1_blk[iss] / integrated_profile_power
                 
                 # Print formatted results
-                @debug("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
+                @info("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
             end          
 
             P_T_blk = Float64(sum(P_T_1_blk)) # W
@@ -875,7 +901,7 @@ module Obliqua
         @info("Expected bulk heating: $P_T_blk")
         @info("Obtained bulk heating: $P_T_prf_blk")
 
-        P_T_prf ./ ρ # convert to mass heating rate (W/kg)
+        P_T_prf ./= ρ # convert to mass heating rate (W/kg)
 
         # convert everything to Float64
         return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_kn)
@@ -923,7 +949,6 @@ module Obliqua
 
         # masks for liquid and solid regions
         mask_l = η .< η_l
-        # mask_s = (η_s .< η .< 1e13)
         mask_s = η_s .< η 
 
         # total mantle thickness
@@ -1354,7 +1379,7 @@ module Obliqua
     
 
     """
-        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, phi, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
 
     Use 1D solid tides model with mush interface to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
 
@@ -1365,7 +1390,10 @@ module Obliqua
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
     - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
+    - `bulkd::Array{precc,1}`           : Complex drained bulk modulus profile of the planet.
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
+    - `alpha::Array{precc,1}`           : Biot's modulus profile of the planet.
+    - `perm::Array{prec,1}`             : Permeability profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
@@ -1393,7 +1421,10 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{precc,1},
+                        bulkd::Array{precc,1},
                         phi::Array{prec,1},
+                        alpha::Array{precc,1},
+                        perm::Array{prec,1},
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
@@ -1417,15 +1448,14 @@ module Obliqua
         η  = copy(convert(Vector{prec}, visc))
         μc = copy(convert(Vector{precc}, shear))
         κs = copy(convert(Vector{precc}, bulk))
+        κd = copy(convert(Vector{precc}, bulkd))
         ϕ  = copy(convert(Vector{prec}, phi))
-        κd = 0.01.*κs                        # drained bulk modulus
-
-        α  = 1.0.-(κd./κs)                    # Biot's modulus
+        α  = copy(convert(Vector{precc}, alpha))
+        k  = copy(convert(Vector{prec}, perm))
 
         # allocate zero arrays with same length and precision as r
         κl = zeros(prec, length(r))
         ηl = zeros(prec, length(r))
-        k  = zeros(prec, length(r))
 
         # implicitely the mush interface occurs at the top of the solid
         # the mush layer index is therefore
@@ -1439,7 +1469,6 @@ module Obliqua
         # update the liquid arrays
         κl[ii] = prec(bulk_l)   # liquid bulk modulus
         ηl[ii] = prec(visc_l)   # liquid viscosity
-        k[ii]  = prec(permea)   # permeability
 
         # set porosity to zero outside mush region (otherwise code cannot solve system)
         ϕ[1:ii-1]   .= 0.0      # zero below ii
@@ -1487,7 +1516,7 @@ module Obliqua
 
 
     """
-        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
+        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid")
 
     Use 1D solid tides model with relaxation method to calculate k2 Lovenumbers, and compute 1D heating profile from strain tensor.
     This method includes inertia effects, but is more computationally expensive. 
@@ -1499,7 +1528,10 @@ module Obliqua
     - `visc::Array{prec,1}`             : Viscosity profile of the planet.
     - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
     - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
+    - `bulkd::Array{precc,1}`           : Complex drained bulk modulus profile of the planet.
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
+    - `alpha::Array{precc,1}`           : Biot's modulus profile of the planet.
+    - `perm::Array{prec,1}`             : Permeability profile of the planet.
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
@@ -1531,7 +1563,10 @@ module Obliqua
                         visc::Array{prec,1},
                         shear::Array{precc,1},
                         bulk::Array{precc,1},
+                        bulkd::Array{precc,1},
                         phi::Array{prec,1},
+                        alpha::Array{precc,1},
+                        perm::Array{prec,1},
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
@@ -1556,31 +1591,18 @@ module Obliqua
         η  = copy(convert(Vector{prec}, visc))
         μc = copy(convert(Vector{precc}, shear))
         κs = copy(convert(Vector{precc}, bulk))
+        κd = copy(convert(Vector{precc}, bulkd))
         ϕ  = copy(convert(Vector{prec}, phi))
-
-        # NEEDS TO BE UPDATED! --> Add proper profile; e.g. Eq. 48 of Hamish et al. 2025
-        κd = 0.01.*κs                        # drained bulk modulus
-
-        # NEEDS TO BE UPDATED! --> Add proper profile; e.g. Eq. 49 of Hamish et al. 2025
-        α  = real.(1.0.-(κd./κs))            # Biot's modulus
-
-        # allocate zero arrays with same length and precision as r
-        κl = zeros(prec, length(r))
-        ηl = zeros(prec, length(r))
-        k  = zeros(prec, length(r))
-
-        # find where the mush interface occurs (excluding the CMB layer)
-        # get all indices above the threshold
-        ii_all = findall(ϕ .>= porosity_thresh)
+        α  = copy(convert(Vector{precc}, alpha))
+        k  = copy(convert(Vector{prec}, perm))
         
-        # set all porosity values below the threshold to zero (otherwise code cannot solve system)
+        # apply thresholding to porosity array
         ϕ[ϕ .< porosity_thresh] .= 0.0
-
-        # update the liquid arrays
-        κl .= prec(bulk_l)   # liquid bulk modulus
-        ηl .= prec(visc_l)   # liquid viscosity
-        k[ii_all] .= prec(permea)   # permeability
-
+        
+        # allocate and fill arrays 
+        κl = fill(prec(bulk_l), length(r))
+        ηl = fill(prec(visc_l), length(r))
+        
         # resample profiles onto new grid
         r_grid, ρ, η, μc, κs, κl, κd, α, ηl, ϕ, k, g, M_tot = solid1d_mush_relax.resample_profiles(r, ρ, η, μc, κs, κl, κd, α, ηl, ϕ, k, m_core, dr_min, dr_max)
 
@@ -1595,6 +1617,10 @@ module Obliqua
         
         # solve y functions across grid
         y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g, μc, κs, omega, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
+
+        # for debugging: plot y-function relaxation solution
+        plotting.plot_relaxation_solution(y_t, r_centers, 
+                filename="$OUT_DIR/relaxation_solution.png")
 
         # Love numbers
         k2_T = y_t[5, end] - 1

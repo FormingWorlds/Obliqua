@@ -179,15 +179,42 @@ module solid1d_relax
 
         # non-dimensional scaling
         # this implementation needs to be double-checked for consistency.
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.))
+        # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.))
         # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r[end], M_tot, g[end])
 
-        ωs = ω * s0
+        # ωs = ω * s0
+        # rs = r ./ R0
+        # ρs = ρ ./ ρ0
+        # gs = g ./ g0
+        # μs = μ ./ μ0
+        # Ks = K ./ μ0
+
+        # 1. Establish base scales
+        R0 = r[end]
+        ρ0 = M_tot / ((4/3) * π * R0^3)
+        G0 = prec(6.6743e-11)
+
+        # 2. Derive dependent scales
+        ω0 = sqrt(G0 * ρ0)
+        g0 = G0 * ρ0 * R0
+        μ0 = G0 * (ρ0^2) * (R0^2)
+        P0 = G0 * ρ0 * (R0^2)
+
+        S = zeros(prec, 6, 6)
+        S[1, 1] = 1.0/g0     # y1: radial displacement (m)
+        S[2, 2] = 1.0/g0     # y2: tangential displacement (m)
+        S[3, 3] = μ0/(g0*R0) # y3: radial stress (Pa)
+        S[4, 4] = μ0/(g0*R0) # y4: tangential stress (Pa)
+        S[5, 5] = 1.0        # y5: potential (m^2/s^2)
+        S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
+
+        # 3. Scale your physical profiles to be dimensionless
         rs = r ./ R0
         ρs = ρ ./ ρ0
         gs = g ./ g0
         μs = μ ./ μ0
         Ks = K ./ μ0
+        ωs = ω / ω0  # FIXED: Division instead of multiplication
 
         R = Vector{Matrix{precc}}(undef, Nr)
 
@@ -558,6 +585,12 @@ module solid1d_relax
         for i in Nr-1:-1:1
             y_t[:, i] = R[i] * y_t[:, i+1]
         end
+
+        # scale the solution back to physical units
+        for i in 1:Nr
+            y_t[:, i] = S * y_t[:, i]
+        end
+        y_l[:, 1] = S * y_l[:, 1]
 
         # convert to ComplexF64
         y_t = ComplexF64.(y_t)

@@ -13,6 +13,7 @@ module common
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
+    using LinearAlgebra
 
     export define_spherical_grid, get_scales, get_Ic, get_A, get_A!, get_heating_profile, get_heating_map
 
@@ -303,7 +304,7 @@ module common
             is_low_freq = (4 * ω^2) < 0.00001 * (n * (n+1) * γ)
 
             if is_low_freq
-                @debug("Using low-frequency approximation for inertial core boundary conditions.")
+                @info("Using low-frequency approximation for inertial core boundary conditions.")
                 # Use the Simplified Algebraic Form
                 zn = x^2 / (2n + 3) 
                 
@@ -314,7 +315,7 @@ module common
                 Ic[Y[5],2] = -3γ * f * r^(n+2)
                 Ic[Y[6],2] = -3γ * ((2n+1)*f - n*h) * r^(n+1)
             else
-                @debug("Using full inertial solution for core boundary conditions.")
+                @info("Using full inertial solution for core boundary conditions.")
                 # Use the Scaled Analytical Solution
                 # Divided by j_n(x) to prevent numerical overflow
                 jn = sbesselj(n, x)
@@ -339,6 +340,20 @@ module common
             Ic[:,3] .= 0.0
             Ic[Y[2],3] = 1.0 # tangential slip at CMB
             
+            # 6. Column-wise Normalization (Brings vectors to unit length)
+            # Uses LinearAlgebra's norm. To bound the maximum element to exactly 1 instead, 
+            # change `norm(view(Ic, :, col))` to `maximum(abs, view(Ic, :, col))`
+            for col in 1:3
+                col_norm = norm(view(Ic, :, col))
+                if col_norm > 0.0
+                    Ic[:, col] ./= col_norm
+                end
+            end
+
+            # print rank for debugging
+            println("Rank of Ic for inertial core: ", rank(Ic))
+            println("Condition number of Ic for inertial core: ", cond(Ic))
+
         elseif type == "solid"
             # First column
             Ic[Y[1], 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
@@ -412,7 +427,7 @@ module common
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
     - `Kd::precc`                        : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.    
@@ -428,7 +443,7 @@ module common
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         A = zeros(precc, 8, 8)
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
         return A
@@ -515,7 +530,7 @@ module common
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
     - `Kd::precc`                        : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.
@@ -529,7 +544,7 @@ module common
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
@@ -642,13 +657,13 @@ module common
     - `ρlr::Float64`                    : Liquid density at radius rr.
     - `Klr::Float64`                    : Liquid bulk modulus at radius rr.
     - `Kdr::ComplexF64`                 : Drained bulk modulus at radius rr.
-    - `αr::Float64`                     : Biot coefficient at radius rr.
+    - `αr::ComplexF64`                  : Biot coefficient at radius rr.
     - `ηlr::Float64`                    : Liquid viscosity at radius rr.
     - `ϕr::Float64`                     : Porosity at radius rr.
     - `kr::Float64`                     : Permeability at radius rr.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::ComplexF64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -862,7 +877,7 @@ module common
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
         Kd = ComplexF64.(Kd)
-        α = Float64.(α)
+        α = ComplexF64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
         k = Float64.(k)
@@ -1054,7 +1069,7 @@ module common
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
         Kd = ComplexF64.(Kd)
-        α = Float64.(α)
+        α = ComplexF64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
         ω = Float64(ω)

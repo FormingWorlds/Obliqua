@@ -215,7 +215,7 @@ module solid1d_mush
         ρl_prec = convert(Array{prec}, ρl)
         κl_prec = convert(Array{prec}, κl)
         κd_prec = convert(Array{precc}, κd)
-        α_prec = convert(Array{prec}, α)
+        α_prec = convert(Array{precc}, α)
         ηl_prec = convert(Array{prec}, ηl)
         ϕ_prec = convert(Array{prec}, ϕ)
         k_prec = convert(Array{prec}, k)
@@ -317,7 +317,7 @@ module solid1d_mush
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
     - `Kd::precc`                        : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.
@@ -329,7 +329,7 @@ module solid1d_mush
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int)
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int)
         B = zeros(precc, 8, 8)
         get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n)
 
@@ -356,7 +356,7 @@ module solid1d_mush
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
     - `Kd::precc`                        : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.
@@ -365,7 +365,7 @@ module solid1d_mush
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int)
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
@@ -413,13 +413,13 @@ module solid1d_mush
     - `ρₗ::prec`                          : 1D array of liquid densities at layer boundaries.
     - `Kl::prec`                         : 1D array of liquid bulk moduli at layer boundaries.
     - `Kd::precc`                        : 1D array of drained bulk moduli at layer boundaries.
-    - `α::prec`                          : 1D array of Biot coefficients at layer boundaries.
+    - `α::precc`                         : 1D array of Biot coefficients at layer boundaries.
     - `ηₗ::prec`                          : 1D array of liquid viscosities at layer boundaries.
     - `ϕ::prec`                          : 1D array of porosities at layer boundaries.
     - `k::prec`                          : 1D array of permeabilities at layer boundaries.
     - `n::Int`                           : Tidal degree.    
     """
-    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int)
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int)
         # Check dimensions of Bprod2
 
         nr = size(r)[1]
@@ -473,7 +473,7 @@ module solid1d_mush
     - `ρₗ::Array{prec,1}`                 : 1D array of liquid densities at layer boundaries.
     - `Kl::Array{prec,1}`                : 1D array of liquid bulk moduli at layer boundaries.
     - `Kd::Array{precc,1}`               : 1D array of drained bulk moduli at layer boundaries.
-    - `α::Array{prec,1}`                 : 1D array of Biot coefficients at layer boundaries.
+    - `α::Array{precc,1}`                : 1D array of Biot coefficients at layer boundaries.
     - `ηₗ::Array{prec,1}`                 : 1D array of liquid viscosities at layer boundaries.
     - `ϕ::Array{prec,1}`                 : 1D array of porosities at layer boundaries.
     - `k::Array{prec,1}`                 : 1D array of permeabilities at layer boundaries.
@@ -489,7 +489,7 @@ module solid1d_mush
     - `M::Array{precc,2}`                : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{prec,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{precc,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -618,12 +618,12 @@ module solid1d_mush
     - `ρlr::Float64`                    : Liquid density at radius rr.
     - `Klr::Float64`                    : Liquid bulk modulus at radius rr.
     - `Kdr::ComplexF64`                 : Drained bulk modulus at radius rr.
-    - `αr::Float64`                     : Biot coefficient at radius rr.
+    - `αr::ComplexF64`                  : Biot coefficient at radius rr.
     - `ηlr::Float64`                    : Liquid viscosity at radius rr.
     - `ϕr::Float64`                     : Porosity at radius rr.
     - `kr::Float64`                     : Permeability at radius rr.
     """
-    function compute_strain_ten!(ϵ::SubArray, y::SubArray, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64)
+    function compute_strain_ten!(ϵ::SubArray, y::SubArray, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::ComplexF64, ηlr::Float64, ϕr::Float64, kr::Float64)
         i = 1
 
         @views Y    = solid1d_mush.Y[i,:,:]
@@ -761,7 +761,7 @@ module solid1d_mush
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
         Kd = ComplexF64.(Kd)
-        α = Float64.(α)
+        α = ComplexF64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
         k = Float64.(k)
