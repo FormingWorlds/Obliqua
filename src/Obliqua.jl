@@ -223,10 +223,12 @@ module Obliqua
     - `cfg::Dict`                   : Configuration parameters from dictionary.
 
     # Returns
-    - `power_prf::Array{Float64,1}` : Radial profile of tidal heating (W/m³).
-    - `power_blk::Float64`          : Total tidal power integrated over the interior (W).
-    - `σ_range::Array{Float64,1}`   : Frequencies at which the Love number `k_n` was evaluated.
-    - `imag_kn::Array{Float64,1}`   : Imaginary part of the Love number `k_n` for the planet.
+    - `power_prf::Array{Float64,1}`      : Radial profile of tidal heating (W/m³).
+    - `power_blk::Float64`               : Total tidal power integrated over the interior (W).
+    - `nmk::Array{Tuple{Int,Int,Int},1}` : List of tidal modes (n, m, k) considered in the calculation.
+    - `σ_range::Array{Float64,1}`        : Frequencies at which the Love number `k_n` was evaluated.
+    - `Hansen::Array{Float64,1}`         : Hansen coefficients corresponding to the tidal modes.
+    - `knms_total::Array{ComplexF64,1}`  : Complex Love number `k_n` for the planet.
     """
     function run_tides(omega::prec,
                         axial::prec,
@@ -242,7 +244,7 @@ module Obliqua
                         phi::Array{prec,1},
                         perm::Array{prec,1},
                         cfg::Dict
-                        )::Tuple{Vector{Float64}, Float64, Vector{Float64}, Vector{Float64}}
+                        )::Tuple{Vector{Float64}, Float64, Vector{Tuple{Int,Int,Int}}, Vector{Float64}, Vector{Float64}, Vector{ComplexF64}}
       
         # Read configuration options from dict
         @info "Using configuration '$(cfg["title"])'"
@@ -904,7 +906,7 @@ module Obliqua
         P_T_prf ./= ρ # convert to mass heating rate (W/kg)
 
         # convert everything to Float64
-        return Float64.(P_T_prf), Float64(P_T_blk), Float64.(σ_range), Float64.(imag_kn)
+        return Float64.(P_T_prf), Float64(P_T_blk), nmk, Float64.(σ_range), ComplexF64.(knms_total)
 
     end
 

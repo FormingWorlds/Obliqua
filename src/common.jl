@@ -252,7 +252,7 @@ module common
     - `r::prec`                          : Radius of the core boundary.
     - `ρ::prec`                          : Density of the core.
     - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                         : Shear modulus of the core.
+    - `μ::prec`                          : Shear modulus of the core.
     - `K::prec`                          : Bulk modulus of the core.
     - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
     - `n::Int`                           : Tidal degree.

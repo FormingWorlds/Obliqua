@@ -10,6 +10,7 @@ module interior
         get_permeability(phi, cfg)
 
     Calculate permeability profile based on melt fraction (porosity) and configuration parameters.
+    Uses continuous tanh smoothing between the Blake-Kozeny-Carman, Rumpf-Gupte, and Stokes regimes.
 
     # Arguments
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
@@ -21,21 +22,42 @@ module interior
     function get_permeability(phi, cfg)
 
         # extract grain size from config
-        Rgrain = cfg["interior_energetics"]["grain_size"] # grain size in m, used to calculate surface area of spheres in the mush layer
+        Rgrain = cfg["interior_energetics"]["grain_size"] # grain size in m
 
         # get native precision type from input arrays
         T  = typeof(phi[1])
 
-        # define mush layer properties --> should move to config file in the future
-        ϕ0    = 0.0769 # melt fraction below which the skeleton behaves like a coherent solid
-        ϕcrit = 0.7715 # critical porosity above which there is no coherent solid skeleton to resist isotropic stresses
+        # equality points and smoothing widths
+        ϕ0_thresh    = 0.0769452
+        ϕ0_width     = 0.02
+        ϕcrit_thresh = 0.771462
+        ϕcrit_width  = 0.05
                 
-        # calculate permeability element-wise, then zero-out elements outside mush zones
-        perm = @. ((p) ->
-            p > ϕcrit ? (2/9) * Rgrain^2 :
-            (p >= ϕ0 ? (5/7) * Rgrain^2 * p^4.5 :
-                    (1/1000) * Rgrain^2 * p^2 / (1 - p)^2)
-        )(phi)
+        # calculate permeability element-wise using tanh smoothing
+        perm = @. ((p) -> begin
+            # guard against division by zero at limits
+            por = max(p, 1e-20)
+            one_m_por = max(1.0 - p, 1e-20)
+
+            # Blake-Kozeny-Carman (low porosity)
+            F_bkc = (1.0 / 1000.0) * Rgrain^2 * por^2 / one_m_por^2
+            
+            # Rumpf-Gupte (intermediate porosity)
+            F_rg = (5.0 / 7.0) * Rgrain^2 * por^4.5
+            
+            # Stokes settling (high porosity)
+            F_stokes = (2.0 / 9.0) * Rgrain^2
+
+            # smooth transition weights
+            w_rg = 0.5 * (1.0 + tanh((por - ϕ0_thresh) / ϕ0_width))
+            w_stokes = 0.5 * (1.0 + tanh((por - ϕcrit_thresh) / ϕcrit_width))
+
+            # blend the three regimes
+            F = (1.0 - w_rg) * F_bkc + (w_rg - w_stokes) * F_rg + w_stokes * F_stokes
+            
+            # ensure result is strictly non-negative
+            max(F, 0.0)
+        end)(phi)
 
         return T.(perm)
     end
