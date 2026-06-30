@@ -302,15 +302,21 @@ module Obliqua
         @debug "Config file validation complete."
 
         # collection of config params 
-        min_frac = cfg["orbit"]["obliqua"]["min_frac"]
+        outpath      = cfg["params"]["out"]["path"]
+        if outpath == "out"
+            outpath = OUT_DIR
+        end
+        time         = cfg["params"]["out"]["time"]
 
-        visc_l   = cfg["orbit"]["obliqua"]["visc_l"]
-        visc_lus = cfg["orbit"]["obliqua"]["visc_lus"]
-        visc_s   = cfg["orbit"]["obliqua"]["visc_s"]
-        visc_sus = cfg["orbit"]["obliqua"]["visc_sus"]
+        min_frac     = cfg["orbit"]["obliqua"]["min_frac"]
 
-        n        = cfg["orbit"]["obliqua"]["n"]
-        m        = cfg["orbit"]["obliqua"]["m"]
+        visc_l       = cfg["orbit"]["obliqua"]["visc_l"]
+        visc_lus     = cfg["orbit"]["obliqua"]["visc_lus"]
+        visc_s       = cfg["orbit"]["obliqua"]["visc_s"]
+        visc_sus     = cfg["orbit"]["obliqua"]["visc_sus"]
+
+        n            = cfg["orbit"]["obliqua"]["n"]
+        m            = cfg["orbit"]["obliqua"]["m"]
 
         spectrum = cfg["orbit"]["obliqua"]["spectrum"]
         if spectrum == "adaptive"
@@ -324,9 +330,9 @@ module Obliqua
             p_max    = cfg["orbit"]["obliqua"]["p_max"]
         end
 
-        material_μ = cfg["orbit"]["obliqua"]["material_mu"]
-        material_κ = cfg["orbit"]["obliqua"]["material_k"]
-        alpha    = cfg["orbit"]["obliqua"]["alpha"]
+        material_μ   = cfg["orbit"]["obliqua"]["material_mu"]
+        material_κ   = cfg["orbit"]["obliqua"]["material_k"]
+        alpha        = cfg["orbit"]["obliqua"]["alpha"]
 
         module_solid = cfg["orbit"]["obliqua"]["module_solid"]
         ncalc        = cfg["orbit"]["obliqua"]["solid"]["ncalc"]
@@ -334,7 +340,6 @@ module Obliqua
         dr_max       = cfg["orbit"]["obliqua"]["solid"]["dr_max"]
         core         = cfg["orbit"]["obliqua"]["solid"]["core"]
         bulk_l       = cfg["orbit"]["obliqua"]["solid"]["bulk_l"]
-        permea       = cfg["orbit"]["obliqua"]["solid"]["permea"]
         porosity_thresh = cfg["orbit"]["obliqua"]["solid"]["porosity_thresh"]
 
         module_fluid = cfg["orbit"]["obliqua"]["module_fluid"]
@@ -350,7 +355,7 @@ module Obliqua
             t_width  = cfg["orbit"]["obliqua"]["mushy"]["t_width"]
         end
 
-        mass_tot = cfg["planet"]["mass_tot"]*M_Earth
+        mass_tot     = cfg["planet"]["mass_tot"]*M_Earth
 
         # convert "none" to nothing
         module_solid = nothing_if_none(module_solid)
@@ -897,7 +902,8 @@ module Obliqua
         P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
 
         # define data file path
-        datafile_path = joinpath(OUT_DIR, "obliqua_data.nc")
+        filename = string(time)+"_obliqua.nc"
+        datafile_path = joinpath(outpath, filename)
 
         # store results in netcdf file
         data_to_nc(
