@@ -902,7 +902,7 @@ module Obliqua
         P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
 
         # define data file path
-        filename = string(time)+"_obliqua.nc"
+        filename = "$(time)_obliqua.nc"
         datafile_path = joinpath(outpath, filename)
 
         # store results in netcdf file
