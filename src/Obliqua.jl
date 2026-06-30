@@ -28,6 +28,7 @@ module Obliqua
     include("fluid0d.jl")
     include("Hansen.jl")
     include("load.jl")
+    include("interior.jl")
     include("plotting.jl")
 
     # Import submodules
@@ -40,6 +41,7 @@ module Obliqua
     import .fluid0d
     import .Hansen
     import .load
+    import .interior
     import .plotting
 
     # Export submodules (mostly for autodoc purposes)
@@ -51,6 +53,7 @@ module Obliqua
     export fluid0d
     export Hansen
     export load
+    export interior
     export plotting
 
     export run_tides
@@ -178,7 +181,7 @@ module Obliqua
         cfg_dict = parsefile(cfg_path)
 
         # check headers
-        headers = ["params", "star", "orbit", "struct", "title", "version"]
+        headers = ["params", "planet", "orbit", "struct", "interior_energetics", "title", "version"]
         for h in headers
             if !haskey(cfg_dict, h)
                 error("Key $h is missing from configuration file at '$cfg_path'")
@@ -252,6 +255,7 @@ module Obliqua
         # Check that config has these always-required keys
         req_keys = Dict(
             "params.out" => ["path"],
+            "planet" => ["mass_tot"],
             "orbit.obliqua" => [
                 "min_frac","visc_l","visc_lus","visc_sus",
                 "n","m","spectrum", "material_mu", "material_k",
@@ -263,7 +267,9 @@ module Obliqua
             "orbit.obliqua.fluid" => [
                 "sigma_R"
             ],
-            "struct" => ["mass_tot","core_density"]
+            "struct" => [
+                "core_density"
+            ]
         )
         for (section, keys) in req_keys
             path = split(section, ".")
@@ -344,7 +350,7 @@ module Obliqua
             t_width  = cfg["orbit"]["obliqua"]["mushy"]["t_width"]
         end
 
-        mass_tot = cfg["struct"]["mass_tot"]*M_Earth
+        mass_tot = cfg["planet"]["mass_tot"]*M_Earth
 
         # convert "none" to nothing
         module_solid = nothing_if_none(module_solid)

@@ -25,7 +25,7 @@ module interior
         Rgrain = cfg["interior_energetics"]["grain_size"] # grain size in m
 
         # get native precision type from input arrays
-        T  = typeof(phi[1])
+        T = eltype(phi)
 
         # equality points and smoothing widths
         ϕ0_thresh    = 0.0769452
@@ -34,7 +34,7 @@ module interior
         ϕcrit_width  = 0.05
                 
         # calculate permeability element-wise using tanh smoothing
-        perm = @. ((p) -> begin
+        perm = ((p) -> begin
             # guard against division by zero at limits
             por = max(p, 1e-20)
             one_m_por = max(1.0 - p, 1e-20)
@@ -57,7 +57,7 @@ module interior
             
             # ensure result is strictly non-negative
             max(F, 0.0)
-        end)(phi)
+        end).(phi)
 
         return T.(perm)
     end
@@ -83,7 +83,7 @@ module interior
         porosity_thresh = cfg["orbit"]["obliqua"]["solid"]["porosity_thresh"]
 
         # get native precision type from input arrays
-        T = typeof(perm[1])
+        T = eltype(perm)
 
         # apply thresholding to porosity array
         phi[phi .< porosity_thresh] .= T(0.0)
@@ -116,7 +116,7 @@ module interior
         b = cfg["orbit"]["obliqua"]["solid"]["dbulk_power"] # power law exponent for drained bulk modulus
 
         # get native precision type from input arrays
-        T  = typeof(bulk[1])
+        T  = eltype(bulk)
         cT = complex(T)
 
         # define mush layer properties --> should move to config file in the future
