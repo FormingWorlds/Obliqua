@@ -247,7 +247,7 @@ module Obliqua
                         phi::Array{prec,1},
                         perm::Array{prec,1},
                         cfg::Dict
-                        )::Tuple{Vector{Float64}, Float64, Vector{Tuple{Int,Int,Int}}, Vector{Float64}, Vector{Float64}, Vector{ComplexF64}}
+                        )::Tuple{Vector{Float64}, Float64, Vector{Tuple{Int,Int,Int}}, Vector{Float64}, Vector{ComplexF64}}
       
         # Read configuration options from dict
         @info "Using configuration '$(cfg["title"])'"
@@ -257,7 +257,7 @@ module Obliqua
             "params.out" => ["path"],
             "planet" => ["mass_tot"],
             "orbit.obliqua" => [
-                "min_frac","visc_l","visc_lus","visc_sus",
+                "store_3D", "min_frac","visc_l","visc_lus","visc_sus",
                 "n","m","spectrum", "material_mu", "material_k",
                 "module_solid", "module_fluid", "module_mushy"
             ],
@@ -307,6 +307,8 @@ module Obliqua
             outpath = OUT_DIR
         end
         time         = cfg["params"]["out"]["time"]
+
+        store_3D     = cfg["orbit"]["obliqua"]["store_3D"]
 
         min_frac     = cfg["orbit"]["obliqua"]["min_frac"]
 
@@ -480,14 +482,14 @@ module Obliqua
 
         # get frequency dependent complex bulk modulus per mode
         if module_solid === "solid1d-mush" || module_solid === "solid1d-mush-relax"
-            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-10); material="elastic", α=alpha)
-            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-10); material=material_κ, α=alpha)
+            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-15); material="elastic", α=alpha)
+            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-15); material=material_κ, α=alpha)
             
             # calculate Biot's modulus
             α  = precc(1.0) .- (κdc ./ κc)
         else
-            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-10); material=material_κ, α=alpha)
-            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-10); material="elastic", α=alpha)
+            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-15); material=material_κ, α=alpha)
+            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-15); material="elastic", α=alpha)
 
             α = fill!(similar(κc, precc), 1)
         end
@@ -600,7 +602,7 @@ module Obliqua
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
-                            permea=permea, porosity_thresh=porosity_thresh
+                            porosity_thresh=porosity_thresh
                         )
                     elseif module_solid=="solid1d-mush-relax"
                         prf_total[iss, i_start:i_end], map_total_μ[iss, :, :, i_start:i_end], map_total_κ[iss, :, :, i_start:i_end], map_total_l[iss, :, :, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_mush_relax( 
@@ -612,7 +614,7 @@ module Obliqua
                             μ_core, κ_core;
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
-                            permea=permea, porosity_thresh=porosity_thresh
+                            porosity_thresh=porosity_thresh
                         )
                     else
                         throw("No compatible solid tides module: $module_solid.")
@@ -633,14 +635,21 @@ module Obliqua
                         ) 
                     # elseif 1D interior and heating profile from density-contrast/Rayleigh-drag
                     elseif module_fluid=="fluid1d"
+                        if iseg > 1
+                            i_sp, i_ep = is_seg[iseg-1]
+                            P_b = prf_total[iss, i_ep]
+                        else 
+                            P_b = 0.0
+                        end
                         prf_total[iss, i_start:i_end], knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d(
                             σ, ρ_seg, r_seg, 
-                            g_seg, ρ_ratio,
-                            S_mass, sma, R; n=n_i,
+                            η_seg, ρ_ratio,
+                            P_b, R; n=n_i,
                             sigma_R=sigma_R,
                             sigma_inf=sigma_R_inf,
                             sigma_R_prf=sigma_R_prf,
-                            H_R=H_R, efficiency=efficiency_seg
+                            H_R=H_R, efficiency=efficiency_seg,
+                            visc_l=visc_l
                         )
                     else
                         throw("No compatible fluid tides module: $module_fluid.")
@@ -732,6 +741,11 @@ module Obliqua
                     # calculate the load distribution factor
                     factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
 
+                    if factor < 0. || factor > 1.1
+                        @warn "Load distribution factor is negative for frequency index $i and segment $iseg. Setting factor to 1."
+                        factor = 1.
+                    end
+
                     # correct heating profile with the load distribution factor
                     prf_total[i, i_start:i_end] .*= factor
                     prf_total[i, i_start_ini:i_end_ini] .*= factor
@@ -784,6 +798,8 @@ module Obliqua
             P_T_1_glb_κ = map_total_κ .* U2
             P_T_1_glb_l = map_total_l .* U2
 
+            ratios = zeros(Float64, N_σ)
+
             for iss in 1:N_σ
                 unorm_prf = prf_total[iss, :]
                 
@@ -794,10 +810,13 @@ module Obliqua
                 
                 # calculate ratio
                 ratio = P_T_1_blk[iss] / integrated_profile_power
-                
+                ratios[iss] = ratio
+
                 # Print formatted results
-                @info("Freq Index: %d | Ratio: %.6f\n", iss, ratio)
+                @info("Freq Index: %d | Freq: %.6f | Ratio: %.6f\n", iss, σ_range[iss], ratio)
             end          
+
+            @info("Ratios: $ratios")
 
             P_T_blk = Float64(sum(P_T_1_blk)) # W
 
@@ -807,13 +826,35 @@ module Obliqua
             # determine the total heat input from heating profile
             P_T_prf_blk = Float64(sum(dv .* P_T_prf))
 
+            # integrate spatially if not storing 3D maps
+            if !store_3D
+                # define coordinate arrays in radians
+                lat_vals = deg2rad.(0:res:180)
+                # create a weight array for the latitude dimension (sin(lat))
+                sin_lat_weights = reshape(sin.(lat_vals), 1, :, 1, 1)
+
+                # dΩ = (Δlat * Δlon) represents the solid angle of each cell
+                dΩ = deg2rad(res)^2
+                
+                # perform area-weighted integration
+                # the sum collapses dims 2 (lat) and 3 (lon)
+                P_T_1_glb_μ = sum(P_T_1_glb_μ .* sin_lat_weights .* dΩ, dims=(2, 3))
+                P_T_1_glb_κ = sum(P_T_1_glb_κ .* sin_lat_weights .* dΩ, dims=(2, 3))
+                P_T_1_glb_l = sum(P_T_1_glb_l .* sin_lat_weights .* dΩ, dims=(2, 3))
+            end
+
+            # convert to Float32 to save space
+            P_T_1_glb_μ = Float32.(P_T_1_glb_μ)
+            P_T_1_glb_κ = Float32.(P_T_1_glb_κ)
+            P_T_1_glb_l = Float32.(P_T_1_glb_l)
+
             # define data file path
             datafile_path = joinpath(OUT_DIR, "obliqua_data.nc")
             
             # store results in netcdf file
             data_to_nc(
                     nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                    σ_range, P_T_blk, P_T_prf_blk, Float64.(r),
+                    σ_range, P_T_blk, P_T_prf_blk, P_T_1_prf, Float64.(r),
                     P_T_1_glb_μ, P_T_1_glb_κ, P_T_1_glb_l, datafile_path
                 )
 
@@ -823,7 +864,7 @@ module Obliqua
             P_T_prf ./ ρ # convert to mass heating rate (W/kg)
 
             # return full Imk2 spectrum for plotting
-            return Float64.(P_T_prf), Float64.(P_T_blk), Float64.(σ_range), Float64.(imag_kn)
+            return Float64.(P_T_prf), Float64.(P_T_blk), nmk, Float64.(σ_range), ComplexF64.(knms_total)
         end
             
         # alternatively, if using adaptive spectrum, then calculate heating profile and
@@ -901,6 +942,28 @@ module Obliqua
         # determine the total heat input from heating profile
         P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
 
+        # integrate spatially if not storing 3D maps
+        if !store_3D
+            # define coordinate arrays in radians
+            lat_vals = deg2rad.(0:res:180)
+            # create a weight array for the latitude dimension (sin(lat))
+            sin_lat_weights = reshape(sin.(lat_vals), 1, :, 1, 1)
+
+            # dΩ = (Δlat * Δlon) represents the solid angle of each cell
+            dΩ = deg2rad(res)^2
+            
+            # perform area-weighted integration
+            # the sum collapses dims 2 (lat) and 3 (lon)
+            P_T_s_glb_μ = sum(P_T_s_glb_μ .* sin_lat_weights .* dΩ, dims=(2, 3))
+            P_T_s_glb_κ = sum(P_T_s_glb_κ .* sin_lat_weights .* dΩ, dims=(2, 3))
+            P_T_s_glb_l = sum(P_T_s_glb_l .* sin_lat_weights .* dΩ, dims=(2, 3))
+        end
+
+        # convert to Float32 to save space
+        P_T_s_glb_μ = Float32.(P_T_s_glb_μ)
+        P_T_s_glb_κ = Float32.(P_T_s_glb_κ)
+        P_T_s_glb_l = Float32.(P_T_s_glb_l)
+
         # define data file path
         filename = "$(time)_obliqua.nc"
         datafile_path = joinpath(outpath, filename)
@@ -908,7 +971,7 @@ module Obliqua
         # store results in netcdf file
         data_to_nc(
                 nmk, is_seg, segments, knms_total, knms_T, knms_L, 
-                σ_range, P_T_blk, P_T_prf_blk, Float64.(r),
+                σ_range, P_T_blk, P_T_prf_blk, P_T_s_prf, Float64.(r),
                 P_T_s_glb_μ, P_T_s_glb_κ, P_T_s_glb_l, datafile_path
             )
 
@@ -1421,7 +1484,6 @@ module Obliqua
     - `core::String="liquid"`           : Core state, either "liquid" or "solid".
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
-    - `permea::Float64=1e-7`            : Permeability of mush layer.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
 
     # Returns
@@ -1450,7 +1512,6 @@ module Obliqua
                         core::String="liquid",
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
-                        permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
                         )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
@@ -1560,7 +1621,6 @@ module Obliqua
     - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
-    - `permea::Float64=1e-7`            : Permeability of mush layer.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
 
     # Returns
@@ -1593,7 +1653,6 @@ module Obliqua
                         core::String="liquid",
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
-                        permea::Float64=1e-7,
                         porosity_thresh::Float64=1e-5
                         )::Tuple{Array{Float64,1},Array{Float64, 3},Array{Float64, 3},Array{Float64, 3},ComplexF64,ComplexF64}
 
@@ -1742,7 +1801,7 @@ module Obliqua
 
 
     """
-        run_fluid1d(omega, rho, radius, gravity, ρ_ratio, S_mass, sma, R; kwargs...)
+        run_fluid1d(omega, rho, radius, visc, ρ_ratio, P_b, R; n=2, sigma_R=1e-3, sigma_inf=1e-7, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3, visc_l=1e2)
 
     Compute tidal heating profile and Love numbers for a 1D fluid model.
 
@@ -1750,11 +1809,9 @@ module Obliqua
     - `omega::Float64`                  : Forcing frequency
     - `rho::Vector{prec}`               : Density profile
     - `radius::Vector{prec}`            : Radial grid (core → surface)
-    - `gravity::Vector{prec}`           : Gravity profile
+    - `visc::Vector{prec}`              : Viscosity profile
     - `ρ_ratio::prec`                   : Density ratio of lower layer
     - `P_b::Float64`                    : Heating at lower interface
-    - `S_mass::prec`                    : Stellar mass
-    - `sma::prec`                       : Semi-major axis
     - `R::prec`                         : Planet radius
 
     # Keyword Arguments
@@ -1764,6 +1821,7 @@ module Obliqua
     - `sigma_R_prf::String="uniform"`   : Drag profile type
     - `H_R::Float64=1e3`                : Drag scale height
     - `efficiency::Float64=0.3`         : Interface efficiency factor
+    - `visc_l::Float64=1e2`             : Liquid viscosity
 
     # Returns
     - `power_prf::Vector{Float64}`      : Heating profile
@@ -1773,18 +1831,17 @@ module Obliqua
     function run_fluid1d(   omega::Float64,
                             rho::Vector{prec},
                             radius::Vector{prec},
-                            gravity::Vector{prec},
+                            visc::Vector{prec},
                             ρ_ratio::prec,
-                            # P_b::Float64;
-                            S_mass::prec,
-                            sma::prec,
+                            P_b::Float64,
                             R::prec;
                             n::Int = 2,
                             sigma_R::Float64 = 1e-3,
                             sigma_inf::Float64 = 1e-7,
                             sigma_R_prf::String = "uniform",
                             H_R::Float64 = 1e3,
-                            efficiency::Float64 = 0.3
+                            efficiency::Float64 = 0.3,
+                            visc_l::Float64 = 1e2
                         )::Tuple{Vector{Float64}, ComplexF64, ComplexF64}
 
         # internal structure arrays 
@@ -1810,33 +1867,92 @@ module Obliqua
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
         z     = abs.(r_mid .- r[1])  # distance from interface
 
-        # profile shape function
-        shape = ones(length(z))
+        # heating profile        
+        if sigma_R_prf == "dynamic_interp"
+            
+            # total energies
+            E_total = power_blk * Vs
+            E_inf   = power_blk_inf * Vs
+            E_base  = P_b * Vs
 
-        if sigma_R_prf == "exp"
-            shape .= exp.(-z ./ H_R)
+            E_gauss = max(E_total - E_base - E_inf, 0)
 
-        elseif sigma_R_prf == "linear"
-            shape .= max.(0, 1 .- z ./ H_R)
+            # baseline (shear + bulk + darcy) heating
+            shear_bulk_darcy = fill(P_b, length(z))
 
-        elseif sigma_R_prf == "quadratic"
-            shape .= max.(0, 1 .- z ./ H_R).^2
+            # determine viscosity transition depth
+            idx = findfirst(visc .<= visc_l)
 
-        elseif sigma_R_prf == "dynamic"
-            l_mix = max.(min.(z, H_R), 1e-12)
-            shape .= exp.(-z ./ l_mix)
+            if isnothing(idx)
+                z_visc = maximum(z)
+            elseif idx == 1
+                z_visc = z[1]
+            else
+                # linear interpolation
+                μ1 = visc[idx-1]
+                μ2 = visc[idx]
 
-        elseif sigma_R_prf != "uniform"
-            error("Unknown sigma_R_prf: $sigma_R_prf")
-        end
+                f = clamp((visc_l - μ1)/(μ2 - μ1), 0.0, 1.0)
 
-        # heating profile
-        power_prf = power_blk_inf .+ D_power_blk .* shape
+                z_visc = z[idx-1] + f*(z[idx]-z[idx-1])
+            end
 
-        # normalize to match bulk heating
-        unorm = sum(power_prf .* dVs) / Vs
-        if unorm > 0
-            power_prf .*= power_blk / unorm
+            # sigmoid (drag) heating
+            width = max(z_visc/8, H_R/10)
+
+            drag = @. 0.5 * (1 + tanh((z - z_visc/2)/width))
+            drag[z .>= z_visc] .= 1
+
+            norm = sum(drag .* dVs)
+
+            if norm > 0
+                drag .*= E_inf / norm
+            else
+                drag .= 0
+            end
+
+            # Gaussian (interface friction)
+            σ = H_R/4 # Controls width 
+            μ = 2*H_R # Peak one sigma above the interface 
+            friction = @. exp(-0.5 * ((z - μ) / σ)^2)
+
+            if norm > 0
+                friction .*= E_gauss / norm
+            else
+                friction .= 0
+            end
+
+            power_prf = shear_bulk_darcy .+ drag .+ friction
+
+        else
+            # profile shape function
+            shape = ones(length(z))
+
+            if sigma_R_prf == "exp"
+                shape .= exp.(-z ./ H_R)
+
+            elseif sigma_R_prf == "linear"
+                shape .= max.(0, 1 .- z ./ H_R)
+
+            elseif sigma_R_prf == "quadratic"
+                shape .= max.(0, 1 .- z ./ H_R).^2
+
+            elseif sigma_R_prf == "dynamic"
+                l_mix = max.(min.(z, H_R), 1e-12)
+                shape .= exp.(-z ./ l_mix)
+
+            elseif sigma_R_prf != "uniform"
+                error("Unknown sigma_R_prf: $sigma_R_prf")
+            end
+
+            # heating profile
+            power_prf = power_blk_inf .+ D_power_blk .* shape
+
+            # normalize to match bulk heating
+            unorm = sum(power_prf .* dVs) / Vs
+            if unorm > 0
+                power_prf .*= power_blk / unorm
+            end
         end
 
         return Float64.(power_prf), ComplexF64(k2_T), ComplexF64(k2_L)
@@ -1934,6 +2050,7 @@ module Obliqua
     - `σ_range::Array{Float64,1}`               : Array of forcing frequencies.
     - `P_T_blk::Float64`                        : Tidal heating (bulk).
     - `P_T_prf_blk::Float64`                    : Tidal heating (bulk from profile).
+    - `P_T_s_prf::Matrix{Float64}`              : Tidal heating profile for each (n,m,k) and spatial location.
     - `radius::Vector{Float64}`                 : Radial grid points.
     - `P_T_s_glb_μ::Array{Float64,4}`           : Tidal heating map for each (n,m,k) and spatial location.
     - `P_T_s_glb_κ::Array{Float64,4}`           : Tidal heating map for each (n,m,k) and spatial location.
@@ -1949,10 +2066,11 @@ module Obliqua
                         σ_range::Array{Float64,1}, 
                         P_T_blk::Float64, 
                         P_T_prf_blk::Float64, 
+                        P_T_s_prf::Matrix{Float64},
                         radius::Vector{Float64},
-                        P_T_s_glb_μ::Array{Float64,4},
-                        P_T_s_glb_κ::Array{Float64,4},
-                        P_T_s_glb_l::Array{Float64,4},
+                        P_T_s_glb_μ::Array{Float32,4},
+                        P_T_s_glb_κ::Array{Float32,4},
+                        P_T_s_glb_l::Array{Float32,4},
                         datafile_path::String
                        )
         
@@ -1978,8 +2096,8 @@ module Obliqua
             defDim(ds, "segments", length(segments))
             defDim(ds, "r",        length(radius))
             defDim(ds, "z",        length(P_T_s_glb_μ[1, 1, 1, :]))
-            defDim(ds, "lon",      length(0:res:360-0.001))
-            defDim(ds, "lat",      length(0:res:180))
+            defDim(ds, "lon",      length(P_T_s_glb_μ[1, 1, :, 1]))
+            defDim(ds, "lat",      length(P_T_s_glb_μ[1, :, 1, 1]))
             defDim(ds, "complex",  2)
 
             # PART 1
@@ -2003,8 +2121,9 @@ module Obliqua
             defVar(ds, "P_T_prf_blk", P_T_prf_blk, ()) 
 
             defVar(ds, "radius", radius, ("r",))
-            defVar(ds, "lon", collect(0:res:360-0.001), ("lon",))
-            defVar(ds, "lat", collect(0:res:180), ("lat",))
+            defVar(ds, "P_T_s_prf", P_T_s_prf, ("nmk", "z"))
+            defVar(ds, "lon", P_T_s_glb_μ[1, 1, :, 1], ("lon",))
+            defVar(ds, "lat", P_T_s_glb_μ[1, :, 1, 1], ("lat",))
             defVar(ds, "P_T_s_glb_μ", P_T_s_glb_μ, ("nmk", "lat", "lon", "z"))
             defVar(ds, "P_T_s_glb_κ", P_T_s_glb_κ, ("nmk", "lat", "lon", "z"))
             defVar(ds, "P_T_s_glb_l", P_T_s_glb_l, ("nmk", "lat", "lon", "z"))
