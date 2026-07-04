@@ -1,7 +1,7 @@
 
 ### Reference (3)
 
-# Solid-Phase - solid1d_relax
+# Solid-Phase - solid1d-relax
 
 A significant advantage of the `solid1d-relax` model is that it eliminates the need for the cumbersome imposition of internal boundary conditions required by shooting methods. Instead, the relaxation method solves for the modal solution across the entire domain simultaneously.
 

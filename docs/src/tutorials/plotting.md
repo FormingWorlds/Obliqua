@@ -14,6 +14,7 @@ While this is still a work in progress, `Obliqua` currently includes basic plott
 - `Obliqua.plotting.plot_surface_heating`: Plots the surface tidal power as a function of latitude and longitude.
 - `Obliqua.plotting.plot_relaxation_solution`: Plots the $y$-functions as a function of the radius. (Specifically useful for debugging the relaxation models, but can be used for the other models as well).
 
+Additionally, the user can use the python based `visualize_output.ipynb` notebook to visualize the output of the tidal models. This notebook is located in the `examples` folder.
 
 ---
 ---
