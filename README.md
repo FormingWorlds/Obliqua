@@ -11,8 +11,6 @@
 
 A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles
 
-Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
-
 ### Documentation
 https://proteus-framework.org/Obliqua
 

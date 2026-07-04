@@ -1,9 +1,9 @@
 
 ### Reference (3)
 
-# Solid-Phase - solid1d_mush
+# Solid-Phase - solid1d-mush
 
-The `solid1d-mush` model is also based on a forward propagation scheme, but it includes the effects of porosity as a **poro-viscoelastic model**. 
+The `solid1d-mush` model also uses the shooting method approach and is in many regards identical to the original **Love.jl** model by Hamish Hay (see [original repository](https://github.com/hamishHay/Love.jl)). In addition to the `solid1d` model, it includes the effects of porosity making it a **poro-viscoelastic model**. 
 
 The governing equations are an extension of the `solid1d` model. The additional complexity is handled through two extra variables: the 7th and 8th $y$-functions, representing **pore pressure** and **Darcy flux** (relative tangential displacement), respectively.
 
