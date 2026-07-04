@@ -10,11 +10,11 @@ module constants
     export res
 
     # Set the precision for the entire module. You can switch between different types as needed.
-    const prec  = BigFloat
-    const precc = Complex{BigFloat}
+    # const prec  = BigFloat
+    # const precc = Complex{BigFloat}
 
-    # const prec  = Float64
-    # const precc = Complex{Float64}
+    const prec  = Float64
+    const precc = Complex{Float64}
 
     # const prec = Double64
     # const precc = Complex{Double64}
@@ -32,6 +32,6 @@ module constants
 
 
     # Define spherical grid resolution
-    const res::Float64 = 5.0                    # angular resolution in degrees
+    const res::Float64 = 60.0                    # angular resolution in degrees
 
 end

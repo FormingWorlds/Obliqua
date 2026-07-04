@@ -214,7 +214,7 @@ module solid1d_relax
         gs = g ./ g0
         μs = μ ./ μ0
         Ks = K ./ μ0
-        ωs = ω / ω0  # FIXED: Division instead of multiplication
+        ωs = ω / ω0
 
         R = Vector{Matrix{precc}}(undef, Nr)
 
