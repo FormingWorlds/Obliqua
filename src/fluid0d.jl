@@ -5,7 +5,7 @@ module fluid0d
     include("constants.jl")
     using .constants
 
-    export compute_fluid_lovenumbers
+    export compute_fluid_lovenumbers, mean_rho
 
     
     """

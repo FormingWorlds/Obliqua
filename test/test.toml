@@ -1,6 +1,5 @@
-# This is the default configuration file.
-# The variables are explained below. If you want to model your own conditions,
-# try making a copy of this file and then modifying it.
+# This is the default configuration file for testing.
+# The variables are explained below.
 
 # The general structure is:
 #   [params]        parameters for code execution, output files, time-stepping, convergence
@@ -17,7 +16,8 @@ version = "1.0"                 # Version of this configuration file
 [params]
     # output files
     [params.out]
-        path        = "default"
+        path        = "out"     # Output directory for results, "out" will store to the default OUT_DIR
+        time        = 0.0       # Time of simulation [yr]
         logging     = "INFO"
         plot_fmt    = "png"     # Plotting image file format, "png" or "pdf" recommended
 
@@ -25,25 +25,26 @@ version = "1.0"                 # Version of this configuration file
 # Star
 [star]
     # Physical parameters
-    mass    = 1.0               # stellar mass [M_sun]
+    mass            = 1.0       # stellar mass [M_sun]
+
+[planet]
+    mass_tot        = 1.0       # total initial planet mass [M_earth]
 
 # Orbital system
 [orbit]
-    semimajoraxis = 1.0         # initial semi-major axis of planet's orbit [AU]
-    eccentricity = 0.0          # initial eccentricity of planet's orbit [dimensionless]
-
-    satellite = false           # include satellite (moon)?
-    mass_sat = 7.347e+22        # mass of satellite [kg]
-    semimajoraxis_sat = 3e8     # initial SMA of satellite's orbit [m]
+    semimajoraxis   = 1.0       # initial semi-major axis of planet's orbit [AU]
+    eccentricity    = 0.0       # initial eccentricity of planet's orbit [dimensionless]
 
     [orbit.obliqua]
+        store_3D    = false     # Store 3D tidal response (displacement, stress, strain) for each layer. Note: this will generate large output files. If false, radial profiles of tidal responses will be stored instead.
+
         min_frac    = 0.02      # Minimal segment radius fraction before smoothing [dimensionless]
         visc_l      = 1e2       # Pure liquid viscosity [Pa s]
         visc_lus    = 5e5       # Liquidus viscosity to use [Pa s]
         visc_s      = 1e22      # Pure solid visosity [Pa s]
         visc_sus    = 5e13      # Solidus viscosity to use [Pa s]
-        n           = 2         # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
-        m           = 2         # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
+        n           = [2]       # Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly)
+        m           = [2]       # Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide
         spectrum    = "adaptive"# Obtain k2 spectrum for whole spectrum (<"full">) or region of interest (<"adaptive">)
         s_min       = 1         # Minimum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
         s_max       = 1         # Maximum tidal mode range (k is the Fourier index in mean anomaly), set <nothing> to obtain tidal mode range from eccentricity relation
@@ -90,7 +91,7 @@ version = "1.0"                 # Version of this configuration file
             dr_max      = 3000      # Maximum spacing between grid points (for relaxation method) [m]
             core        = "liquid"  # Core solution to use as CMB boundary condition, options: "liquid", "solid", "inertial"
             bulk_l      = 1e9       # Liquid bulk modulus [Pa]
-            permea      = 1e-7      # Permeability [m^2]
+            dbulk_power = 1         # Drained bulk modulus powerlaw scaling exponent
             porosity_thresh = 1e-5  # Porosity threshold, below this value no mush. [dimensionless]
 
         [orbit.obliqua.fluid]
@@ -106,7 +107,12 @@ version = "1.0"                 # Version of this configuration file
 
 # Planetary structure - physics table
 [struct]
-    mass_tot     = 1.0          # M_earth
     core_density = 10738.33     # Core density [kg m-3]
     core_shear   = 0.0          # Core shear [Pa]
     core_bulk    = 5e11         # Core bulk modulus [Pa]
+
+# Interior energy transport (mantle & core thermal evolution)
+[interior_energetics]
+
+    # Rheology and convection
+    grain_size                = 0.1          # crystal grain size [m]

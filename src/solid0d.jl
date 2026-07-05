@@ -3,7 +3,7 @@ module solid0d
     include("constants.jl")
     using .constants
     
-    export compute_solid_lovenumbers
+    export compute_solid_lovenumbers, mean_cmu
     
     
     """

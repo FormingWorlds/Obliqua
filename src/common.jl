@@ -15,7 +15,7 @@ module common
     using SparseArrays
     using LinearAlgebra
 
-    export define_spherical_grid, get_scales, get_Ic, get_A, get_A!, get_heating_profile, get_heating_map
+    export Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
 
     
     """
@@ -360,8 +360,8 @@ module common
             end
 
             # print rank for debugging
-            println("Rank of Ic for inertial core: ", rank(Ic))
-            println("Condition number of Ic for inertial core: ", cond(Ic))
+            @debug("Rank of Ic for inertial core: ", rank(Ic))
+            @debug("Condition number of Ic for inertial core: ", cond(Ic))
 
         elseif type == "solid"
             # First column
