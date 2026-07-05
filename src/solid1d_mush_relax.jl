@@ -184,39 +184,14 @@ module solid1d_mush_relax
         Y8 = [1,2,5,6,3,7,4,8]
         Y8_inv = [1,2,5,7,3,4,6,8]
 
-        # 1. Identify Regions
-        # No duplication needed; we use the original grid dimensions
+        # Identify Regions
         is_mush = k .> 0
         Nr = length(r)
 
-        # # 2. Dynamic Scaling
-        # R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.); Y=Y8)
-        # ωs = ω * s0
-        # rs, ρs, gs, μs, Ks = r./R0, ρ./ρ0, g./g0, μ./μ0, K./μ0
-        # ρₗs, Kls, Kds, ηₗs, ks = ρₗ./ρ0, Kl./μ0, Kd./μ0, ηₗ./(μ0*s0), k./R0^2
+        # Dynamic Scaling
+        R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r[end], M_tot, G; Y=Y8)
 
-        # 1. Establish base scales
-        R0 = r[end]
-        ρ0 = M_tot / ((4/3) * π * R0^3)
-        G0 = prec(6.6743e-11)
-
-        # 2. Derive dependent scales
-        ω0 = sqrt(G0 * ρ0)
-        g0 = G0 * ρ0 * R0
-        μ0 = G0 * (ρ0^2) * (R0^2)
-        P0 = G0 * ρ0 * (R0^2)
-
-        S = zeros(prec, 8, 8)
-        S[1, 1] = 1.0/g0     # y1: radial displacement (m)
-        S[2, 2] = 1.0/g0     # y2: tangential displacement (m)
-        S[3, 3] = μ0/(g0*R0) # y3: radial stress (Pa)
-        S[4, 4] = μ0/(g0*R0) # y4: tangential stress (Pa)
-        S[5, 5] = 1.0        # y5: potential (m^2/s^2)
-        S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
-        S[7, 7] = μ0/(g0*R0) # y7: pore pressure (Pa)
-        S[8, 8] = 1.0/g0     # y8: relative radial displacement (m)
-
-        # 3. Scale your physical profiles to be dimensionless
+        # Scale physical profiles to be dimensionless
         rs = r ./ R0
         ρs = ρ ./ ρ0
         gs = g ./ g0
@@ -229,7 +204,7 @@ module solid1d_mush_relax
         ηₗs = ηₗ./(μ0/ω0)
         ks = k./R0^2
 
-        # 3. Initialize Matrices
+        # Initialize Matrices
         R = [zeros(precc, 8, 8) for _ in 1:Nr]
         B = [zeros(precc, 8, 1) for _ in 1:Nr]
         idx_6 = [1, 2, 3, 5, 6, 7]

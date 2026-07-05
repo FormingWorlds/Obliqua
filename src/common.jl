@@ -122,21 +122,24 @@ module common
 
 
     """
-        get_scales(R0::prec, M0::prec, g0::prec)
+        get_scales(R0::prec, M0::prec, G0::prec; Y::Vector{Int}=[1,2,3,4,5,6])
 
-    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravity scale 
-    `g0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
+    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravitational constant scale 
+    `G0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
 
     # Arguments
     - `R0::prec`                         : Reference radius scale (e.g., planetary radius).
     - `M0::prec`                         : Reference mass scale (e.g., planetary mass).
-    - `g0::prec`                         : Reference gravity scale.
+    - `G0::prec`                         : Reference gravitational constant scale.
+
+    # Keyword Arguments
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. Merely used to determine the size of the scaling matrix S.
 
     # Returns
     Tuple of characteristic scales:
     - `R0::prec`                         : Length scale (m).
     - `M0::prec`                         : Mass scale (kg).
-    - `s0::prec`                         : Time scale (s).
+    - `ω0::prec`                         : Frequency scale (rad/s).
     - `ρ0::prec`                         : Density scale (kg/m^3).
     - `G0::prec`                         : Gravitational constant scale (m^3 kg^-1 s^-2).
     - `g0::prec`                         : Gravity scale (m/s^2).
@@ -144,27 +147,33 @@ module common
     - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
     - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
     """
-    function get_scales(R0::prec, M0::prec, g0::prec; Y=[1,2,3,4,5,6,7,8])::Tuple
+    function get_scales(R0::prec, M0::prec, G0::prec; Y=[1,2,3,4,5,6])::Tuple
 
-        ρ0 = M0 / R0^3
-        P0 = g0 * R0
-        μ0 = ρ0 * g0 * R0
+        # Define the number of state variables based on the length of Y
+        N = length(Y)
 
-        s0 = sqrt(g0 / R0)
-        G0 = R0^3 / (M0 * s0^2) 
+        # Derive dependent scales
+        ρ0 = M0 / ((4/3) * π * R0^3)
+        ω0 = sqrt(G0 * ρ0)
+        g0 = G0 * ρ0 * R0
+        μ0 = G0 * (ρ0^2) * (R0^2)
+        P0 = G0 * ρ0 * (R0^2)
 
-        S = zeros(prec, length(Y), length(Y))
-        S[Y[1], Y[1]] = R0       # y1: radial displacement (m)
-        S[Y[2], Y[2]] = R0       # y2: tangential displacement (m)
-        S[Y[3], Y[3]] = μ0       # y3: radial stress (Pa)
-        S[Y[4], Y[4]] = μ0       # y4: tangential stress (Pa)
-        S[Y[5], Y[5]] = P0       # y5: potential (m^2/s^2)
-        S[Y[6], Y[6]] = g0       # y6: potential gradient/gravity (m/s^2)
-        S[Y[7], Y[7]] = μ0       # y7: pore pressure (Pa)
-        S[Y[8], Y[8]] = R0       # y8: relative radial displacement (m)
+        # Define the scaling matrix S and its inverse
+        S = zeros(prec, N, N)
+        S[1, 1] = 1.0/g0     # y1: radial displacement (m)
+        S[2, 2] = 1.0/g0     # y2: tangential displacement (m)
+        S[3, 3] = μ0/(g0*R0) # y3: radial stress (Pa)
+        S[4, 4] = μ0/(g0*R0) # y4: tangential stress (Pa)
+        S[5, 5] = 1.0        # y5: potential (m^2/s^2)
+        S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
+        if N == 8
+            S[7, 7] = μ0/(g0*R0) # y7: pore pressure (Pa)
+            S[8, 8] = 1.0/g0     # y8: relative radial displacement (m)
+        end
 
         Sinv = inv(S)
-        return R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv
+        return R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv
     end
 
 
