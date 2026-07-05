@@ -1025,8 +1025,7 @@ module common
             # 3. Local Volumetric Bulk Heating (W/m³)
             Eκ_loc = ω/2 * imag(κ[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
 
-            # 4. Radial Integration (W/m³ * m -> W/m²)
-            # We accumulate the heat flux from each shell into the final map
+            # 4. Accumulate the heat flux from each shell into the final map (W/m³)
             Eμ_3d[:, :, i] = Eμ_loc
             Eκ_3d[:, :, i] = Eκ_loc
 
@@ -1135,7 +1134,7 @@ module common
                 El_loc .= 0.5 * ϕ[i]^2 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)
             end
 
-            # 5. Radial Integration (W/m³ * m -> W/m²)
+            # 5. Accumulate the heat flux from each shell into the final map (W/m³)
             Eμ_3d[:, :, i] = Eμ_loc
             Eκ_3d[:, :, i] = Eκ_loc
             El_3d[:, :, i] = El_loc

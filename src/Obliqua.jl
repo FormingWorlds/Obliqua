@@ -881,10 +881,10 @@ module Obliqua
         P_T_s_blk = zeros(Float64,  N_σ)
 
         # initialize frequency dependent heating profile
-        P_T_s_prf = zeros(Float64,  N_σ, length(shear))
-        P_T_s_glb_μ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
-        P_T_s_glb_κ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
-        P_T_s_glb_l = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))
+        P_T_s_prf = zeros(Float64,  N_σ, length(shear))     # W/m^3
+        P_T_s_glb_μ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))     # W
+        P_T_s_glb_κ = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))     # W
+        P_T_s_glb_l = zeros(Float64,  N_σ, length(collect(0:res:180)), length(collect(0:res:360-0.001)), length(shear))     # W
         
         # loop over tidal modes 
         for iss in 1:N_σ
@@ -945,18 +945,21 @@ module Obliqua
         # integrate spatially if not storing 3D maps
         if !store_3D
             # define coordinate arrays in radians
-            lat_vals = deg2rad.(0:res:180)
+            lat_vals = deg2rad.(collect(0:res:180))
             # create a weight array for the latitude dimension (sin(lat))
-            sin_lat_weights = reshape(sin.(lat_vals), 1, :, 1, 1)
-
-            # dΩ = (Δlat * Δlon) represents the solid angle of each cell
-            dΩ = deg2rad(res)^2
+            weight = reshape(sin.(lat_vals), 1, :, 1, 1)
+            dres   = deg2rad.(res)
+            # radial part
+            dr = reshape(r[2:end] .- r[1:end-1], 1, 1, 1, :)
+            rr = reshape(r[1:end-1], 1, 1, 1, :)
+            # volume element
+            dV = reshape(dv, 1, 1, 1, :)
             
             # perform area-weighted integration
             # the sum collapses dims 2 (lat) and 3 (lon)
-            P_T_s_glb_μ = sum(P_T_s_glb_μ .* sin_lat_weights .* dΩ, dims=(2, 3))
-            P_T_s_glb_κ = sum(P_T_s_glb_κ .* sin_lat_weights .* dΩ, dims=(2, 3))
-            P_T_s_glb_l = sum(P_T_s_glb_l .* sin_lat_weights .* dΩ, dims=(2, 3))
+            P_T_s_glb_μ = sum(P_T_s_glb_μ .* weight .* dres^2, dims=(2, 3)) .* rr.^2 .* dr ./ dV    # Wm-3
+            P_T_s_glb_κ = sum(P_T_s_glb_κ .* weight .* dres^2, dims=(2, 3)) .* rr.^2 .* dr ./ dV    # Wm-3
+            P_T_s_glb_l = sum(P_T_s_glb_l .* weight .* dres^2, dims=(2, 3)) .* rr.^2 .* dr ./ dV    # Wm-3
         end
 
         # convert to Float32 to save space
