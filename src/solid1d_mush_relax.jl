@@ -10,7 +10,6 @@ module solid1d_mush_relax
     using LinearAlgebra
     import GenericLinearAlgebra
     using DoubleFloats
-    using MultiFloats
     using StaticArrays
     using SpecialFunctions
     using SparseArrays

@@ -8,7 +8,6 @@ module common
 
     import GenericLinearAlgebra
     using DoubleFloats
-    using MultiFloats
     using AssociatedLegendrePolynomials    
     using StaticArrays
     using SpecialFunctions
