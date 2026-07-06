@@ -17,7 +17,6 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Installation" => "install.md",
-        "Compass" => "compass.md",
         PageNode("Tutorials" => "tutorials/index.md", [
             "1 - Loading Data" => "tutorials/loading-data.md", 
             "2 - Configuring Model" => "tutorials/configuration-file.md", 
