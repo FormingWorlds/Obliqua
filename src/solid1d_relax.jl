@@ -46,7 +46,7 @@ module solid1d_relax
         # setup grids
         α = log(dr_max / dr_min)
 
-        N = round(Int, (radius[end] - radius[1]) / dr_min * α / (exp(α) - 1))
+        N = Int(ceil((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
 
         # indices i = 1:N
         i = collect(1:N)

@@ -20,6 +20,7 @@ PROTEUS: [https://proteus-framework.org/PROTEUS/](https://proteus-framework.org/
 * `README.md`           - This file
 * `CODE_OF_CONDUCT.md`  - Code of conduct for the community
 * `LICENSE.txt`         - License for modification, distribution, etc.
+* `Project.toml`        - Project file for Julia package manager
 * `src/`                - Source files
 * `docs/`               - Documentation files
 * `out/`                - Output files
