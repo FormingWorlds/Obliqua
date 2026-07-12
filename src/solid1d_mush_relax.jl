@@ -140,7 +140,7 @@ module solid1d_mush_relax
 
     
     """
-        solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+        solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core="liquid", patch=false)
 
     Solve the radial system of ODEs for the solid-body problem using a relaxation method. This function 
     implements the forward-backward relaxation scheme described in the main text of N. Kobayashi (2006).
@@ -163,10 +163,11 @@ module solid1d_mush_relax
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
     - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
     - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
-    - `M_tot::prec`                     : Total mass of the body, used for non-dimensionalization.
+    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+    - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
     - `y_t::Vector{precc}`              : Vector of length 8 representing the tidal solution at the top of the mantle. This includes the displacements, stresses, and potential at the surface.
@@ -176,7 +177,7 @@ module solid1d_mush_relax
     - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
     function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
-                                ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
+                                ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
 
         # Define ordering
         Y6 = [1,2,4,5,3,6]
@@ -188,7 +189,16 @@ module solid1d_mush_relax
         Nr = length(r)
 
         # Dynamic Scaling
-        R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv = get_scales(r[end], M_tot, G; Y=Y8)
+        R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv = get_scales(scales[1], scales[2], scales[3]; Y=Y8)
+
+        # insert solid shell around core
+        if patch
+            μ[1] = precc(1.47e11)   # these values are chosen to be representative of a solid shell
+            K[1] = precc(6.58e10)
+            Kd[1] = precc(1.47e11)
+            k[1] = 0.0
+            ϕ[1] = 0.0
+        end
 
         # Scale physical profiles to be dimensionless
         rs = r ./ R0
@@ -1064,7 +1074,7 @@ module solid1d_mush_relax
 
 
     """
-        compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+        compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid", patch=false)
 
     Compute the solution `y` to the solid-body problem using a relaxation method. This function performs the 
     forward-backward relaxation scheme described in the main text of N. Kobayashi (2006), where we first solve 
@@ -1089,19 +1099,20 @@ module solid1d_mush_relax
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
     - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
     - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
-    - `M_tot::prec`                     : Total mass of the planet.
+    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+    - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
     - `y_t::Matrix{ComplexF64}`         : 8xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     - `y_l::Matrix{ComplexF64}`         : 8x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
+        yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)
 
         Nr = length(r)
         T = eltype(yN_t)
