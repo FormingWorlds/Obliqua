@@ -55,6 +55,9 @@ Describes the planetary orbit and optional satellite:
 ### Tidal Model Parameters (`[orbit.obliqua]`)
 Controls the tidal response model.
 * **`store_3D`**: Boolean flag to store 3D tidal response data.
+* **`enforce_ec`**: Boolean flag to enforce energy conservation in tidal response calculations.
+* **`optimize_scales`**: Boolean flag to optimize scaling factors for numerical stability.
+* **`solid_shell`**: Boolean flag to add an infinitesimal solid shell around the core to couple y2 and y4 in fluid mantles.
 
 #### Rheology and Viscosity
 * **`min_frac`**, **`max_frac`**: Minimum segment fraction of total mantle before it is considered.
