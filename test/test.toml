@@ -37,6 +37,9 @@ version = "1.0"                 # Version of this configuration file
 
     [orbit.obliqua]
         store_3D    = false     # Store 3D tidal response (displacement, stress, strain) for each layer. Note: this will generate large output files. If false, radial profiles of tidal responses will be stored instead.
+        enforce_ec  = false     # Enforce energy conservation in tidal response calculations, improves stability in fluid-mush cases at low forcing frequencies (< 1e-7 Hz). This does not affect the Lovenumbers.
+        optimize_scales = false # Optimize non-dimensionalization scales for the relaxation method. This can improve convergence and stability, especially for low forcing frequencies (< 1e-7 Hz). However, do not use with Bigfloat precision.
+        solid_shell = false     # Insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers. Only use with solid1d_relax or solid1d_mush_relax.
 
         min_frac    = 0.02      # Minimal segment radius fraction before smoothing [dimensionless]
         visc_l      = 1e2       # Pure liquid viscosity [Pa s]

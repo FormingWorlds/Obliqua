@@ -71,7 +71,7 @@ TEST_DIR        = joinpath(ROOT_DIR,"test/")
 
         # Calculate expected number of elements based on code logic
         α = log(dr_max / dr_min)
-        expected_N = round(Int, (radius[end] - radius[1]) / dr_min * α / (exp(α) - 1))
+        expected_N = Int(ceil((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
 
         # Size verifications (N will now be > 1, preventing BoundsErrors)
         @test expected_N > 1
@@ -156,7 +156,7 @@ TEST_DIR        = joinpath(ROOT_DIR,"test/")
         ρ_core, μ_core, κ_core, M_tot = 1.0, 0.0, 1.0, 10.0
 
         y_t, y_l = solid1d_relax.compute_y(
-            r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, M_tot; core="liquid"
+            r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, [r[end], M_tot, G]; core="liquid"
         )
 
         # Shape verifications

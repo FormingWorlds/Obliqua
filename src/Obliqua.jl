@@ -733,7 +733,7 @@ module Obliqua
             end
         
             # enforce energy conservation if selected in config file
-            if enforce_ec
+            if enforce_ec && any(prf_total[:, i_start:i_end] .!= 0.0)
                 @views enforce_energy_conservation!(
                     prf_total[:, i_start:i_end], 
                     knms_T[:, iseg],
@@ -965,7 +965,7 @@ module Obliqua
             P_T_s_glb_l[iss, :, :, :] = unorm_map_l .* U2
 
             # For debugging purposes log the ratio between expected and radially integrated heating
-            ratio = P_T_s_blk[iss] / sum(dv .* P_T_s_prf[iss, :])
+            ratio = P_T_s_blk[iss] / sum(P_T_s_prf[iss, :] .* dv)
             @debug "Forcing Frequency: $σ, Global heating ratio (blk/prf): $ratio"
 
         end
@@ -977,7 +977,7 @@ module Obliqua
         P_T_prf = [sum(P_T_s_prf[:,j]) for j in 1:size(P_T_s_prf,2)]
 
         # determine the total heat input from heating profile
-        P_T_prf_blk = Float64.(sum(dv .* P_T_prf))
+        P_T_prf_blk = Float64.(sum(P_T_prf .* dv))
 
         # integrate spatially if not storing 3D maps
         if !store_3D
