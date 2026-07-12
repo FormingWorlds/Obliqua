@@ -7,7 +7,7 @@ module interior
 
 
     """
-        get_permeability(phi, cfg)
+        get_permeability(phi, cfg; ϕ0_width=0.02, ϕcrit_width=0.05)
 
     Calculate permeability profile based on melt fraction (porosity) and configuration parameters.
     Uses continuous tanh smoothing between the Blake-Kozeny-Carman, Rumpf-Gupte, and Stokes regimes.
@@ -16,10 +16,14 @@ module interior
     - `phi::Array{prec,1}`              : Melt fraction (porosity) profile of the planet.
     - `cfg::Dict`                       : Configuration dictionary containing interior energetics parameters.
 
+    # Keyword Arguments
+    - `ϕ0_width::Float64=0.02`          : Width of the smoothing transition around the Blake-Kozeny-Carman to Rumpf-Gupte regime
+    - `ϕcrit_width::Float64=0.05`       : Width of the smoothing transition around the Rumpf-Gupte to Stokes regime
+
     # Returns
     - `perm::Array{prec,1}`             : Permeability profile of the planet.
     """
-    function get_permeability(phi, cfg)
+    function get_permeability(phi, cfg; ϕ0_width=0.02, ϕcrit_width=0.05)
 
         # extract grain size from config
         Rgrain = cfg["interior_energetics"]["grain_size"] # grain size in m
@@ -29,9 +33,7 @@ module interior
 
         # equality points and smoothing widths
         ϕ0_thresh    = 0.0769452
-        ϕ0_width     = 0.02
         ϕcrit_thresh = 0.771462
-        ϕcrit_width  = 0.05
                 
         # calculate permeability element-wise using tanh smoothing
         perm = ((p) -> begin
