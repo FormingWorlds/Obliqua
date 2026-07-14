@@ -34,8 +34,8 @@ GNU/Linux and MacOS (including ARM) are supported.
    ```
 
 ## Testing
-If you want to run the tests manually, simply use the script in the `test/` folder.
+If you want to run the tests manually, simply use the script located in the `test/` folder. Run the follwoing command from the Obliqua root directory:
 ```bash
-julia test/runtests.jl
+julia --project test/runtests.jl
 ```
 This will print information on whether tests passed or failed.
