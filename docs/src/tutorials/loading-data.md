@@ -89,10 +89,14 @@ omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
 to get started, as it provides all the necessary parameters for all modules. The remaining parameters can be obtained using
 
 ```julia
+cfg       = Obliqua.open_config("$RES_DIR/config/all_options.toml")
+
 perm      = Obliqua.interior.get_permeability(phi, cfg)
 perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
 bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 ```
+
+where `cfg` is the configuration file that contains all the necessary parameters for the tidal model. The `perm` and `bulkd` arrays are then calculated based on the `phi` and `bulk` arrays and the configuration file.
 
 ---
 ---

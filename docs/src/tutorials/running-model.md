@@ -14,6 +14,9 @@ using Obliqua
 # location of data files
 RES_DIR = "/path/to/Obliqua/res"
 
+# Load configuration
+cfg = Obliqua.open_config("$RES_DIR/config/all_options.toml")
+
 # use the relevant load function
 omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
     Obliqua.load.load_interior_mush_full("$RES_DIR/interior_data/test_mantle_mush_full_test.json", false)
