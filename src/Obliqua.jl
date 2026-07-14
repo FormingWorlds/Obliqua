@@ -885,7 +885,7 @@ module Obliqua
             P_T_1_glb_l = Float32.(P_T_1_glb_l)
 
             # define data file path
-            filename = "$(time)_obliqua.nc"
+            filename = @sprintf("%.0f_obliqua.nc", time)
             datafile_path = joinpath(outpath, filename)
             
             # store results in netcdf file
@@ -1005,7 +1005,7 @@ module Obliqua
         P_T_s_glb_l = Float32.(P_T_s_glb_l)
 
         # define data file path
-        filename = "$(time)_obliqua.nc"
+        filename = @sprintf("%.0f_obliqua.nc", time)
         datafile_path = joinpath(outpath, filename)
 
         # store results in netcdf file

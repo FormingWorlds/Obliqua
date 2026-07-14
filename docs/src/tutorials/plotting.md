@@ -8,13 +8,13 @@ CollapsedDocStrings = true
 
 Once the code has finished running, it will generate and output file that the user can visualize using the python based `visualize_output.ipynb` notebook. This notebook is located in the `examples` folder.
 
-The Obliqua output file will be placed in the `out` folder, unless otherwise specified in the configuration file (default is `out`). The output file will be named according to the timestep of the simulation specified in the configuration file, (default is `0.0_obliqua.nc`).
+The Obliqua output file will be placed in the `out` folder, unless otherwise specified in the configuration file (default is `out`). The output file will be named according to the timestep of the simulation specified in the configuration file, (default is `0_obliqua.nc`).
 
 When you have identified the relevant output file path, you can use the `visualize_output.ipynb` notebook to visualize the output. Simply open the notebook and update the following lines to point to the correct output file path.
 
 ```python
 out_dir      = "/path/to/obliqua/out/"
-nc_file_path = os.path.join(out_dir, "0.0_obliqua.nc")
+nc_file_path = os.path.join(out_dir, "0_obliqua.nc")
 ```
 
 The notebook will then load the output file and automatically produce several plots of the results. These plots will be stored in the `out_dir` directory. 
