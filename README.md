@@ -3,9 +3,11 @@
 <a href="https://opensource.org/license/mit">
    <img src="https://img.shields.io/badge/License-MIT-blue.svg">
 </a>
-<a href="https://arxiv.org/abs/2507.11266">
-  <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
-</a>
+<p align="center" style="margin: -7px">
+  <a href="https://codecov.io/gh/FormingWorlds/Obliqua" > 
+ <img src="https://codecov.io/gh/FormingWorlds/Obliqua/graph/badge.svg?token=wNmXt5ld7H"/> 
+ </a>
+</p>
 
 ## Obliqua (Tidal heating model)
 
