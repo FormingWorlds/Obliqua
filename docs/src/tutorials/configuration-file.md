@@ -24,6 +24,7 @@ These define metadata and output behavior:
 ### Execution Parameters (`[params]`)
 This block controls output and logging:
 * **`path`**: Directory where output files are stored.
+* **`time`**: Current time of the simulation run in years (used for output file naming).
 * **`logging`**: Logging level (e.g., `INFO`, `DEBUG`).
 * **`plot_fmt`**: Output format for generated plots.
 
@@ -32,6 +33,12 @@ This block controls output and logging:
 ### Stellar Parameters (`[star]`)
 Defines the host star:
 * **`mass`**: Stellar mass in solar masses ($M_\odot$).
+
+---
+
+### Planetary Parameters (`[planet]`)
+Defines the planet's physical properties:
+* **`mass_tot`**: Total planetary mass in Earth masses ($M_\oplus$).
 
 ---
 
@@ -47,8 +54,13 @@ Describes the planetary orbit and optional satellite:
 
 ### Tidal Model Parameters (`[orbit.obliqua]`)
 Controls the tidal response model.
+* **`store_3D`**: Boolean flag to store 3D tidal response data.
+* **`enforce_ec`**: Boolean flag to enforce energy conservation in tidal response calculations.
+* **`optimize_scales`**: Boolean flag to optimize scaling factors for numerical stability.
+* **`solid_shell`**: Boolean flag to add an infinitesimal solid shell around the core to couple y2 and y4 in fluid mantles.
 
 #### Rheology and Viscosity
+* **`min_frac`**, **`max_frac`**: Minimum segment fraction of total mantle before it is considered.
 * **`visc_l`**, **`visc_lus`**: Liquid and liquidus viscosities.
 * **`visc_s`**, **`visc_sus`**: Solid and solidus viscosities.
 
@@ -61,7 +73,8 @@ Controls the tidal response model.
 * **`s_min`**, **`s_max`**: Fourier mode range.
 
 #### Material Model
-* **`material`**: Rheological model (`"andrade"` or `"maxwell"`).
+* **`material_mu`**: Rheological model for shear modulus (`"andrade"`, `"maxwell"`, or `"elastic"`).
+* **`material_k`**: Rheological model for bulk modulus (`"andrade"`, `"maxwell"`, or `"elastic"`).
 * **`alpha`**: Andrade power-law exponent.
 
 ---
@@ -91,7 +104,7 @@ Controls the tidal response model.
 * **`dr_min`**, **`dr_max`**: Grid spacing for relaxation solver [m].
 * **`core`**: Core boundary condition (`"liquid"`, `"solid"`, `"inertial"`).
 * **`bulk_l`**: Liquid bulk modulus [Pa].
-* **`permea`**: Permeability [$m^2$].
+* **`dbulk_power`**: Drained bulk modulus powerlaw scaling exponent.
 * **`porosity_thresh`**: Threshold below which no mush is formed.
 
 ---
@@ -112,7 +125,12 @@ Controls the tidal response model.
 
 ### Planetary Structure (`[struct]`)
 Defines bulk planetary properties:
-* **`mass_tot`**: Total planetary mass [$M_\oplus$].
 * **`core_density`**: Core density [kg m$^{-3}$].
 * **`core_shear`**: Core shear [Pa s].
 * **`core_bulk`**: Core bulk modulus [Pa ].
+
+---
+
+### Interior Energetics (`[interior_energetics]`)
+Defines interior energy transfer dynamics related properties:
+* **`grain_size`**: Grain size [m].

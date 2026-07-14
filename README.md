@@ -3,40 +3,62 @@
 <a href="https://opensource.org/license/mit">
    <img src="https://img.shields.io/badge/License-MIT-blue.svg">
 </a>
-<a href="https://arxiv.org/abs/2507.11266">
-  <img src="https://img.shields.io/badge/arXiv-2507.11266-b31b1b">
-</a>
+<p align="center" style="margin: -7px">
+  <a href="https://codecov.io/gh/FormingWorlds/Obliqua" > 
+ <img src="https://codecov.io/gh/FormingWorlds/Obliqua/graph/badge.svg?token=wNmXt5ld7H"/> 
+ </a>
+</p>
 
 ## Obliqua (Tidal heating model)
 
-A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles
-
-Forked from the [original repository](https://github.com/hamishHay/Love.jl) of Hamish Hay. Distributed under the MIT License.
+A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of solid, partially-solid, and liquid planetary mantles and the associated volumetric tidal dissipation and global heating rates.
 
 ### Documentation
-https://proteus-framework.org/Obliqua
+
+Obliqua: [https://proteus-framework.org/Obliqua/](https://proteus-framework.org/Obliqua/)
+PROTEUS: [https://proteus-framework.org/PROTEUS/](https://proteus-framework.org/PROTEUS/)
 
 ### Repository structure
 * `README.md`           - This file
+* `CODE_OF_CONDUCT.md`  - Code of conduct for the community
 * `LICENSE.txt`         - License for modification, distribution, etc.
+* `Project.toml`        - Project file for Julia package manager
 * `src/`                - Source files
+* `docs/`               - Documentation files
+* `out/`                - Output files
+* `res/`                - Resources
+* `test/`               - Tests for the code
 * `examples/`           - Tools and notebooks showing how to use the code
+
+### Source code
+
+GitHub: [https://github.com/FormingWorlds/Obliqua](https://github.com/FormingWorlds/Obliqua)
+
+This software is available under the MIT license. Different components within the PROTEUS framework carry different licenses. Please find information about the use of licenses within the PROTEUS framework on the PROTEUS [licence page](https://proteus-framework.org/license).
 
 ### Installation
 
-1. Clone the repo
+1. Install Julia's package manager (Mac and Linux): 
+   ```sh
+   curl -fsSL https://install.julialang.org | sh
+   ```
+2. Clone the repo
    ```sh
    git clone https://github.com/FormingWorlds/Obliqua.git
    ```
-2. Move to the repository directory and start Julia
+3. Move to the repository directory
    ```sh
    cd Obliqua
+   ```
+4. Open Julia package manager
+   ```sh
    julia
    ```
-3. Install `Obliqua`
+5. Install `Obliqua`
    ```sh
    julia> ]
-   pkg> add https://github.com/FormingWorlds/Obliqua.git#julia
+   pkg> add .
+   ```
 
 ### Integrations
 

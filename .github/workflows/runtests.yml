@@ -34,4 +34,19 @@ jobs:
 
       # Run tests
       - name: Run test suite
-        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(coverage=true)'
+
+      # Run coverage
+      - name: Get coverage
+        run: |
+          export CODECOV_TOKEN="${{ secrets.CODECOV_TOKEN }}"
+          julia --project test/runcoverage.jl
+          export total=$(cat coverage.total)
+          echo "total=$total" >> $GITHUB_ENV
+          cat coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: FormingWorlds/Obliqua

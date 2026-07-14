@@ -3,7 +3,7 @@
 
 # Solid-Phase - solid1d
 
-The `solid1d` model uses the shooting method approach and is in many regards identical to the original **Lovepy** model (now called **Love.jl**). 
+The `solid1d` model uses the shooting method approach and is in many regards identical to the original **Lovepy** model (now called **Love.jl**) by Hamish Hay (see [original repository](https://github.com/hamishHay/Love.jl)). 
 
 The structure of the model is as follows: 
 1. We impose the Core-Mantle Boundary (CMB) condition (three elementary solutions). 

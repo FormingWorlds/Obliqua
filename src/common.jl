@@ -3,28 +3,185 @@
 
 module common
 
+    include("constants.jl")
+    using .constants
+
     import GenericLinearAlgebra
     using DoubleFloats
-    using MultiFloats
     using AssociatedLegendrePolynomials    
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
+    using LinearAlgebra
+    using Optim
 
-    export define_spherical_grid, get_scales, get_Ic, get_A, get_A!, get_heating_profile, get_heating_map
-
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
+    export optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
 
 
+    """
+        optimize_scales(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, p0::Vector{prec})
+
+    Optimize the scaling parameters (R0, M0, G0) to minimize the condition number of the system matrix A across the radial profile. This ensures numerical stability in solving the ODEs.
+
+    # Arguments
+    - `r::Vector{prec}`                  : Radial positions (m).
+    - `ρ::Vector{prec}`                  : Density profile (kg/m^3).
+    - `g::Vector{prec}`                  : Gravity profile (m/s^2).
+    - `μ::Vector{precc}`                 : Shear modulus profile (Pa).
+    - `K::Vector{precc}`                 : Bulk modulus profile (Pa).
+    - `ω::prec`                          : Angular frequency (rad/s).
+    - `n::Int`                           : Tidal degree.
+    - `p0::Vector{prec}`                 : Initial guess for scales [R0, M0, G0].
+
+    # Returns
+    - `best_params::Vector{prec}`        : Optimized scales [R0, M0, G0].
+    """
+    function optimize_scales(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, p0::Vector{prec})::Vector{prec}
+
+        function objective_cond(scales)
+            R0, M0, G0 = scales
+            
+            # Enforce strict positive parameters to avoid unphysical divisions/roots
+            if R0 <= 0 || M0 <= 0 || G0 <= 0
+                return Inf
+            end
+            
+            # Recalculate derived scales matching `solid1d_relax.get_scales` internals
+            ρ0 = M0 / (R0^3)
+            g0 = G0 * M0 / (R0^2)
+            ω0 = sqrt(G0 * ρ0)
+            μ0 = g0 * ρ0 * R0  # Assuming standard reference stress scale
+            
+            # Scale profiles to dimensionless forms using current trial scales
+            rs = r ./ R0
+            ρs = ρ ./ ρ0
+            gs = g ./ g0
+            μs = μ ./ μ0
+            Ks = K ./ μ0
+            ωs = ω / ω0
+            
+            ntotal = length(rs)
+            max_log_cond = -Inf
+            
+            tmp_A = zeros(precc, 6, 6)
+            
+            # Find worst condition number across the radial slice
+            for i in 1:ntotal
+                get_A!(tmp_A, ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n; G0=G0)
+                c_num = log10(cond(tmp_A))
+                if c_num > max_log_cond
+                    max_log_cond = c_num
+                end
+            end
+            
+            return max_log_cond
+        end
+
+        @info "Optimizing scales to minimize condition number of A..."
+
+        # Run Nelder-Mead optimization
+        res = optimize(objective_cond, p0, NelderMead(), Optim.Options(iterations=500))
+        
+        best_params = res.minimizer
+        min_conds   = res.minimum
+        if min_conds > 14.5
+            @warn "Warning: Condition number of A is high (log10(cond(A)) = $min_conds). This may indicate numerical instability."
+        end
+
+        @info "Optimized scales: R0=$(best_params[1]), M0=$(best_params[2]), G0=$(best_params[3]), log10(cond(A))=$min_conds"
+
+        return best_params
+    end
+
+
+    """
+        optimize_scales(r::Vector{prec}, ρs::Vector{prec}, ρl::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, Ks::Vector{precc}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηl::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ω::prec, n::Int, p0::Vector{prec})
+
+    Optimize the scaling parameters (R0, M0, G0) to minimize the condition number of the system matrix A across the radial profile for a mushy mantle model. This ensures numerical stability in solving the ODEs.
+
+    # Arguments
+    - `r::Vector{prec}`                  : Radial positions (m).
+    - `ρs::Vector{prec}`                 : Solid density profile (kg/m^3).
+    - `ρl::Vector{prec}`                 : Liquid density profile (kg/m^3).
+    - `g::Vector{prec}`                  : Gravity profile (m/s^2).
+    - `μ::Vector{precc}`                 : Shear modulus profile (Pa).
+    - `Ks::Vector{precc}`                : Solid bulk modulus profile (Pa).
+    - `Kl::Vector{prec}`                 : Liquid bulk modulus profile (Pa).
+    - `Kd::Vector{precc}`                : Drained bulk modulus profile (Pa).
+    - `α::Vector{precc}`                 : Biot modulus profile (dimensionless).
+    - `ηl::Vector{prec}`                 : Liquid viscosity profile (Pa·s).
+    - `ϕ::Vector{prec}`                  : Porosity profile (dimensionless).
+    - `k::Vector{prec}`                  : Permeability profile (m^2).
+    - `ω::prec`                          : Forcing frequency (Hz).
+    - `n::Int`                           : Tidal degree.
+    - `p0::Vector{prec}`                 : Initial guess for scales [R0, M0, G0].
+
+    # Returns
+    - `best_params::Vector{prec}`        : Optimized scales [R0, M0, G0].
+    """
+    function optimize_scales(r::Vector{prec}, ρs::Vector{prec}, ρl::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, Ks::Vector{precc}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηl::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ω::prec, n::Int, p0::Vector{prec})::Vector{prec}
+
+        function objective_cond(scales)
+            R0, M0, G0 = scales
+            
+            # Enforce strict positive parameters to avoid unphysical divisions/roots
+            if R0 <= 0 || M0 <= 0 || G0 <= 0
+                return Inf
+            end
+            
+            # Recalculate derived scales matching `solid1d_relax.get_scales` internals
+            ρ0 = M0 / (R0^3)
+            g0 = G0 * M0 / (R0^2)
+            ω0 = sqrt(G0 * ρ0)
+            μ0 = g0 * ρ0 * R0  # Assuming standard reference stress scale
+            
+            # Scale profiles to dimensionless forms using current trial scales
+            rs = r ./ R0
+            ρs = ρs ./ ρ0
+            gs = g ./ g0
+            μs = μ ./ μ0
+            Kss = Ks ./ μ0
+            ωs = ω / ω0 
+            ρls = ρl./ρ0
+            Kls = Kl./μ0
+            Kds = Kd./μ0
+            ηls = ηl./(μ0/ω0)
+            ks = k./R0^2
+            
+            ntotal = length(rs)
+            max_log_cond = -Inf
+            
+            tmp_A = zeros(precc, 8, 8)
+            
+            # Find worst condition number across the radial slice
+            for i in 1:ntotal
+                get_A!(tmp_A, ωs, rs[i], ρs[i], gs[i], μs[i], Kss[i], ρls[i], Kls[i], Kds[i], α[i], ηls[i], ϕ[i], ks[i], n; G0=G0)
+                c_num = log10(cond(tmp_A))
+                if c_num > max_log_cond
+                    max_log_cond = c_num
+                end
+            end
+            
+            return max_log_cond
+        end
+
+        @info "Optimizing scales to minimize condition number of A..."
+
+        # Run Nelder-Mead optimization
+        res = optimize(objective_cond, p0, NelderMead(), Optim.Options(iterations=500))
+        
+        best_params = res.minimizer
+        min_conds   = res.minimum
+        if min_conds > 14.5
+            @warn "Warning: Condition number of A is high (log10(cond(A)) = $min_conds). This may indicate numerical instability."
+        end
+
+        @info "Optimized scales: R0=$(best_params[1]), M0=$(best_params[2]), G0=$(best_params[3]), log10(cond(A))=$min_conds"
+
+        return best_params
+    end
+        
+    
     """
         Ynm(n::Int, m::Int, theta::Array{Float64,1}, phi::Array{Float64,1})
 
@@ -129,21 +286,24 @@ module common
 
 
     """
-        get_scales(R0::prec, M0::prec, g0::prec)
+        get_scales(R0::prec, M0::prec, G0::prec; Y::Vector{Int}=[1,2,3,4,5,6])
 
-    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravity scale 
-    `g0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
+    Compute the characteristic scales for the problem based on a reference radius `R0`, mass `M0`, and gravitational constant scale 
+    `G0`. These scales are used to non-dimensionalize the equations and ensure numerical stability.
 
     # Arguments
     - `R0::prec`                         : Reference radius scale (e.g., planetary radius).
     - `M0::prec`                         : Reference mass scale (e.g., planetary mass).
-    - `g0::prec`                         : Reference gravity scale.
+    - `G0::prec`                         : Reference gravitational constant scale.
+
+    # Keyword Arguments
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. Merely used to determine the size of the scaling matrix S.
 
     # Returns
     Tuple of characteristic scales:
     - `R0::prec`                         : Length scale (m).
     - `M0::prec`                         : Mass scale (kg).
-    - `s0::prec`                         : Time scale (s).
+    - `ω0::prec`                         : Frequency scale (rad/s).
     - `ρ0::prec`                         : Density scale (kg/m^3).
     - `G0::prec`                         : Gravitational constant scale (m^3 kg^-1 s^-2).
     - `g0::prec`                         : Gravity scale (m/s^2).
@@ -151,27 +311,45 @@ module common
     - `S::Diagonal{prec}`                : Diagonal scaling matrix for state variables.
     - `Sinv::Diagonal{prec}`             : Inverse of the scaling matrix S.
     """
-    function get_scales(R0::prec, M0::prec, g0::prec; Y=[1,2,3,4,5,6,7,8])::Tuple
+    function get_scales(R0::prec, M0::prec, G0::prec; Y=[1,2,3,4,5,6])::Tuple
 
-        ρ0 = M0 / R0^3
-        P0 = g0 * R0
-        μ0 = ρ0 * g0 * R0
+        # Define the number of state variables based on the length of Y
+        N = length(Y)
 
-        s0 = sqrt(g0 / R0)
-        G0 = R0^3 / (M0 * s0^2) 
+        # Derive dependent scales
+        ρ0 = M0 / ((4/3) * π * R0^3)
+        ω0 = sqrt(G0 * ρ0)
+        g0 = G0 * ρ0 * R0
+        μ0 = G0 * (ρ0^2) * (R0^2)
+        P0 = G0 * ρ0 * (R0^2)
 
-        S = zeros(prec, length(Y), length(Y))
-        S[Y[1], Y[1]] = R0       # y1: radial displacement (m)
-        S[Y[2], Y[2]] = R0       # y2: tangential displacement (m)
-        S[Y[3], Y[3]] = μ0       # y3: radial stress (Pa)
-        S[Y[4], Y[4]] = μ0       # y4: tangential stress (Pa)
-        S[Y[5], Y[5]] = P0       # y5: potential (m^2/s^2)
-        S[Y[6], Y[6]] = g0       # y6: potential gradient/gravity (m/s^2)
-        S[Y[7], Y[7]] = μ0       # y7: pore pressure (Pa)
-        S[Y[8], Y[8]] = R0       # y8: relative radial displacement (m)
+        # Define the scaling matrix S and its inverse
+        S = zeros(prec, N, N)
+        if N == 4
+            S[1, 1] = 1.0/g0     # y1: radial displacement (m)
+            S[2, 2] = μ0/(g0*R0) # y3: radial stress (Pa)
+            S[3, 3] = 1.0        # y5: potential (m^2/s^2)
+            S[4, 4] = g0/P0      # y6: potential gradient/gravity (m/s^2)
+        elseif N == 6
+            S[1, 1] = 1.0/g0     # y1: radial displacement (m)
+            S[2, 2] = 1.0/g0     # y2: tangential displacement (m)
+            S[3, 3] = μ0/(g0*R0) # y3: radial stress (Pa)
+            S[4, 4] = μ0/(g0*R0) # y4: tangential stress (Pa)
+            S[5, 5] = 1.0        # y5: potential (m^2/s^2)
+            S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
+        elseif N == 8
+            S[1, 1] = 1.0/g0     # y1: radial displacement (m)
+            S[2, 2] = 1.0/g0     # y2: tangential displacement (m)
+            S[3, 3] = μ0/(g0*R0) # y3: radial stress (Pa)
+            S[4, 4] = μ0/(g0*R0) # y4: tangential stress (Pa)
+            S[5, 5] = 1.0        # y5: potential (m^2/s^2)
+            S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
+            S[7, 7] = μ0/(g0*R0) # y7: pore pressure (Pa)
+            S[8, 8] = 1.0/g0     # y8: relative radial displacement (m)
+        end
 
         Sinv = inv(S)
-        return R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv
+        return R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv
     end
 
 
@@ -259,7 +437,7 @@ module common
     - `r::prec`                          : Radius of the core boundary.
     - `ρ::prec`                          : Density of the core.
     - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                         : Shear modulus of the core.
+    - `μ::prec`                          : Shear modulus of the core.
     - `K::prec`                          : Bulk modulus of the core.
     - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
     - `n::Int`                           : Tidal degree.
@@ -311,7 +489,7 @@ module common
             is_low_freq = (4 * ω^2) < 0.00001 * (n * (n+1) * γ)
 
             if is_low_freq
-                @debug("Using low-frequency approximation for inertial core boundary conditions.")
+                @info("Using low-frequency approximation for inertial core boundary conditions.")
                 # Use the Simplified Algebraic Form
                 zn = x^2 / (2n + 3) 
                 
@@ -322,7 +500,7 @@ module common
                 Ic[Y[5],2] = -3γ * f * r^(n+2)
                 Ic[Y[6],2] = -3γ * ((2n+1)*f - n*h) * r^(n+1)
             else
-                @debug("Using full inertial solution for core boundary conditions.")
+                @info("Using full inertial solution for core boundary conditions.")
                 # Use the Scaled Analytical Solution
                 # Divided by j_n(x) to prevent numerical overflow
                 jn = sbesselj(n, x)
@@ -347,6 +525,20 @@ module common
             Ic[:,3] .= 0.0
             Ic[Y[2],3] = 1.0 # tangential slip at CMB
             
+            # 6. Column-wise Normalization (Brings vectors to unit length)
+            # Uses LinearAlgebra's norm. To bound the maximum element to exactly 1 instead, 
+            # change `norm(view(Ic, :, col))` to `maximum(abs, view(Ic, :, col))`
+            for col in 1:3
+                col_norm = norm(view(Ic, :, col))
+                if col_norm > 0.0
+                    Ic[:, col] ./= col_norm
+                end
+            end
+
+            # print rank for debugging
+            @debug("Rank of Ic for inertial core: ", rank(Ic))
+            @debug("Condition number of Ic for inertial core: ", cond(Ic))
+
         elseif type == "solid"
             # First column
             Ic[Y[1], 1] = n*r^( n+1 ) / ( 2*( 2n + 3) )
@@ -375,6 +567,34 @@ module common
 
 
     """
+        get_A(ω, r, ρ, g, K, n; G0=1, Y=[1,2,3,4])
+
+    Compute the 4x4 `A` matrix in the ODE for the fluid-body problem.
+
+    # Arguments
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2,3,4]`         : Ordering of the solution vector components. This allows for different conventions in the literature.
+
+    # Returns
+    - `A::Array{precc,2}`               : 4x4 A matrix at radius r, which is used in the ODE for the fluid-body problem.
+    """
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, K::precc, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4])::Array{precc,2}
+        M = length(Y)
+        A = zeros(precc, M, M) 
+        get_A!(A, ω, r, ρ, g, K, n; G0=G0, Y=Y)
+        return A
+    end
+
+
+    """
         get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6])
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
@@ -385,7 +605,7 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
@@ -396,7 +616,7 @@ module common
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
         M = length(Y)
         A = zeros(precc, M, M) 
         get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ, Y=Y)
@@ -415,12 +635,12 @@ module common
     - `r::prec`                          : Radius at which to compute the A matrix.
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
-    - `μ::prec`                          : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `μ::precc`                         : Shear modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `Kd::precc`                        : Drained bulk modulus at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.    
@@ -432,14 +652,59 @@ module common
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Ordering of the solution vector components. This allows for different conventions in the literature.
 
     # Returns
-    - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
+    - `A::Array{precc,2}`               : 8x8 A matrix at radius r, which is used in the ODE for the solid-body problem.
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         A = zeros(precc, 8, 8)
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
         return A
+    end
+
+
+    """
+        get_A!(A, ω, r, ρ, g, K, n; G0=1, Y=[1,2,3,4])
+
+    Compute the 4x4 `A` matrix in the ODE for the fluid-body problem. These correspond to 
+    the coefficients given in Korenaga, (2025) Eq. 12.
+
+    # Arguments
+    - `A::Array{precc,2}`                : 4x4 A matrix at radius r, which is used in the ODE for the fluid-body problem.
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2,3,4]`         : Ordering of the solution vector components. This allows for different conventions in the literature.
+    """
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, K::precc, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4])
+       
+        G_norm = G / G0
+
+        r_inv = 1.0/r
+
+        A[Y[1],Y[1]] = -2/r + n*(n+1)*g / (r^2 * ω^2)
+        A[Y[2],Y[1]] = -4*ρ*g*r_inv - ρ*ω^2 + n*(n+1)*g^2 / (r^2 * ω^2)
+        A[Y[3],Y[1]] = 4π * G_norm * ρ
+        A[Y[4],Y[1]] = 4π * G_norm * ρ * (n+1) * (r_inv - n*g / (r^2 * ω^2))
+
+        A[Y[1],Y[2]] = 1/K - n*(n+1) / (r^2 * ρ * ω^2)
+        A[Y[2],Y[2]] = - n*(n+1)*g / (r^2 * ω^2)
+        A[Y[4],Y[2]] = 4π * G_norm * n*(n+1) / (r^2 * ω^2)
+
+        A[Y[1],Y[3]] = -n*(n+1) / (r^2 * ω^2)
+        A[Y[2],Y[3]] = ρ*(n+1)*r_inv + n*(n+1)*ρ*g / (r^2 * ω^2)
+        A[Y[3],Y[3]] = -(n+1)*r_inv
+        A[Y[4],Y[3]] = 4π * G_norm * ρ * n*(n+1) / (r^2 * ω^2)
+
+        A[Y[2],Y[4]] = -ρ
+        A[Y[3],Y[4]] = 1.0
+        A[Y[4],Y[4]] = (n-1)*r_inv
     end
 
 
@@ -457,14 +722,15 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
-    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature."""
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature.
+    """
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
         if isnothing(λ)
             λ = K - 2μ/3
         end
@@ -519,11 +785,11 @@ module common
     - `ρ::prec`                          : Density at radius r.
     - `g::prec`                          : Gravity at radius r.
     - `μ::precc`                         : Shear modulus at radius r.
-    - `K::prec`                          : Bulk modulus at radius r.
+    - `K::precc`                         : Bulk modulus at radius r.
     - `ρₗ::prec`                          : Liquid density at radius r.
     - `Kl::prec`                         : Liquid bulk modulus at radius r.
-    - `Kd::prec`                         : Drained bulk modulus at radius r.
-    - `α::prec`                          : Biot coefficient at radius r.
+    - `Kd::precc`                        : Drained bulk modulus at radius r.
+    - `α::precc`                         : Biot coefficient at radius r.
     - `ηₗ::prec`                          : Liquid viscosity at radius r.
     - `ϕ::prec`                          : Porosity at radius r.
     - `k::prec`                          : Permeability at radius r.
@@ -537,7 +803,7 @@ module common
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, ρₗ::prec, Kl::prec, Kd::prec, α::prec, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
@@ -600,10 +866,10 @@ module common
     - `ρr::Float64`                     : Density at radius rr.
     - `gr::Float64`                     : Gravity at radius rr.
     - `μr::ComplexF64`                  : Shear modulus at radius rr.
-    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `Ksr::ComplexF64`                 : Bulk modulus at radius rr.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information, including latitudes, longitudes, and the associated spherical harmonic functions.
     """
-    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, SphericalGrid::NamedTuple)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, SphericalGrid::NamedTuple)
                
         i = 1
 
@@ -645,18 +911,18 @@ module common
     - `ρr::Float64`                     : Density at radius rr.
     - `gr::Float64`                     : Gravity at radius rr.
     - `μr::ComplexF64`                  : Shear modulus at radius rr.
-    - `Ksr::Float64`                    : Bulk modulus at radius rr.
+    - `Ksr::ComplexF64`                 : Bulk modulus at radius rr.
     - `ω::Float64`                      : Forcing frequency.
     - `ρlr::Float64`                    : Liquid density at radius rr.
     - `Klr::Float64`                    : Liquid bulk modulus at radius rr.
-    - `Kdr::Float64`                    : Drained bulk modulus at radius rr.
-    - `αr::Float64`                     : Biot coefficient at radius rr.
+    - `Kdr::ComplexF64`                 : Drained bulk modulus at radius rr.
+    - `αr::ComplexF64`                  : Biot coefficient at radius rr.
     - `ηlr::Float64`                    : Liquid viscosity at radius rr.
     - `ϕr::Float64`                     : Porosity at radius rr.
     - `kr::Float64`                     : Permeability at radius rr.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::Float64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::Float64, αr::Float64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
+    function compute_strain_ten!(ϵ::Array{ComplexF64,3}, y::Array{ComplexF64,1}, n::Int, rr::Float64, ρr::Float64, gr::Float64, μr::ComplexF64, Ksr::ComplexF64, ω::Float64, ρlr::Float64, Klr::Float64, Kdr::ComplexF64, αr::ComplexF64, ηlr::Float64, ϕr::Float64, kr::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -776,7 +1042,7 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        κ = Float64.(κ)
+        κ = ComplexF64.(κ)
         ω = Float64(ω)
 
         dres = deg2rad(SphericalGrid.res)
@@ -865,12 +1131,12 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        Ks = Float64.(Ks)
+        Ks = ComplexF64.(Ks)
         ω = Float64(ω)
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
-        Kd = Float64.(Kd)
-        α = Float64.(α)
+        Kd = ComplexF64.(Kd)
+        α = ComplexF64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
         k = Float64.(k)
@@ -922,7 +1188,7 @@ module common
             # 3. Compaction Heating (Bulk)
             Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* (abs.(p) ./ Ks[i]).^2)
+                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.(p ./ Ks[i]).^2)       # <-- Fixed typo present in Love.jl :)
             end
 
             # 4. Darcy Dissipation (Liquid)
@@ -958,13 +1224,13 @@ module common
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.  
     - `κ::AbstractVector`                : 1D vector of complex bulk moduli.  
     - `n::Int`                           : Tidal degree.  
-    - `ω::prec`                       : Tidal frequency in radians per second.  
+    - `ω::prec`                          : Tidal frequency in radians per second.  
     - `SphericalGrid::NamedTuple`        : A struct formed by `define_spherical_grid`, containing 
                                            the geographic grid and spherical harmonic derivatives.
 
     # Returns
-    - `Eμ_map::Array{Float64,2}`         : 2D geographic map of shear dissipation (W/m²).
-    - `Eκ_map::Array{Float64,2}`         : 2D geographic map of compaction/bulk dissipation (W/m²).
+    - `Eμ_3d::Array{Float64,3}`          : 3D map of shear dissipation (W/m²).
+    - `Eκ_3d::Array{Float64,3}`          : 3D map of compaction/bulk dissipation (W/m²).
     """
     function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, κ::AbstractVector, n::Int, ω::prec, SphericalGrid::NamedTuple)
 
@@ -973,7 +1239,7 @@ module common
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        κ = Float64.(κ)
+        κ = ComplexF64.(κ)
         ω = Float64(ω)
 
         clats = SphericalGrid.clats
@@ -987,8 +1253,8 @@ module common
         ϵ = zeros(ComplexF64, nlats, nlons, 6)
 
         # Initialize output maps (Integrated over radius)
-        Eμ_map = zeros(Float64, nlats, nlons)
-        Eκ_map = zeros(Float64, nlats, nlons)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nr-1)
 
         for i in 1:Nr-1
 
@@ -1009,14 +1275,13 @@ module common
             # 3. Local Volumetric Bulk Heating (W/m³)
             Eκ_loc = ω/2 * imag(κ[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
 
-            # 4. Radial Integration (W/m³ * m -> W/m²)
-            # We accumulate the heat flux from each shell into the final map
-            Eμ_map .+= Eμ_loc .* dr
-            Eκ_map .+= Eκ_loc .* dr
+            # 4. Accumulate the heat flux from each shell into the final map (W/m³)
+            Eμ_3d[:, :, i] = Eμ_loc
+            Eκ_3d[:, :, i] = Eκ_loc
 
         end
 
-        return Eμ_map, Eκ_map
+        return Eμ_3d, Eκ_3d
     end
 
 
@@ -1035,7 +1300,7 @@ module common
     - `g::AbstractVector`                : 1D vector of gravity values.
     - `μ::AbstractVector`                : 1D vector of complex shear moduli.
     - `Ks::AbstractVector`               : 1D vector of bulk moduli for shear dissipation.
-    - `ω::Float64`                       : Tidal frequency in radians per second.
+    - `ω::prec`                          : Tidal frequency in radians per second.
     - `ρl::AbstractVector`               : 1D vector of liquid densities.
     - `Kl::AbstractVector`               : 1D vector of liquid bulk moduli.
     - `Kd::AbstractVector`               : 1D vector of drained bulk moduli.
@@ -1047,24 +1312,26 @@ module common
     - `SphericalGrid::NamedTuple`        : A struct containing geographic grid and spherical harmonic data.
 
     # Returns
-    - `Eμ_map::Array{Float64,2}`         : Surface map of shear dissipation (W/m²).
-    - `Eκ_map::Array{Float64,2}`         : Surface map of compaction dissipation (W/m²).
-    - `El_map::Array{Float64,2}`         : Surface map of Darcy (percolation) dissipation (W/m²).
+    - `Eμ_3d::Array{Float64,3}`          : 3D map of shear dissipation (W/m²).
+    - `Eκ_3d::Array{Float64,3}`          : 3D map of compaction dissipation (W/m²).
+    - `El_3d::Array{Float64,3}`          : 3D map of Darcy (percolation) dissipation (W/m²).
     """
-    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::Float64, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
+    function get_heating_map(y::Matrix, r::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, ω::prec, ρl::AbstractVector, Kl::AbstractVector, Kd::AbstractVector, α::AbstractVector, ηl::AbstractVector, ϕ::AbstractVector, k::AbstractVector, n::Int, SphericalGrid::NamedTuple)
 
         # convert to Float64 or ComplexF64 for heating calculations
         r = Float64.(r)
         ρ = Float64.(ρ)
         g = Float64.(g)
         μ = ComplexF64.(μ)
-        Ks = Float64.(Ks)
+        Ks = ComplexF64.(Ks)
         ρl = Float64.(ρl)
         Kl = Float64.(Kl)
-        Kd = Float64.(Kd)
-        α = Float64.(α)
+        Kd = ComplexF64.(Kd)
+        α = ComplexF64.(α)
         ηl = Float64.(ηl)
         ϕ = Float64.(ϕ)
+        ω = Float64(ω)
+        k = Float64.(k)
 
         clats = SphericalGrid.clats
         lons  = SphericalGrid.lons
@@ -1079,15 +1346,14 @@ module common
         d_disp = zeros(ComplexF64, nlats, nlons, 3)
         p = zeros(ComplexF64, nlats, nlons)
 
-        # Initialize output maps (Integrated over radius)
-        Eμ_map = zeros(Float64, nlats, nlons)
-        Eκ_map = zeros(Float64, nlats, nlons)
-        El_map = zeros(Float64, nlats, nlons)
+        # Initialize output 3D maps (Dimensions: lat × lon × radial_shell)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nr-1)
+        El_3d = zeros(Float64, nlats, nlons, Nr-1)
 
         for i in 1:Nr-1
 
             rr = r[i]
-            dr = r[i+1] - r[i]
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields for the current shell
@@ -1109,7 +1375,7 @@ module common
             # 3. Local Volumetric Compaction Heating (Bulk)
             Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* (abs.(p) ./ Ks[i]).^2)
+                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.((p) ./ Ks[i]).^2)
             end
 
             # 4. Local Volumetric Darcy Dissipation (Liquid)
@@ -1118,14 +1384,14 @@ module common
                 El_loc .= 0.5 * ϕ[i]^2 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)
             end
 
-            # 5. Radial Integration (W/m³ * m -> W/m²)
-            Eμ_map .+= Eμ_loc .* dr
-            Eκ_map .+= Eκ_loc .* dr
-            El_map .+= El_loc .* dr
+            # 5. Accumulate the heat flux from each shell into the final map (W/m³)
+            Eμ_3d[:, :, i] = Eμ_loc
+            Eκ_3d[:, :, i] = Eκ_loc
+            El_3d[:, :, i] = El_loc
 
         end
 
-        return Eμ_map, Eκ_map, El_map
+        return Eμ_3d, Eκ_3d, El_3d
     end
 
 end

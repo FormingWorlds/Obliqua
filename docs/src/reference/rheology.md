@@ -21,4 +21,10 @@ For the Maxwell limit ``\alpha = 0`` and
 \frac{\mu}{1 + (\mathrm{i}\omega\eta/\mu)^{-1}}.
 ```
 
+The same equations hold for the (drained) bulk modulus, just replace ``\mu`` with ``\kappa`` and ``\eta`` with ``\zeta``, with compaction viscosity
+
+```math
+    \zeta (\phi) \approx \frac{\eta (\phi)}{\phi}.
+```
+
 ---

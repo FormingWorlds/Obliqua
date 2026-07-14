@@ -447,8 +447,3 @@ simply work around these interfaces is to assign a porosity slightly
 greater than the porosity threshold in the code, this way the solver
 will be constructed as purely mush propagator without interfaces.
 
-**The model implementation has been tested and has been found internally
-consistent for forcing frequencies between $10^{-4}$ and $10^{-6}$ Hz.
-This range may be extended when the non-dimensionalization is properly
-implemented, or when the interface conditions are behaving as
-expected.**

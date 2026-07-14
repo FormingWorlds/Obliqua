@@ -90,7 +90,6 @@ mass load can also be written as an external potential $U'$ such that
 $\zeta_n = [(2n + 1)/4 \pi G a] U'_n$. 
 
 $$\begin{aligned}
-\label{eq:bound}
 y_{3}(R)   &= - \frac{(2n + 1)g_e}{4 \pi G R} U'_n - P_n \\
 y_{4}(R)   &= \tau_n \\
 \dfrac{n+1}{R} y_{5}(R) + y_{6}(R) 
@@ -410,8 +409,12 @@ when $k^2 \ll -1$, which implies
 
 $$\begin{aligned}
     \omega^2 + 4\gamma &\ll \frac{n(n+1)\gamma^2}{\omega^2} \\
-    \omega^4 + 4\gamma \omega^2 &\ll n(n+1)\gamma^2 \\
-    \intertext{Noting that the LHS is dominated by $4\gamma \omega^2$ as $\omega \to 0$, we have}
+    \omega^4 + 4\gamma \omega^2 &\ll n(n+1)\gamma^2 
+\end{aligned}$$
+
+Noting that the LHS is dominated by $4\gamma \omega^2$ as $\omega \to 0$, we have
+
+$$\begin{aligned}
     4\gamma \omega^2 &\ll n(n+1)\gamma^2 \\
     4\omega^2 &\ll n(n+1)\gamma \qquad \wedge \qquad \gamma \neq 0
 \end{aligned}$$ 

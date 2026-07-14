@@ -2,28 +2,18 @@
 
 module solid1d_mush_relax
     
+    include("constants.jl")
     include("common.jl")
+    using .constants
     using .common
 
     using LinearAlgebra
     import GenericLinearAlgebra
     using DoubleFloats
-    using MultiFloats
     using StaticArrays
     using SpecialFunctions
     using SparseArrays
     using Printf
-
-    prec  = BigFloat
-    precc = Complex{BigFloat}
-
-    # prec  = Float64x4
-    # precc = Complex{Float64x4}
-
-    # prec  = Float64
-    # precc = Complex{Float64}
-
-    const G::prec       = prec(6.6743e-11)       # m^3 kg^-1 s^-2
 
 
     """
@@ -38,10 +28,10 @@ module solid1d_mush_relax
     - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
     - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
     - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
-    - `bulk_s::Vector{prec}`              : Original solid bulk modulus profile (defined at layer centers).
+    - `bulk_s::Vector{precc}`             : Original solid bulk modulus profile (defined at layer centers).
     - `bulk_l::Vector{prec}`              : Original liquid bulk modulus profile (defined at layer centers).
-    - `bulk_d::Vector{prec}`              : Original deep bulk modulus profile (defined at layer centers).
-    - `alpha::Vector{prec}`               : Original alpha profile (defined at layer centers).
+    - `bulk_d::Vector{precc}`             : Original deep bulk modulus profile (defined at layer centers).
+    - `alpha::Vector{precc}`              : Original alpha profile (defined at layer centers).
     - `visc_l::Vector{prec}`              : Original liquid viscosity profile (defined at layer centers).
     - `phi::Vector{prec}`                 : Original phi profile (defined at layer centers).
     - `m_core::prec`                      : Mass of the core, used for gravity calculations.
@@ -54,15 +44,21 @@ module solid1d_mush_relax
     - `ρ_new::Vector{prec}`               : New density profile at layer centers.
     - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
     - `μ_new::Vector{precc}`              : New shear modulus profile at layer centers.
-    - `κ_new::Vector{prec}`               : New bulk modulus profile at layer centers.
+    - `κs_new::Vector{precc}`             : New solid bulk modulus profile at layer centers.
+    - `κl_new::Vector{prec}`              : New liquid bulk modulus profile at layer centers.
+    - `κd_new::Vector{precc}`             : New deep bulk modulus profile at layer centers.
+    - `α_new::Vector{precc}`              : New alpha profile at layer centers.
+    - `ηl_new::Vector{prec}`              : New liquid viscosity profile at layer centers.
     - `φ_new::Vector{prec}`               : New phi profile at layer centers.
+    - `k_new::Vector{prec}`               : New k profile at layer centers.
     - `g_new::Vector{prec}`               : New gravity profile at layer centers.
+    - `M_tot::prec`                       : Total mass of the body, used for non-dimensionalization.
     """ 
-    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk_s::Vector{prec}, bulk_l::Vector{prec}, bulk_d::Vector{prec}, alpha::Vector{prec}, visc_l::Vector{prec}, phi::Vector{prec}, k::Vector{prec}, m_core::prec, dr_min::Int64, dr_max::Int64)
+    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk_s::Vector{precc}, bulk_l::Vector{prec}, bulk_d::Vector{precc}, alpha::Vector{precc}, visc_l::Vector{prec}, phi::Vector{prec}, k::Vector{prec}, m_core::prec, dr_min::Int64, dr_max::Int64)
         # setup grids
         α = log(dr_max / dr_min)
 
-        N = Int(round((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
+        N = Int(ceil((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
 
         # indices i = 1:N
         i = collect(1:N)
@@ -144,7 +140,7 @@ module solid1d_mush_relax
 
     
     """
-        solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+        solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core="liquid", patch=false)
 
     Solve the radial system of ODEs for the solid-body problem using a relaxation method. This function 
     implements the forward-backward relaxation scheme described in the main text of N. Kobayashi (2006).
@@ -154,12 +150,12 @@ module solid1d_mush_relax
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
     - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
     - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
@@ -167,10 +163,11 @@ module solid1d_mush_relax
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
     - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
     - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
-    - `M_tot::prec`                     : Total mass of the body, used for non-dimensionalization.
+    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+    - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
     - `y_t::Vector{precc}`              : Vector of length 8 representing the tidal solution at the top of the mantle. This includes the displacements, stresses, and potential at the surface.
@@ -179,26 +176,44 @@ module solid1d_mush_relax
     - `Y_inv::Vector{Int}`              : Vector of inverse ordering indices for the 8x8 case.
     - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
-    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
-                                ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
+    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
+                                ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
 
         # Define ordering
         Y6 = [1,2,4,5,3,6]
         Y8 = [1,2,5,6,3,7,4,8]
         Y8_inv = [1,2,5,7,3,4,6,8]
 
-        # 1. Identify Regions
-        # No duplication needed; we use the original grid dimensions
+        # Identify Regions
         is_mush = k .> 0
         Nr = length(r)
 
-        # 2. Dynamic Scaling
-        R0, M0, s0, ρ0, G0, g0, μ0, S, Sinv = get_scales(prec(1.), prec(1.), prec(1.); Y=Y8)
-        ωs = ω * s0
-        rs, ρs, gs, μs, Ks = r./R0, ρ./ρ0, g./g0, μ./μ0, K./μ0
-        ρₗs, Kls, Kds, ηₗs, ks = ρₗ./ρ0, Kl./μ0, Kd./μ0, ηₗ./(μ0*s0), k./R0^2
+        # Dynamic Scaling
+        R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv = get_scales(scales[1], scales[2], scales[3]; Y=Y8)
 
-        # 3. Initialize Matrices
+        # insert solid shell around core
+        if patch
+            μ[1] = precc(1.47e11)   # these values are chosen to be representative of a solid shell
+            K[1] = precc(6.58e10)
+            Kd[1] = precc(1.47e11)
+            k[1] = 0.0
+            ϕ[1] = 0.0
+        end
+
+        # Scale physical profiles to be dimensionless
+        rs = r ./ R0
+        ρs = ρ ./ ρ0
+        gs = g ./ g0
+        μs = μ ./ μ0
+        Ks = K ./ μ0
+        ωs = ω / ω0 
+        ρₗs = ρₗ./ρ0
+        Kls = Kl./μ0
+        Kds = Kd./μ0
+        ηₗs = ηₗ./(μ0/ω0)
+        ks = k./R0^2
+
+        # Initialize Matrices
         R = [zeros(precc, 8, 8) for _ in 1:Nr]
         B = [zeros(precc, 8, 1) for _ in 1:Nr]
         idx_6 = [1, 2, 3, 5, 6, 7]
@@ -270,7 +285,7 @@ module solid1d_mush_relax
         @debug("--- Solver Complete ---\n")
 
         # Note: transitions returned here are based on the original grid for plotting/analysis
-        return y_t, y_l, R, Y8, findall(diff(is_mush) .!= 0)
+        return y_t, y_l, R, S, Y8, findall(diff(is_mush) .!= 0)
     end
 
 
@@ -289,12 +304,12 @@ module solid1d_mush_relax
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
     - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
     - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
@@ -307,13 +322,13 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
         i = start_id
 
         # define target columns for the 6x6 system variables in the 8x8 system
-        target_cols = [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]]
+        target_cols = [1,2,3,5,6,7]
 
         I8 = Matrix{precc}(I, 8, 8)
 
@@ -393,12 +408,12 @@ module solid1d_mush_relax
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
     - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
     - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
@@ -412,7 +427,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.    
     """
-    function interface_solid_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function interface_solid_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
         i = start_id
@@ -495,8 +510,8 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
     - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
@@ -512,7 +527,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
+    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -559,13 +574,13 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
     - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
@@ -583,7 +598,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -634,8 +649,8 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
 
@@ -647,7 +662,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6])
+    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -692,7 +707,7 @@ module solid1d_mush_relax
             else
                 R[i] .= -Xn \ Qn
             end
-            
+
             # 5. Update the "stored" lower halves for the next iteration
             Cn_l  = Cn[4:6, :]
             Dnp_l = Dnp[4:6, :]
@@ -718,14 +733,14 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
-    - `ρₗ::Vector{prec}`                : Vector of liquid densities at the layer centers.
+    - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
-    - `ηₗ::Vector{prec}`               : Vector of liquid viscosities at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
+    - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `n::Int`                          : Tidal degree. 
@@ -738,7 +753,7 @@ module solid1d_mush_relax
     - `Cn_l::Matrix{precc}`             : Updated 4x8 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 4x8 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function propagate_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -811,8 +826,8 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
 
@@ -824,7 +839,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -866,8 +881,8 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `n::Int`                          : Tidal degree.
 
@@ -879,7 +894,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary_mush(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function surface_boundary_mush(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -1059,7 +1074,7 @@ module solid1d_mush_relax
 
 
     """
-        compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid")
+        compute_y(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core="liquid", patch=false)
 
     Compute the solution `y` to the solid-body problem using a relaxation method. This function performs the 
     forward-backward relaxation scheme described in the main text of N. Kobayashi (2006), where we first solve 
@@ -1070,13 +1085,13 @@ module solid1d_mush_relax
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
     - `g::Vector{prec}`                 : Vector of gravity values at the layer centers.
-    - `μ::Vector{prec}`                 : Vector of shear moduli at the layer centers.
-    - `K::Vector{prec}`                 : Vector of bulk moduli at the layer centers.
+    - `μ::Vector{precc}`                : Vector of shear moduli at the layer centers.
+    - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρₗ::Vector{prec}`                 : Vector of liquid densities at the layer centers.
     - `Kl::Vector{prec}`                : Vector of liquid bulk moduli at the layer centers.
-    - `Kd::Vector{prec}`                : Vector of drained bulk moduli at the layer centers.
-    - `α::Vector{prec}`                 : Vector of Biot coefficients at the layer centers.
+    - `Kd::Vector{precc}`               : Vector of drained bulk moduli at the layer centers.
+    - `α::Vector{precc}`                : Vector of Biot coefficients at the layer centers.
     - `ηₗ::Vector{prec}`                 : Vector of liquid viscosities at the layer centers.
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
@@ -1084,19 +1099,20 @@ module solid1d_mush_relax
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
     - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
     - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
-    - `M_tot::prec`                     : Total mass of the planet.
+    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
+    - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
     - `y_t::Matrix{ComplexF64}`         : 8xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     - `y_l::Matrix{ComplexF64}`         : 8x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{prec}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{prec}, α::Vector{prec}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, M_tot::prec; core="liquid")
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, M_tot; core=core)
+        yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)
 
         Nr = length(r)
         T = eltype(yN_t)
@@ -1119,6 +1135,12 @@ module solid1d_mush_relax
         # reorder y-functions to standard ordering (U, V, X, Y, phi, psi, P, R)
         y_t = y_t[Y8, :]
         y_l = y_l[Y8, :]
+        
+        # scale the solution back to physical units
+        for i in 1:Nr
+            y_t[:, i] = S * y_t[:, i]
+        end
+        y_l[:, 1] = S * y_l[:, 1]
 
         # convert to ComplexF64
         y_t = ComplexF64.(y_t)

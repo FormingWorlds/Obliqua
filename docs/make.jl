@@ -17,7 +17,6 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Installation" => "install.md",
-        "Compass" => "compass.md",
         PageNode("Tutorials" => "tutorials/index.md", [
             "1 - Loading Data" => "tutorials/loading-data.md", 
             "2 - Configuring Model" => "tutorials/configuration-file.md", 
@@ -47,7 +46,8 @@ makedocs(
             "1 - Technical overview" => "explanation/technical_overview.md",
             "2 - Main loop" => "explanation/main_loop.md",
             "3 - Iterative process" => "explanation/iter_proc.md",
-            "4 - Post-processing" => "explanation/post_proc.md"
+            "4 - Post-processing" => "explanation/post_proc.md",
+            "5 - Stabilization techniques" => "explanation/stabilize.md"
             ]
         ),
         "Troubleshooting" => "troubleshooting.md",
