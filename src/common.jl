@@ -1260,6 +1260,7 @@ module common
 
             rr = r[i]
             dr = r[i+1] - r[i]
+            dvol = 4π/3 * (r[i+1]^3 - r[i]^3)
             yrr = y[:, i]
 
             # 1. Compute the strain tensor for the current shell
@@ -1276,8 +1277,8 @@ module common
             Eκ_loc = ω/2 * imag(κ[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
 
             # 4. Accumulate the heat flux from each shell into the final map (W/m³)
-            Eμ_3d[:, :, i] = Eμ_loc
-            Eκ_3d[:, :, i] = Eκ_loc
+            Eμ_3d[:, :, i] = Eμ_loc * rr^2 * dr / dvol
+            Eκ_3d[:, :, i] = Eκ_loc * rr^2 * dr / dvol
 
         end
 
@@ -1354,6 +1355,8 @@ module common
         for i in 1:Nr-1
 
             rr = r[i]
+            dr = r[i+1] - r[i]
+            dvol = 4π/3 * (r[i+1]^3 - r[i]^3)
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields for the current shell
@@ -1385,9 +1388,9 @@ module common
             end
 
             # 5. Accumulate the heat flux from each shell into the final map (W/m³)
-            Eμ_3d[:, :, i] = Eμ_loc
-            Eκ_3d[:, :, i] = Eκ_loc
-            El_3d[:, :, i] = El_loc
+            Eμ_3d[:, :, i] = Eμ_loc * rr^2 * dr / dvol
+            Eκ_3d[:, :, i] = Eκ_loc * rr^2 * dr / dvol
+            El_3d[:, :, i] = El_loc * rr^2 * dr / dvol
 
         end
 
