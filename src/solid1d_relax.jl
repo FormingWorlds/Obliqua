@@ -484,20 +484,17 @@ module solid1d_relax
     """
     function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1)
         
-        # Define surface mass load (zeta) based on Farrell/Longman relation
-        zeta = ((2 * n + 1) / (4 * pi * G/G0 * R)) * U_prime
-
         # b vector (Right Hand Side of the B*y = b system)
         b = zeros(precc, 6) 
         
         # radial Stress y3
-        b[4] = -g * zeta * (G/G0) / R - P
+        b[4] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
         
         # tangential Stress y4
         b[5] = tau
         
-        # gravitational potential boundary
-        b[6] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
+        # potential Stress y6
+        b[6] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
         
         # construct the 3x6 B matrix
         # this matrix extracts y3, y4, and the combination for y6
@@ -506,10 +503,7 @@ module solid1d_relax
         # stress components
         B[1, 3] = 1.0  # radial stress y3
         B[2, 4] = 1.0  # tangential stress y4
-        
-        # potential component
-        B[3, 5] = (n + 1) / R
-        B[3, 6] = 1.0
+        B[3, 6] = 1.0  # potential stress y6
 
         return B, b
     end

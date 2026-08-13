@@ -531,7 +531,7 @@ module solid1d_mush
         
         M[1, :] .= y1_4[3,:,end,end] # Row 1 - Radial Stress
         M[2, :] .= y1_4[4,:,end,end] # Row 2 - Tangential Stress
-        M[3, :] .= y1_4[6,:,end,end] .+ (n+1)/r[end:end] .* y1_4[5,:,end,end] # Row 3 - Potential Stress
+        M[3, :] .= y1_4[6,:,end,end] # Row 3 - Potential Stress
         
         for i in 2:nlayers
             if porous_layer[i]
@@ -574,16 +574,21 @@ module solid1d_mush
             U = 1.0
         end
 
-        # Define surface mass load (zeta) based on Farrell/Longman relation
-        zeta = ((2 * n + 1) / (4 * pi * G * r[end,end])) * U_prime
-
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
         b = zeros(precc, 4)
-        b[1] = -g[end,end] * zeta * G / r[end,end] - P
+
+        # radial Stress y3
+        b[1] = -(2 * n + 1) * g[end,end] / (4 * pi * r[end,end]^2) * U_prime - P
+        
+        # tangential Stress y4
         b[2] = tau
-        b[3] = ((2 * n + 1) / r[end,end]) * U + 4 * pi * G * zeta
+        
+        # potential Stress y6
+        b[3] = ((2 * n + 1) / r[end,end]) * (U + G / r[end,end] * U_prime)
+
+        # Darcy flux y8
         b[4] = 0.0
 
         C = M \ b

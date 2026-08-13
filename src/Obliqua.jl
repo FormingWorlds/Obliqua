@@ -537,7 +537,7 @@ module Obliqua
             i_start, i_end = is_seg[iseg]
 
             # perform slices
-            r_seg  = r[i_start-1:i_end]
+            r_seg  = r[i_start:i_end+1]
             g_seg  = g[i_start:i_end]
             ρ_seg  = ρ[i_start:i_end]
             η_seg  = η[i_start:i_end]                              
@@ -588,7 +588,7 @@ module Obliqua
                         knms_T[iss, iseg], knms_L[iss, iseg] = run_solid0d( 
                             μc_seg[:, iss],
                             r_seg,
-                            mass_tot;
+                            M_enc[i_end];
                             n=n_i
                         )
                     # elseif 1D interior and heating profile from strain tensor
@@ -1099,7 +1099,7 @@ module Obliqua
 
         # smooth phase profile
         #   moving up from the CMB
-        i = 2
+        i = 1
         while i < N
             p = phase_prf[i]
             i_start = i
@@ -1141,12 +1141,14 @@ module Obliqua
         # build boundary indices array
         is_seg = Vector{Tuple{Int,Int}}()
 
-        i = 2
+        i = 1
         while i <= N
             p = phase_prf[i]
 
-            # mark bottom of this segment
-            mask_c[i-1] = true # "bottom" radius is r[i-1]
+            # mark bottom of this 
+            if i > 1
+                mask_c[i-1] = true # "bottom" radius is r[i-1]
+            end
 
             i_start = i
 

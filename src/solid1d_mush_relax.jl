@@ -1016,33 +1016,30 @@ module solid1d_mush_relax
         M = length(Y)
         N = Int(M / 2)
 
-        # Define surface mass load (zeta) based on Farrell/Longman relation
-        zeta = ((2 * n + 1) / (4 * pi * G/G0 * R)) * U_prime
-
         # b vector (Right Hand Side of the B*y = b system)
         b = zeros(precc, M) 
         
         if M == 8
             # radial Stress y3
-            b[Y[3]] = -g * zeta * (G/G0) / R - P
+            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
             
             # tangential Stress y4
             b[Y[4]] = tau
             
-            # gravitational potential boundary
-            b[Y[6]] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
-
+            # potential Stress y6
+            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+            
             # darcy flux boundary
             b[Y[8]] = 0
         elseif M == 6
             # radial Stress y3
-            b[Y[3]] = -g * zeta * (G/G0) / R - P
+            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
             
             # tangential Stress y4
             b[Y[4]] = tau
             
-            # gravitational potential boundary
-            b[Y[6]] = ((2 * n + 1) / R) * U + 4 * pi * G/G0 * zeta
+            # potential Stress y6
+            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
         else
             error("Unsupported M value. M should be either 6 or 8.")
         end
@@ -1055,9 +1052,7 @@ module solid1d_mush_relax
             # stress components
             B[1, Y[3]] = 1.0  # radial stress y3
             B[2, Y[4]] = 1.0  # tangential stress y4
-            
             # potential component
-            B[3, Y[5]] = (n + 1) / R
             B[3, Y[6]] = 1.0
             B[4, Y[8]] = 1.0
         elseif M == 6
@@ -1065,7 +1060,6 @@ module solid1d_mush_relax
             B[1, Y[3]] = 1.0  # radial stress y3
             B[2, Y[4]] = 1.0  # tangential stress y4
             # potential component
-            B[3, Y[5]] = (n + 1) / R
             B[3, Y[6]] = 1.0        
         end
 
