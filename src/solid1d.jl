@@ -71,14 +71,20 @@ module solid1d
         g = zeros(prec, size(r))
         M = zeros(prec, size(r))
 
-        for i in 1:size(r)[2]
-            M[2:end,i] = 4.0/3.0 * π .* diff(r[:,i].^3) .* ρ[i]
+        # Base mass enclosed at the inner boundary of the first layer (Core Mass)
+        M[1, 1] = m_core
+
+        # Shell mass incremental calculations
+        for i in 1:size(r, 2)
+            # Shell masses for elements 2:end in layer i
+            M[2:end, i] = (4.0/3.0) * π .* diff(r[:, i].^3) .* ρ[i]
         end
 
-        M[2,1] += m_core
-    
-        g[2:end,:] .= G*accumulate(+,M[2:end,:]) ./ r[2:end,:].^2
-        g[1,2:end] = g[end,1:end-1]
+        # Cumulative mass enclosed at every point in the grid
+        M_enclosed = accumulate(+, M)
+
+        # Gravity g = G * M_enclosed / r^2
+        g .= G .* M_enclosed ./ (r.^2)
 
         return g
     end
@@ -210,7 +216,7 @@ module solid1d
 
 
     """
-        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n)
+        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
 
@@ -225,21 +231,24 @@ module solid1d
     - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
+    Keyword Arguments
+    - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+
     # Returns
     - `B::Array{precc,2}`               : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
 
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int)
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
         B = zeros(precc, 6, 6)
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
         return B
     end
 
 
     """
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
@@ -256,19 +265,22 @@ module solid1d
     - `K::precc`                         : Bulk modulus at radius r.
     - `n::Int`                           : Tidal degree.
 
+    Keyword Arguments
+    - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int)
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
         ghalf = g1 + 0.5*(g2 - g1)
 
-        A1 = get_A(ω, r1, ρ, g1, μ, K, n)
-        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n)
-        A2 = get_A(ω, r2, ρ, g2, μ, K, n)
-        
+        A1 = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0)
+        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0)
+        A2 = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0)
+
         k16 = zeros(precc, 6, 6)
         k26 = zeros(precc, 6, 6)
         k36 = zeros(precc, 6, 6)
@@ -287,7 +299,7 @@ module solid1d
 
 
     """
-        get_B_product!(Brod, ω, r, ρ, g, μ, K, n)
+        get_B_product!(Brod, ω, r, ρ, g, μ, K, n; G0::prec=1)
 
     Compute the product of the 6x6 B matrices within a primary layer. This is used to propgate the
     y solution across one single-phase (solid) primary layer. Bprod is denoted by D in Eq. S5.14 
@@ -302,8 +314,11 @@ module solid1d
     - `μ::precc`                         : 1D array of layer shear moduli.
     - `K::precc`                         : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.    
+
+    Keyword Arguments
+    - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
     """
-    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, n::Int)
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, n::Int; G0=one(prec))
         Bstart = Matrix{precc}(I, 6, 6)  
         B = zeros(precc, 6, 6) 
 
@@ -315,7 +330,7 @@ module solid1d
             g1 = g[j]
             g2 = g[j+1]
 
-            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n)
+            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
             Bprod2[:,:,j] .= B * (j==1 ? Bstart : Bprod2[:,:,j-1])
 
             r1 = r2
@@ -324,7 +339,7 @@ module solid1d
 
 
     """
-        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core, scales; core="liquid")
 
     Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
 
@@ -339,6 +354,7 @@ module solid1d
     - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
     - `μ_core::prec`                     : Shear modulus of the core.
     - `κ_core::prec`                     : Bulk modulus of the core.
+    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
@@ -346,20 +362,35 @@ module solid1d
     # Returns
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
+    - `S::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the normalization.
+    - `scale::Vector{prec}`              : Vector of scaling parameters for non-dimensionalization.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core::String="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        y_start = get_Ic(ω, r[end,1], ρ_core, g[end,1], μ_core, κ_core, core, n; Y=[1,2,3,4,5,6])
+        # non-dimensional scaling
+        R0, M0, ω0, ρ0, G0, g0, μ0, S, Sinv = get_scales(scales[1], scales[2], scales[3])
+
+        scale = [R0, M0, ω0, ρ0, G0, g0, μ0]
+
+        # Scale physical profiles to be dimensionless
+        rs = r ./ R0
+        ρs = ρ ./ ρ0
+        gs = g ./ g0
+        μs = μ ./ μ0
+        Ks = K ./ μ0
+        ωs = ω / ω0
+
+        y_start = get_Ic(ωs, rs[end,1], ρ_core/ρ0, gs[end,1], μ_core/μ0, κ_core/μ0, core, n; G0=G0, Y=[1,2,3,4,5,6])
 
         y1_4 = zeros(precc, 6, 3, nsublayers-1, nlayers) # Three linearly independent y solutions
                 
-        for i in 2:nlayers
+        for i in 1:nlayers
             Bprod = zeros(precc, 6, 6, nsublayers-1)
-            @views get_B_product!(Bprod, ω, r[:, i], ρ[1], g[:, i], μ[i], K[i], n)
+            @views get_B_product!(Bprod, ωs, rs[:, i], ρs[1], gs[:, i], μs[i], Ks[i], n; G0=G0)
 
             for j in 1:nsublayers-1
                 y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
@@ -374,7 +405,7 @@ module solid1d
         M[2, :] .= y1_4[4,:,end,end]  # Row 2 - Tangential Stress
         M[3, :] .= y1_4[6,:,end,end]  # Row 3 - Potential Stress
         
-        return M, y1_4
+        return M, y1_4, S, scale
     end
 
 
@@ -390,6 +421,8 @@ module solid1d
     - `M::Array{precc,2}`                : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`             : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     - `n::Int`                           : Tidal degree.
+    - `S::Matrix{prec}`                  : 6x6 matrix representing the normalization.
+    - `scale::Array{prec,1}`             : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `load::Bool=false`                 : If true, compute the solution for a loaded problem.
@@ -397,7 +430,7 @@ module solid1d
     # Returns
     - `y::Array{ComplexF64,3}`           : 3D array of the solution vector y across the interior.
     """
-    function compute_y(r::Array{prec,2}, g::Array{prec,2}, M::Array{precc,2}, y1_4::Array{precc,4}, n::Int; load::Bool=false)
+    function compute_y(r::Array{prec,2}, g::Array{prec,2}, M::Array{precc,2}, y1_4::Array{precc,4}, n::Int, S::Matrix{prec}, scale::Array{prec,1}; load::Bool=false)
 
         tau = 0.0
         P = 0.0
@@ -415,21 +448,21 @@ module solid1d
         b = zeros(precc, 3)
 
         # radial Stress y3
-        b[1] = -(2 * n + 1) * g[end,end] / (4 * pi * r[end,end]^2) * U_prime - P
+        b[1] = -(2 * n + 1) * g[end,end]/scale[6] / (4 * pi * (r[end,end]/scale[1])^2) * U_prime - P
         
         # tangential Stress y4
         b[2] = tau
         
         # potential Stress y6
-        b[3] = ((2 * n + 1) / r[end,end]) * (U + G / r[end,end] * U_prime)
+        b[3] = ((2 * n + 1) / (r[end,end]/scale[1])) * (U + (G/scale[5]) / (r[end,end]/scale[1]) * U_prime)
 
         C = M \ b
-
+        
         y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 
-        for i in 2:nlayers
+        for i in 1:nlayers
             for j in 1:nsublayers-1
-                y[:,j,i] = @view(y1_4[:,:,j,i])*C
+                y[:,j,i] = S*@view(y1_4[:,:,j,i])*C
             end
         end
 
@@ -531,7 +564,7 @@ module solid1d
         ϵs      = zero(ϵ)
 
         # Retrieve stain tensor 
-        for i in 2:nlay # Loop of layers
+        for i in 1:nlay # Loop of layers
             ρr = ρ[i]
             κr = κ[i]
             μr = μ[i]
@@ -558,7 +591,7 @@ module solid1d
         Eκ_vol = zero( Eμ_vol )
 
         if isnothing(lay)
-            rstart = 2
+            rstart = 1
             rend = nlay
         else
             rstart = lay

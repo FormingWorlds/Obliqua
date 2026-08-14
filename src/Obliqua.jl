@@ -603,7 +603,8 @@ module Obliqua
                             κc_seg[:, iss], R, 
                             m_core, ρ_core, 
                             μ_core, κ_core;
-                            ncalc=ncalc, n=n_i, m=m_i
+                            ncalc=ncalc, n=n_i, m=m_i, core=core,
+                            optimize_scales=optimize_scales
                         )
                     # elseif 1D interior and heating profile from strain tensor
                     elseif module_solid=="solid1d-relax"
@@ -631,7 +632,7 @@ module Obliqua
                             m_core, ρ_core, 
                             μ_core, κ_core;
                             ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
-                            porosity_thresh=porosity_thresh
+                            porosity_thresh=porosity_thresh, optimize_scales=optimize_scales
                         )
                     elseif module_solid=="solid1d-mush-relax"
                         prf_total[iss, i_start:i_end], 
@@ -745,7 +746,7 @@ module Obliqua
                     P_t = prf_total[iss, i_start] # get heating in bottom layer of current segment
                     i_sp, i_ep = is_seg[iseg-1]
                     Δprf, ΔkT, ΔkL = run_interp(
-                        σ, r[i_sp-1:i_ep], R, P_t, 0.;
+                        σ, r[i_sp:i_ep+1], R, P_t, 0.;
                         t_width=t_width, b_width=b_width
                     )
                     prf_total[iss, i_sp:i_ep] .+= Δprf
@@ -1459,7 +1460,7 @@ module Obliqua
 
 
     """
-        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid")
+        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid", optimize_scales=false)
 
     Use 1D solid tides model to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
     This method ignores inertia effects, since they break the numerical stability.
@@ -1482,6 +1483,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid" or "solid".
+    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
 
     # Returns
     - `power_prf::Array{Float64,1}`     : Heating profile.
@@ -1502,7 +1504,8 @@ module Obliqua
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
-                        core::String="liquid"
+                        core::String="liquid",
+                        optimize_scales::Bool=false
                         )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
         # internal structure arrays.
@@ -1520,16 +1523,28 @@ module Obliqua
         # get gravity at each layer
         g = solid1d.get_g(rr, ρ, m_core)
 
+        # compute mass of each layer and total mass of planet
+        dm    = m_core + sum(4/3 * π * ρ .* diff(r.^3))
+        M_enc = cumsum(dm) .+ m_core    # cumulative mass of planet
+        M_tot = M_enc[end]              # total mass of planet
+
+        # get non-dimensionalization scales
+        if optimize_scales
+            scales = solid1d.common.optimize_scales(r[2:end], ρ, g, μc, κc, ω, n, [r[end], M_tot, G])
+        else
+            scales = [r[end], M_tot, G] # default scales if not optimizing
+        end
+
         # create grid
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d.compute_M(omega, rr, ρ, g, μc, κc, n, ρ_core, μ_core, κ_core; core=core)
-        #   Tidal
-        tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n; load=false)
-        #   Load
-        tidal_solution_L = solid1d.compute_y(rr, g, M, y1_4, n; load=true)
-
+        M, y1_4, S, scale = solid1d.compute_M(omega, rr, ρ, g, μc, κc, n, ρ_core, μ_core, κ_core, scales; core=core)
+        # Tidal
+        tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n, S, scale; load=false)
+        # Load
+        tidal_solution_L = solid1d.compute_y(rr, g, M, y1_4, n, S, scale; load=true)
+        
         # get kn tidal Love Number (complex-valued)
         kn_T = tidal_solution_T[5, end, end] - 1
         kn_L = tidal_solution_L[5, end, end] - 1
@@ -1573,7 +1588,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
-    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales for the relaxation method.
+    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
@@ -1685,7 +1700,7 @@ module Obliqua
     
 
     """
-        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5)
+        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5, optimize_scales=false)
 
     Use 1D solid tides model with mush interface to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
 
@@ -1714,6 +1729,7 @@ module Obliqua
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
+    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
 
     # Returns
     - `power_prf::Array{Float64,1}`     : Heating profile.
@@ -1741,7 +1757,8 @@ module Obliqua
                         core::String="liquid",
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
-                        porosity_thresh::Float64=1e-5
+                        porosity_thresh::Float64=1e-5,
+                        optimize_scales::Bool=false
                         )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
         # internal structure arrays.
@@ -1765,11 +1782,6 @@ module Obliqua
         # the mush layer index is therefore
         ii = length(ϕ)
 
-        # If the porosity = 0, throw error (because the matrix cannot be resolved, instead use 1 phase model)
-        if ϕ[ii] <= prec(porosity_thresh)
-            throw("No mush region identified in viscosity profile.")
-        end
-
         # update the liquid arrays
         κl[ii] = prec(bulk_l)   # liquid bulk modulus
         ηl[ii] = prec(visc_l)   # liquid viscosity
@@ -1788,15 +1800,27 @@ module Obliqua
         # get gravity at each layer
         g = solid1d_mush.get_g(rr, ρ, m_core)
 
+        # compute mass of each layer and total mass of planet
+        dm    = m_core + sum(4/3 * π * ρ .* diff(r.^3))
+        M_enc = cumsum(dm) .+ m_core    # cumulative mass of planet
+        M_tot = M_enc[end]              # total mass of planet
+
+        # get non-dimensionalization scales
+        if optimize_scales
+            scales = solid1d_mush.common.optimize_scales(r[2:end], ρ, g, μc, κc, ω, n, [r[end], M_tot, G])
+        else
+            scales = [r[end], M_tot, G] # default scales if not optimizing
+        end
+
         # create grid
         solid1d_mush.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4 = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core; core=core)
+        M, y1_4, S, scale = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core)
         #   Tidal
-        tidal_solution_T = solid1d_mush.compute_y(rr, g, M, y1_4, n; load=false)
+        tidal_solution_T = solid1d_mush.compute_y(rr, g, M, y1_4, n, S, scale; load=false)
         #   Load
-        tidal_solution_L = solid1d_mush.compute_y(rr, g, M, y1_4, n; load=true)
+        tidal_solution_L = solid1d_mush.compute_y(rr, g, M, y1_4, n, S, scale; load=true)
 
         # get kn tidal Love Number (complex-valued)
         kn_T = tidal_solution_T[5, end, end] - 1
@@ -1852,7 +1876,7 @@ module Obliqua
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
-    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales for the relaxation method.
+    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
     # Returns
@@ -2124,27 +2148,27 @@ module Obliqua
             return out
         end
 
-        # determine shell volumes
-        Vs  = (4/3) * π * (r[end]^3 - r[1]^3)
-        dVs = (4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3)
+        # determine shell volumes (explicitly cast geometric dimensions derived from `r` to Float64)
+        Vs  = Float64((4/3) * π * (r[end]^3 - r[1]^3))
+        dVs = Float64.((4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3))
 
         # compute kn Lovenumbers for the fluid layer with Rayleigh drag at the interface and in the interior
         kn_T, kn_L  = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R)    # total
         kn_T_inf, _ = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=sigma_inf)               # fluid baseline (no friction)
 
         # compute dimensionless volumetric heating from the imaginary part of the tidal Love number
-        prefactor = (2n + 1) * R * omega / (8π * G)
-        E_total = prefactor * -imag(kn_T)     
-        E_inf   = prefactor * -imag(kn_T_inf)
+        prefactor = Float64((2n + 1) * R * omega / (8π * G))
+        E_total = Float64(prefactor * -imag(kn_T))     
+        E_inf   = Float64(prefactor * -imag(kn_T_inf))
         
         # compute shell centers and height for depth-dependent drag profile
         r_mid = 0.5 .* (r[1:end-1] .+ r[2:end])
-        z     = abs.(r_mid .- r[1])
+        z     = Float64.(abs.(r_mid .- r[1]))
 
         # extract shear, bulk, and darcy contributions to the total heating (for smooth transition from solid-mush to fluid)
         μ_ini, κ_ini, l_ini = P_b
         # obtain 1D equivalent of the 3D heating map by angular averaging
-        shear_bulk_darcy = angular_mean(μ_ini) + angular_mean(κ_ini) + angular_mean(l_ini)
+        shear_bulk_darcy = Float64(angular_mean(μ_ini) + angular_mean(κ_ini) + angular_mean(l_ini))
 
         # initiate depth-dependent decay factor for shear, bulk, and darcy heating profiles
         decay_factor = ones(Float64, Nz)
@@ -2217,7 +2241,7 @@ module Obliqua
                 z_visc = z[1]
             else
                 # interpolate to find the depth where viscosity equals visc_l
-                μ1, μ2 = visc[idx-1], visc[idx]
+                μ1, μ2 = Float64(visc[idx-1]), Float64(visc[idx])
                 f = clamp((visc_l - μ1)/(μ2 - μ1), 0.0, 1.0)
                 z_visc = z[idx-1] + f*(z[idx]-z[idx-1])
             end
@@ -2245,10 +2269,10 @@ module Obliqua
         # `uniform`, `exp`, `linear`, or `quadratic` profile: simple depth-dependent drag profile
         else
             # compute the dedicated budget for the depth-dependent profile
-            D_power_blk   = max((E_total - E_inf) / Vs, 0)
+            D_power_blk   = max((E_total - E_inf) / Vs, 0.0)
 
             # compute the depth-dependent shape factor based on the specified profile type
-            shape = ones(length(z))
+            shape = ones(Float64, length(z))
 
             if sigma_R_prf == "exp"
                 # exponential decay profile
@@ -2256,11 +2280,11 @@ module Obliqua
 
             elseif sigma_R_prf == "linear"
                 # linear decay profile
-                shape .= max.(0, 1 .- z ./ H_R)
+                shape .= max.(0.0, 1.0 .- z ./ H_R)
 
             elseif sigma_R_prf == "quadratic"
                 # quadratic decay profile
-                shape .= max.(0, 1 .- z ./ H_R).^2
+                shape .= max.(0.0, 1.0 .- z ./ H_R).^2
 
             elseif sigma_R_prf == "dynamic"
                 # dynamic profile: exponential decay with a minimum cutoff to avoid numerical issues
@@ -2294,7 +2318,7 @@ module Obliqua
         map_κ = propagate_map(κ_ini, decay_factor)
         map_l = propagate_map(l_ini, decay_factor)
 
-        return Float64.(power_prf), map_μ, map_κ, map_l, map_f, map_d, ComplexF64(kn_T), ComplexF64(kn_L)
+        return Vector{Float64}(power_prf), map_μ, map_κ, map_l, map_f, map_d, ComplexF64(kn_T), ComplexF64(kn_L)
     end
 
 
