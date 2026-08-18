@@ -15,7 +15,7 @@ module common
     using LinearAlgebra
     using Optim
 
-    export optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
+    export optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
 
 
     """
@@ -437,8 +437,8 @@ module common
     - `r::prec`                          : Radius of the core boundary.
     - `ρ::prec`                          : Density of the core.
     - `g::prec`                          : Gravity at the core boundary.
-    - `μ::prec`                          : Shear modulus of the core.
-    - `K::prec`                          : Bulk modulus of the core.
+    - `μ::precc`                         : Shear modulus of the core.
+    - `K::precc`                         : Bulk modulus of the core.
     - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
     - `n::Int`                           : Tidal degree.
 
@@ -449,7 +449,7 @@ module common
     # Returns
     - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
     """
-    function get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::prec, K::prec, type::String, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    function get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
     
         M = length(Y)
         N = Int(M / 2)
@@ -461,9 +461,9 @@ module common
             Ic[Y[1],3] = 1.0
             Ic[Y[2],2] = 1.0
             Ic[Y[3],3] = g*ρ
-            Ic[Y[5],1] = r^n
-            Ic[Y[6],1] = 2(n-1)*r^(n-1)
-            Ic[Y[6],3] = 4π * G_norm * ρ
+            Ic[Y[5],1] = -r^n
+            Ic[Y[6],1] = -2(n-1)*r^(n-1)
+            Ic[Y[6],3] = -4π * G_norm * ρ
         elseif type == "inertial"
             # 1. Define physical parameters
             γ = 4π * G_norm * ρ / 3
@@ -545,21 +545,26 @@ module common
             Ic[Y[2], 1] = ( n+3 )*r^( n+1 ) / ( 2*( 2n+3 ) * ( n+1 ) )
             Ic[Y[3], 1] = ( n*ρ*g*r + 2*( n^2 - n - 3)*μ ) * r^n / ( 2*( 2n + 3) )
             Ic[Y[4], 1] = n *( n+2 ) * μ * r^n / ( ( 2n + 3 )*( n+1 ) )
-            Ic[Y[6], 1] = 2π*G_norm*ρ*n*r^( n+1 ) / ( 2n + 3 )
+            Ic[Y[6], 1] = -2π*G_norm*ρ*n*r^( n+1 ) / ( 2n + 3 )
 
             # Second column
             Ic[Y[1], 2] = r^( n-1 )
             Ic[Y[2], 2] = r^( n-1 ) / n
             Ic[Y[3], 2] = ( ρ*g*r + 2*( n-1 )*μ ) * r^( n-2 )
             Ic[Y[4], 2] = 2*( n-1 ) * μ * r^( n-2 ) / n
-            Ic[Y[6], 2] = 4π*G_norm*ρ*r^( n-1 )
+            Ic[Y[6], 2] = -4π*G_norm*ρ*r^( n-1 )
 
             # Third column
             Ic[Y[3], 3] = -ρ * r^n
-            Ic[Y[5], 3] = -r^n
-            Ic[Y[6], 3] = -( 2n + 1) * r^( n-1 )
+            Ic[Y[5], 3] = r^n
+            Ic[Y[6], 3] = ( 2n + 1) * r^( n-1 )
         else
             error("Invalid core type: $type. Must be 'liquid', 'inertial', or 'solid'.")
+        end
+
+        # Non-zero pore pressure and zero radial Darcy flux
+        if M == 8
+            Ic[Y[7], 4] = 1.0
         end
 
         return Ic
@@ -698,7 +703,7 @@ module common
         A[Y[4],Y[2]] = 4π * G_norm * n*(n+1) / (r^2 * ω^2)
 
         A[Y[1],Y[3]] = -n*(n+1) / (r^2 * ω^2)
-        A[Y[2],Y[3]] = ρ*(n+1)*r_inv + n*(n+1)*ρ*g / (r^2 * ω^2)
+        A[Y[2],Y[3]] = ρ*(n+1)*r_inv - n*(n+1)*ρ*g / (r^2 * ω^2)
         A[Y[3],Y[3]] = -(n+1)*r_inv
         A[Y[4],Y[3]] = 4π * G_norm * ρ * n*(n+1) / (r^2 * ω^2)
 
@@ -743,7 +748,7 @@ module common
 
         A[Y[1],Y[1]] = -2λ * r_inv*β_inv
         A[Y[2],Y[1]] = -r_inv
-        A[Y[3],Y[1]] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) - ω^2 * ρ 
+        A[Y[3],Y[1]] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) #- ω^2 * ρ 
         A[Y[4],Y[1]] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
         A[Y[5],Y[1]] = 4π * G_norm * ρ
         A[Y[6],Y[1]] = 4π*(n+1)*G_norm*ρ*r_inv
@@ -751,7 +756,7 @@ module common
         A[Y[1],Y[2]] = n*(n+1) * λ * r_inv*β_inv
         A[Y[2],Y[2]] = r_inv
         A[Y[3],Y[2]] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) - ω^2 * ρ 
+        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) #- ω^2 * ρ 
         A[Y[6],Y[2]] = -4π*n*(n+1)*G_norm*ρ*r_inv
 
         A[Y[1],Y[3]] = β_inv
@@ -850,6 +855,88 @@ module common
             A[Y[8],Y[8]] = 1im * k *ρₗ*g *n*(n+1) / (ω*ϕ*ηₗ)*r_inv^2  - 2r_inv 
         end
 
+    end
+
+
+    """
+        get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, Y=[1,2,3,4,5,6])
+
+    Get the surface boundary condition vector `b` and matrix `BN` for the solid-body problem. The surface 
+    boundary conditions are determined by setting, respectively (U, U', tau, P) to (1,0,0,0) for tidal Love 
+    number and (0,1,0,0) for load Love number in system.
+
+    https://hal.science/hal-03421553/document
+
+    # Arguments
+    - `R::prec`                          : Planetary radius, used for surface boundary conditions.
+    - `g::prec`                          : Gravity at the surface, used for surface boundary conditions.
+    - `n::Int`                           : Tidal degree.
+    - `U::Int`                           : Tidal potential at the surface.
+    - `U_prime::Int`                     : Radial derivative of the tidal potential at the surface.
+    - `tau::Int`                         : Tangential tidal stress at the surface.
+    - `P::Int`                           : Surface mass load at the surface.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Indices for the state variables (default is for standard case).
+
+    # Returns
+    - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
+    - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
+    """
+    function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1, Y=[1,2,3,4,5,6])
+        
+        M = length(Y)
+        N = Int(M / 2)
+
+        # b vector (Right Hand Side of the B*y = b system)
+        b = zeros(precc, M) 
+        
+        if M == 8
+            # radial Stress y3
+            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
+            
+            # tangential Stress y4
+            b[Y[4]] = tau
+            
+            # potential Stress y6
+            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+            
+            # darcy flux boundary
+            b[Y[8]] = 0
+        elseif M == 6
+            # radial Stress y3
+            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
+            
+            # tangential Stress y4
+            b[Y[4]] = tau
+            
+            # potential Stress y6
+            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+        else
+            error("Unsupported M value. M should be either 6 or 8.")
+        end
+        
+        # construct the 4x8 B matrix
+        # this matrix extracts y3, y4, and the combination for y6
+        B = zeros(precc, N, M)
+
+        if M == 8
+            # stress components
+            B[1, Y[3]] = 1.0  # radial stress y3
+            B[2, Y[4]] = 1.0  # tangential stress y4
+            # potential component
+            B[3, Y[6]] = 1.0
+            B[4, Y[8]] = 1.0
+        elseif M == 6
+            # stress components
+            B[1, Y[3]] = 1.0  # radial stress y3
+            B[2, Y[4]] = 1.0  # tangential stress y4
+            # potential component
+            B[3, Y[6]] = 1.0        
+        end
+
+        return B, b
     end
 
 
