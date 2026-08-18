@@ -161,8 +161,8 @@ module solid1d_mush_relax
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::prec`                    : Shear modulus of the core, used for core boundary conditions.
-    - `κ_core::prec`                    : Bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::precc`                   : Shear modulus of the core, used for core boundary conditions.
+    - `κ_core::precc`                   : Bulk modulus of the core, used for core boundary conditions.
     - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
@@ -177,7 +177,7 @@ module solid1d_mush_relax
     - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
     function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
-                                ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
+                                ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", patch=false)
 
         # Define ordering
         Y6 = [1,2,4,5,3,6]
@@ -514,8 +514,8 @@ module solid1d_mush_relax
     - `K::Vector{precc}`                : Vector of bulk moduli at the layer centers.
     - `ω::prec`                         : Angular frequency of the tidal forcing.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
-    - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::precc`                   : Complex shear modulus of the core, used for core boundary conditions.
+    - `κ_core::precc`                   : Complex bulk modulus of the core, used for core boundary conditions.
     - `core::String`                    : Type of core boundary condition to apply.
     - `n::Int`                          : Tidal degree.
 
@@ -527,7 +527,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 3x6 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
+    function core_boundary(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρ_core::prec, μ_core::precc, κ_core::precc, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
 
         start_id, end_id = ids
 
@@ -585,8 +585,8 @@ module solid1d_mush_relax
     - `ϕ::Vector{prec}`                 : Vector of porosities at the layer centers.
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
-    - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::precc`                   : Complex shear modulus of the core, used for core boundary conditions.
+    - `κ_core::precc`                   : Complex bulk modulus of the core, used for core boundary conditions.
     - `core::String`                    : Type of core boundary condition to apply.
     - `n::Int`                          : Tidal degree.
 
@@ -598,7 +598,7 @@ module solid1d_mush_relax
     - `C1l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the C1 matrix for the next iteration.
     - `D2l::Matrix{precc}`              : 4x8 matrix representing the "stored" lower half of the D2 matrix for the next iteration.
     """
-    function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::prec, κ_core::prec, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function core_boundary_mush(R::Vector, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, ρ_core::prec, μ_core::precc, κ_core::precc, core::String, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
 
         start_id, end_id = ids
 
@@ -928,142 +928,33 @@ module solid1d_mush_relax
     boundary must balance the tidal potential, and that the tangential stresses must vanish.
 
     # Arguments
-    - `ω::Float64`                       : Forcing frequency.
-    - `r::prec`                          : Radial position of the core-mantle boundary.
-    - `ρ::prec`                          : Average core density.
-    - `g::prec`                          : Gravity at the core-mantle boundary.
-    - `μ::prec`                          : Average core shear modulus.
-    - `K::prec`                          : Average core bulk modulus.
-    - `type::String`                     : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
-    - `n::Int`                           : Tidal degree.
+    - `ω::Float64`                        : Forcing frequency.
+    - `r::prec`                           : Radial position of the core-mantle boundary.
+    - `ρ::prec`                           : Average core density.
+    - `g::prec`                           : Average core gravity.
+    - `μ::precc`                          : Average core shear modulus.
+    - `K::precc`                          : Average core bulk modulus.
+    - `type::String`                      : Type of core boundary condition to apply ("liquid", "solid", or "inertial").
+    - `n::Int`                            : Tidal degree.
 
     # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `Y::Vector{Int}=[1,2,3,4,5,6]`    : Indices for the state variables (default is for standard case).
+    - `G0::prec=1`                        : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Indices for the state variables (supports M=6 standard or M=8 mushing systems).
 
     # Returns
-    - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the core and the boundary conditions.
+    - `B::Array{precc,2}`                 : N x M matrix (where M = length(Y), N = M/2) representing the core boundary constraint B * y = 0.
     """
-    function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::prec, K::prec, type::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
+    function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
         
-        M = length(Y)
-        N = Int(M / 2)
-
-        # 1. Get the Initial Conditions matrix
+        # 1. Get the Initial Conditions matrix (M x N, where N = M/2 fundamental solutions)
         Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, Y=Y)
 
-        # 2. Define indices based on dimensionality
-        # If M=8 (Mushing/Hay 2025):  U=1, V=2, phi=5, P=7 | X=3, Y=4, psi=6, R=8
-        # If M=6 (Standard/Takeuchi): U=1, V=2, phi=5      | X=3, Y=4, psi=6
-        if M == 8
-            idx_u = [Y[1], Y[2], Y[5], Y[7]]
-            idx_s = [Y[3], Y[4], Y[6], Y[8]]
-        else
-            idx_u = [Y[1], Y[2], Y[5]]
-            idx_s = [Y[3], Y[4], Y[6]]
-        end
+        # 2. Compute the left nullspace directly via SVD (xᵀ * Ic = 0)
+        # Returns an M x N matrix where columns form an orthonormal basis for the nullspace
+        Bt = nullspace(transpose(Ic))
 
-        # 3. Partition and calculate the boundary condition coefficients
-        Mu = Ic[idx_u, :]
-        Ms = Ic[idx_s, :]
-        
-        # Equation 91: b = -Mu * Ms⁻¹
-        b = -Mu * pinv(Ms)
-
-        # 4. Construct the NxM B matrix
-        T = eltype(b)
-        B = zeros(T, N, M)
-
-        for i in 1:N
-            B[i, idx_u[i]] = 1.0
-            for j in 1:length(idx_s)
-                B[i, idx_s[j]] = b[i, j]
-            end
-        end
-
-        return B
-    end
-
-
-    """
-        get_surface_bc!(R, g, n, U, U_prime, tau, P; G0=1, Y=[1,2,3,4,5,6,7,8])
-
-    Get the surface boundary condition vector `b` and matrix `BN` for the solid-body problem. The surface 
-    boundary conditions are determined by setting, respectively (U, U', tau, P) to (1,0,0,0) for tidal Love 
-    number and (0,1,0,0) for load Love number in system.
-
-    https://hal.science/hal-03421553/document
-
-    # Arguments
-    - `R::prec`                          : Planetary radius, used for surface boundary conditions.
-    - `g::prec`                          : Gravity at the surface, used for surface boundary conditions.
-    - `n::Int`                           : Tidal degree.
-    - `U::Int`                           : Tidal potential at the surface.
-    - `U_prime::Int`                     : Radial derivative of the tidal potential at the surface.
-    - `tau::Int`                         : Tangential tidal stress at the surface.
-    - `P::Int`                           : Surface mass load at the surface.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Indices for the state variables (default is for standard case).
-
-    # Returns
-    - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
-    - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
-    """
-    function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
-        
-        M = length(Y)
-        N = Int(M / 2)
-
-        # b vector (Right Hand Side of the B*y = b system)
-        b = zeros(precc, M) 
-        
-        if M == 8
-            # radial Stress y3
-            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
-            
-            # tangential Stress y4
-            b[Y[4]] = tau
-            
-            # potential Stress y6
-            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
-            
-            # darcy flux boundary
-            b[Y[8]] = 0
-        elseif M == 6
-            # radial Stress y3
-            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
-            
-            # tangential Stress y4
-            b[Y[4]] = tau
-            
-            # potential Stress y6
-            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
-        else
-            error("Unsupported M value. M should be either 6 or 8.")
-        end
-        
-        # construct the 4x8 B matrix
-        # this matrix extracts y3, y4, and the combination for y6
-        B = zeros(precc, N, M)
-
-        if M == 8
-            # stress components
-            B[1, Y[3]] = 1.0  # radial stress y3
-            B[2, Y[4]] = 1.0  # tangential stress y4
-            # potential component
-            B[3, Y[6]] = 1.0
-            B[4, Y[8]] = 1.0
-        elseif M == 6
-            # stress components
-            B[1, Y[3]] = 1.0  # radial stress y3
-            B[2, Y[4]] = 1.0  # tangential stress y4
-            # potential component
-            B[3, Y[6]] = 1.0        
-        end
-
-        return B, b
+        # 3. Return as N x M constraint matrix B
+        return permutedims(Bt)
     end
 
 
@@ -1091,8 +982,8 @@ module solid1d_mush_relax
     - `k::Vector{prec}`                 : Vector of permeabilities at the layer centers.
     - `n::Int`                          : Tidal degree.
     - `ρ_core::prec`                    : Density of the core, used for core boundary conditions.
-    - `μ_core::prec`                    : Complex shear modulus of the core, used for core boundary conditions.
-    - `κ_core::prec`                    : Complex bulk modulus of the core, used for core boundary conditions.
+    - `μ_core::precc`                   : Complex shear modulus of the core, used for core boundary conditions.
+    - `κ_core::precc`                   : Complex bulk modulus of the core, used for core boundary conditions.
     - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
@@ -1103,7 +994,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{ComplexF64}`         : 8xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     - `y_l::Matrix{ComplexF64}`         : 8x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core="liquid", patch=false)
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", patch=false)
 
         # solve radial system to get surface solution and recursion matrices
         yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)

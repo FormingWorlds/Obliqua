@@ -500,8 +500,8 @@ module solid1d_mush
     - `k::Array{prec,1}`                 : 1D array of permeabilities at layer boundaries.
     - `n::Int`                           : Tidal degree.
     - `ρ_core::prec`                     : Density of the core.
-    - `μ_core::prec`                     : Shear modulus of the core.
-    - `κ_core::prec`                     : Bulk modulus of the core.
+    - `μ_core::precc`                    : Shear modulus of the core.
+    - `κ_core::precc`                    : Bulk modulus of the core.
     - `scales::Vector{prec}`             : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
@@ -513,7 +513,7 @@ module solid1d_mush
     - `S::Vector{Matrix{precc}}`         : Vector of 8x8 matrices representing the normalization.
     - `scale::Vector{prec}`              : Vector of scaling parameters for non-dimensionalization.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{precc,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{precc,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid")
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -543,7 +543,12 @@ module solid1d_mush
         ks = k./R0^2
 
         # Define starting vector as the core solution matrix, Y_r_C (Eq. S5.15)
-        y_start = get_Ic(ωs, rs[end,1], ρ_core/ρ0, gs[end,1], μ_core/μ0, κ_core/μ0, core, n; G0=G0, Y=[1,2,3,4,5,6,7,8])
+        if porous_layer[1]
+            y_start = get_Ic(ωs, rs[end,1], ρ_core/ρ0, gs[end,1], μ_core/μ0, κ_core/μ0, core, n; G0=G0, Y=[1,2,3,4,5,6,7,8])
+        else
+            y_start = zeros(precc, 8, 4)
+            y_start[1:6, 1:3] .= get_Ic(ωs, rs[end,1], ρ_core/ρ0, gs[end,1], μ_core/μ0, κ_core/μ0, core, n; G0=G0, Y=[1,2,3,4,5,6])
+        end
 
         y1_4 = zeros(precc, 8,   4, nsublayers-1, nlayers)  # Four linearly independent y solutions
         
@@ -554,7 +559,7 @@ module solid1d_mush
             # Modify starting vector if the layer is porous
             # If a new porous layer (i.e., sitting on a non-porous layer)
             # reset the pore pressure and darcy flux
-            if porous_layer[i] && !porous_layer[i-1]
+            if porous_layer[i] && (i > 1 && !porous_layer[i-1])
                 y_start[7,4] = 1.0          # Non-zero pore pressure
                 y_start[8,4] = 0.0          # Zero radial Darcy flux
             elseif !porous_layer[i]
@@ -616,34 +621,23 @@ module solid1d_mush
     """
     function compute_y(r::Array{prec,2}, g::Array{prec,2}, M::Array{precc,2}, y1_4::Array{precc,4}, n::Int, S::Matrix{prec}, scale::Array{prec,1}; load::Bool=false)
 
-        tau = 0.0
-        P = 0.0
-        U_prime = 0.0
-        U = 0.0
+        tau = 0
+        P = 0
+        U_prime = 0
+        U = 0
         if load
-            U_prime = 1.0
+            U_prime = 1
         elseif !load
-            U = 1.0
+            U = 1
         end
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        b = zeros(precc, 4)
-
-        # radial Stress y3
-        b[1] = -(2 * n + 1) * g[end,end]/scale[6] / (4 * pi * (r[end,end]/scale[1])^2) * U_prime - P
+        # Compute the boundary conditions at the surface
+        _, b = get_surface_bc!(r[end,end]/scale[1], g[end,end]/scale[6], n, U, U_prime, tau, P; G0=scale[5], Y=[1,2,3,4,5,6,7,8])
         
-        # tangential Stress y4
-        b[2] = tau
-        
-        # potential Stress y6
-        b[3] = ((2 * n + 1) / (r[end,end]/scale[1])) * (U + (G/scale[5]) / (r[end,end]/scale[1]) * U_prime)
-
-        # Darcy flux y8
-        b[4] = 0.0
-
-        C = M \ b
+        C = M \ b[collect((3, 4, 6, 8))]
 
         y = zeros(ComplexF64, 8, nsublayers-1, nlayers)
 

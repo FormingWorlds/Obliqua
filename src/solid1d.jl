@@ -352,8 +352,8 @@ module solid1d
     - `K::Array{precc,1}`                : 1D array of layer bulk moduli.
     - `n::Int`                           : Tidal degree.
     - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
-    - `μ_core::prec`                     : Shear modulus of the core.
-    - `κ_core::prec`                     : Bulk modulus of the core.
+    - `μ_core::precc`                    : Shear modulus of the core.
+    - `κ_core::precc`                    : Bulk modulus of the core.
     - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
@@ -365,7 +365,7 @@ module solid1d
     - `S::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the normalization.
     - `scale::Vector{prec}`              : Vector of scaling parameters for non-dimensionalization.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::prec, κ_core::prec, scales::Vector{prec}; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid")
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
@@ -432,31 +432,23 @@ module solid1d
     """
     function compute_y(r::Array{prec,2}, g::Array{prec,2}, M::Array{precc,2}, y1_4::Array{precc,4}, n::Int, S::Matrix{prec}, scale::Array{prec,1}; load::Bool=false)
 
-        tau = 0.0
-        P = 0.0
-        U_prime = 0.0
-        U = 0.0
+        tau = 0
+        P = 0
+        U_prime = 0
+        U = 0
         if load
-            U_prime = 1.0
+            U_prime = 1
         else
-            U = 1.0
+            U = 1
         end
 
         nlayers = size(r)[2]
         nsublayers = size(r)[1]
 
-        b = zeros(precc, 3)
-
-        # radial Stress y3
-        b[1] = -(2 * n + 1) * g[end,end]/scale[6] / (4 * pi * (r[end,end]/scale[1])^2) * U_prime - P
+        # Compute the boundary conditions at the surface
+        _, b = get_surface_bc!(r[end,end]/scale[1], g[end,end]/scale[6], n, U, U_prime, tau, P; G0=scale[5], Y=[1,2,3,4,5,6])
         
-        # tangential Stress y4
-        b[2] = tau
-        
-        # potential Stress y6
-        b[3] = ((2 * n + 1) / (r[end,end]/scale[1])) * (U + (G/scale[5]) / (r[end,end]/scale[1]) * U_prime)
-
-        C = M \ b
+        C = M \ b[collect((3, 4, 6))]
         
         y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 

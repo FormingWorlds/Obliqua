@@ -398,10 +398,19 @@ module Obliqua
             throw("CMB radius not at bottom of mantle, did you properly order the interior arrays?")
         end
 
+        # check which core properties to use for CMB boundary condition
+        #   "core" uses the core density to compute the core mass
+        #   "mantle" uses the lowest mantle layer density to compute the core mass
+        core_props = cfg["orbit"]["obliqua"]["solid"]["core_props"]
+
         # get core mass from core density and radius
-        μ_core = convert(prec, cfg["struct"]["core_shear"])
-        κ_core = convert(prec, cfg["struct"]["core_bulk"])
-        ρ_core = convert(prec, cfg["struct"]["core_density"])
+        if core_props == "core"
+            ρ_core = convert(prec, cfg["struct"]["core_density"])
+        elseif core_props == "mantle"
+            ρ_core = ρ[1]
+        else
+            throw("Invalid core_props value: $core_props. Must be 'core' or 'mantle'.")
+        end
         m_core = (4/3)*π*r[1]^3*ρ_core
 
         # find planet radius (m)
@@ -506,6 +515,19 @@ module Obliqua
         # smooth complex moduli for mushy layers
         μc, κc = smooth_complex_modulus!(μc, κc, r, η)
 
+        μ_core = zeros(precc, N_σ)
+        κ_core = zeros(precc, N_σ)
+        # update core properties based on config
+        if core_props == "core"
+            μ_core = fill(convert(precc, cfg["struct"]["core_shear"]), N_σ)
+            κ_core = fill(convert(precc, cfg["struct"]["core_bulk"]), N_σ)
+        elseif core_props == "mantle"
+            μ_core = μc[1, :]
+            κ_core = κc[1, :]
+        else
+            throw("Invalid core_props value: $core_props. Must be 'core' or 'mantle'.")
+        end
+
         # allocate outputs for this specific mode's frequency count
         # initiate forcing frequency dependent k Love numbers (one spectrum for each segment)
         knms_T = zeros(ComplexF64, N_σ, length(segments))
@@ -602,7 +624,7 @@ module Obliqua
                             μc_seg[:, iss], 
                             κc_seg[:, iss], R, 
                             m_core, ρ_core, 
-                            μ_core, κ_core;
+                            μ_core[iss], κ_core[iss];
                             ncalc=ncalc, n=n_i, m=m_i, core=core,
                             optimize_scales=optimize_scales
                         )
@@ -616,7 +638,7 @@ module Obliqua
                             η_seg, μc_seg[:, iss], 
                             κc_seg[:, iss], R, 
                             m_core, ρ_core, 
-                            μ_core, κ_core;
+                            μ_core[iss], κ_core[iss];
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n_i, m=m_i, core=core, 
                             optimize_scales=optimize_scales, patch=patch
@@ -630,7 +652,7 @@ module Obliqua
                             κc_seg[:, iss], κdc_seg[:, iss], 
                             ϕ_seg, α_seg[:, iss], K_seg, R, 
                             m_core, ρ_core, 
-                            μ_core, κ_core;
+                            μ_core[iss], κ_core[iss];
                             ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             porosity_thresh=porosity_thresh, optimize_scales=optimize_scales
                         )
@@ -645,7 +667,7 @@ module Obliqua
                             κc_seg[:, iss], κdc_seg[:, iss], 
                             ϕ_seg, α_seg[:, iss], K_seg, R, 
                             m_core, ρ_core,
-                            μ_core, κ_core;
+                            μ_core[iss], κ_core[iss];
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
                             porosity_thresh=porosity_thresh, 
@@ -1475,8 +1497,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
-    - `μ_core::prec`                    : Core shear modulus.
-    - `κ_core::prec`                    : Core bulk modulus.
+    - `μ_core::precc`                   : Core shear modulus.
+    - `κ_core::precc`                   : Core bulk modulus.
     
     # Keyword Arguments
     - `ncalc::Int=2000`                 : Number of sublayers.
@@ -1499,8 +1521,8 @@ module Obliqua
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
-                        μ_core::prec,
-                        κ_core::prec;
+                        μ_core::precc,
+                        κ_core::precc;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
@@ -1579,8 +1601,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
-    - `μ_core::prec`                    : Core shear modulus.
-    - `κ_core::prec`                    : Core bulk modulus.
+    - `μ_core::precc`                   : Core shear modulus.
+    - `κ_core::precc`                   : Core bulk modulus.
 
     # Keyword Arguments
     - `dr_min::Int=300`                 : Minimum layer thickness in m.
@@ -1608,8 +1630,8 @@ module Obliqua
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
-                        μ_core::prec,
-                        κ_core::prec;
+                        μ_core::precc,
+                        κ_core::precc;
                         dr_min::Int=300,
                         dr_max::Int=3000,
                         n::Int=2,
@@ -1718,9 +1740,9 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
-    - `μ_core::prec`                    : Core shear modulus.
-    - `κ_core::prec`                    : Core bulk modulus.
-    
+    - `μ_core::precc`                   : Core shear modulus.
+    - `κ_core::precc`                   : Core bulk modulus.
+
     # Keyword Arguments
     - `ncalc::Int=2000`                 : Number of sublayers.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
@@ -1749,8 +1771,8 @@ module Obliqua
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
-                        μ_core::prec,
-                        κ_core::prec;
+                        μ_core::precc,
+                        κ_core::precc;
                         ncalc::Int=2000,
                         n::Int=2,
                         m::Int=2,
@@ -1864,8 +1886,8 @@ module Obliqua
     - `R::prec`                         : Planet radius.
     - `m_core::prec`                    : Core mass.
     - `ρ_core::prec`                    : Core density.
-    - `μ_core::prec`                    : Core shear modulus.
-    - `κ_core::prec`                    : Core bulk modulus.
+    - `μ_core::precc`                   : Core shear modulus.
+    - `κ_core::precc`                   : Core bulk modulus.
 
     # Keyword Arguments
     - `dr_min::Int=300`                 : Minimum layer thickness in m.
@@ -1901,8 +1923,8 @@ module Obliqua
                         R::prec,
                         m_core::prec,
                         ρ_core::prec,
-                        μ_core::prec,
-                        κ_core::prec;
+                        μ_core::precc,
+                        κ_core::precc;
                         dr_min::Int=300,
                         dr_max::Int=3000,
                         n::Int=2,
