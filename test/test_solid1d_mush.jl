@@ -134,7 +134,7 @@ using Obliqua.constants
         ρ = [3000.0, 3200.0]; μ = [1e10+0im, 1.2e10+0im]; K = [2e10+0im, 2.5e10+0im]
         ρₗ = [1000.0, 1000.0]; Kl = [2e9, 2e9]; Kd = [1e10+0im, 1.1e10+0im]
         α = [0.5+0im, 0.6+0im]; ηₗ = [1.0, 1.0]; ϕ = [0.0, 0.1]; k = [1e-12, 1e-12]
-        ω = 1e-3; n = 2; ρ_core = 5000.0; μ_core = 0.0; κ_core = 1e11
+        ω = 1e-3; n = 2; ρ_core = 5000.0; μ_core = complex(0.0); κ_core = complex(1e11)
         
         M_mat, y1_4 = solid1d_mush.compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, ones(prec, 3); core="liquid")
         

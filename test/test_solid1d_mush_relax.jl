@@ -2,6 +2,7 @@ using Test
 using LinearAlgebra
 using Obliqua
 using Obliqua.solid1d_mush_relax
+using Obliqua.constants
 
 
 @testset "solid1d_mush_relax Module Tests" begin
@@ -27,8 +28,8 @@ using Obliqua.solid1d_mush_relax
     ω = 1e-4                                  # Angular frequency
     n = 2                                     # Tidal degree
     ρ_core = 7000.0                           # Core density
-    μ_core = 0.0                              # Liquid core shear modulus
-    κ_core = 1e11                             # Core bulk modulus
+    μ_core = complex(0.0)                     # Liquid core shear modulus
+    κ_core = complex(1e11)                    # Core bulk modulus
     M_tot  = 6e24                             # Approximate total mass target
 
     @testset "1. Grid Generation & Gravity Calculations" begin
