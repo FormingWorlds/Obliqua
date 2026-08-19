@@ -1,13 +1,35 @@
 using Documenter
 using DocumenterPages
+using DocumenterTools: Themes
 using Obliqua
 
-# HTML format configuration
-format = Documenter.HTML(
-    edit_link = "main",  # branch name for "Edit on GitHub"
-    prettyurls = get(ENV, "CI", nothing) == "true",
+ASSETS_DIR = joinpath(@__DIR__, "src", "assets")
+
+# following https://github.com/JuliaMusic/JuliaMusic_documentation.jl/blob/master/docs/make.jl
+# combine style and defs files into single scss files for compilation
+for w in ("light", "dark")
+    style = read(joinpath(ASSETS_DIR, "style.scss"), String)
+    theme = read(joinpath(ASSETS_DIR, "$(w)defs.scss"), String)
+    write(joinpath(ASSETS_DIR, "$(w).scss"), style*"\n"*theme)
+end
+
+# compile styles into scss files
+Themes.compile(joinpath(ASSETS_DIR, "light.scss"),
+                joinpath(ASSETS_DIR, "themes/documenter-light.css"))
+Themes.compile(joinpath(ASSETS_DIR, "dark.scss"),
+                joinpath(ASSETS_DIR, "themes/documenter-dark.css"))
+
+format = Documenter.HTML(   
+    edit_link = nothing,
+    collapselevel = 1,
     size_threshold = 300 * 1024,
     size_threshold_warn = 200 * 1024,
+    prettyurls = get(ENV, "CI", nothing) == "true",
+    assets = [
+        # local assets
+        "assets/style.css",
+        "assets/logo.ico",
+    ]
 )
 
 # Build the docs

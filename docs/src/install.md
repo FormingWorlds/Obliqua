@@ -4,12 +4,12 @@
 This page outlines requirements and installation steps for the code. Currently,
 GNU/Linux and MacOS (including ARM) are supported.
 
-## Software requirements
+### Software requirements
 
 !!! warning
     Do not install Julia using your system package manager. Install only from julialang.org as below.
 
-## Installation
+### Installation
 
 1. Install Julia's package manager (Mac and Linux): 
    ```sh
@@ -33,7 +33,7 @@ GNU/Linux and MacOS (including ARM) are supported.
    pkg> add .
    ```
 
-## Testing
+### Testing
 If you want to run the tests manually, simply use the script located in the `test/` folder. Run the follwoing command from the Obliqua root directory:
 ```bash
 julia --project test/runtests.jl

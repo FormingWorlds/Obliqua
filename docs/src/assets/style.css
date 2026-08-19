@@ -1,0 +1,62 @@
+/* Inherit typography from SCSS definitions rather than forcing Inter/JetBrains */
+pre, article, nav, body {
+    font-weight: 400;
+    font-size: 15px;
+    text-align: justify;
+}
+
+code {
+    font-weight: 400;
+    font-size: 12px;
+}
+
+/* Keep general body images at 75%, but exempt badge links and badges with height attributes */
+img:not([src*="shields.io"]):not([src*="codecov.io"]):not([height]) {
+    width: 75%;
+}
+
+/* Force shield badges to display inline at standard size */
+p[align="center"] a img,
+img[src*="shields.io"],
+img[src*="codecov.io"] {
+    width: auto;
+    height: 20px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.left {
+    float: left;
+    padding: 2px;
+}
+
+.center {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.display-light-only {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    width: 32%;
+}
+
+.display-dark-only {
+    display: none;
+    margin-left: auto;
+    margin-right: auto;
+    width: 32%;
+}
+
+/* Documenter theme state triggers */
+html.theme--documenter-dark .display-light-only,
+body.theme--documenter-dark .display-light-only {
+    display: none !important;
+}
+
+html.theme--documenter-dark .display-dark-only,
+body.theme--documenter-dark .display-dark-only {
+    display: block !important;
+}
