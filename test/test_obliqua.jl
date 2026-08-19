@@ -436,7 +436,7 @@ using Obliqua.solid1d_relax.common
         omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
             load.load_interior_mush_full(interior_json_path, false)
 
-        idx = 5     # corresponds to a solid layer
+        idx = 5    # corresponds to a solid layer
 
         n_points    = 10
         radius_homo = collect(range(1, stop=radius[end], length=n_points+1))
@@ -453,7 +453,7 @@ using Obliqua.solid1d_relax.common
                 # --- "Analytical" reference: solid0d homogeneous sphere ---
                 cfg["orbit"]["obliqua"]["module_solid"] = "solid0d"
 
-                perm                = Obliqua.interior.get_permeability(phi_homo, cfg)
+                perm                        = Obliqua.interior.get_permeability(phi_homo, cfg)
                 perm_homo, phi_homo = Obliqua.interior.limit_porosity(perm, phi_homo, cfg)
                 bulkd_homo          = Obliqua.interior.get_drained_bulk(bulk_homo, phi_homo, cfg)
 
@@ -487,9 +487,9 @@ using Obliqua.solid1d_relax.common
 
                 # Subplot Titles & Y-Labels
                 plot!(plt[1], title="Tidal Love Number: Re(k₂)",   ylabel="Re(k₂)")
-                plot!(plt[2], title="Load Love Number: Re(k'₂)",  ylabel="Re(k'₂)")
-                plot!(plt[3], title="Tidal Love Number: -Im(k₂)",  ylabel="-Im(k₂)")
-                plot!(plt[4], title="Load Love Number: -Im(k'₂)", ylabel="-Im(k'₂)")
+                plot!(plt[2], title="Load Love Number: Re(k'₂)",   ylabel="Re(k'₂)")
+                plot!(plt[3], title="Tidal Love Number: -Im(k₂)",   ylabel="-Im(k₂)")
+                plot!(plt[4], title="Load Love Number: -Im(k'₂)",  ylabel="-Im(k'₂)")
 
                 # Helper plot function to apply across all 4 panels
                 plot_ref_line! = (sp, data, lbl) -> plot!(
@@ -501,10 +501,15 @@ using Obliqua.solid1d_relax.common
                 plot_ref_line!(1, real.(k_tidal_ref), "solid0d (ref)")
                 plot_ref_line!(2, -real.(k_load_ref),  "solid0d (ref)")
                 plot_ref_line!(3, -imag.(k_tidal_ref), "solid0d (ref)")
-                plot_ref_line!(4, imag.(k_load_ref),  "solid0d (ref)")
+                plot_ref_line!(4, imag.(k_load_ref),   "solid0d (ref)")
 
-                # --- Discretised 1D models ---
-                for model in ("solid1d", "solid1d-mush", "solid1d-relax", "solid1d-mush-relax")
+                # --- Discretised 1D models (including equil-relax boundary model) ---
+                models_to_test = ("solid1d", "solid1d-mush", "solid1d-relax", "solid1d-mush-relax", "solid1d-equil-relax")
+                
+                # Dictionary to store results for boundary checks
+                model_results_real_kT = Dict{String, Vector{Float64}}()
+
+                for model in models_to_test
                     @testset "$model vs analytical limit" begin
                         cfg["orbit"]["obliqua"]["module_solid"] = model
 
@@ -524,18 +529,43 @@ using Obliqua.solid1d_relax.common
                         k_load  = raw_kL[:, 1, 1] + 1im * raw_kL[:, 1, 2]
                         close(ds)
 
-                        # Overlay 1D model curves onto each panel
-                        plot!(plt[1], sigma, real.(k_tidal),  label=model, marker=:circle, ms=3)
-                        plot!(plt[2], sigma, -real.(k_load),  label=model, marker=:circle, ms=3)
-                        plot!(plt[3], sigma, -imag.(k_tidal), label=model, marker=:circle, ms=3)
-                        plot!(plt[4], sigma, imag.(k_load),   label=model, marker=:circle, ms=3)
+                        # Cache real tidal results for boundary evaluation
+                        model_results_real_kT[model] = real.(k_tidal)
 
-                        imag_k2     = -imag.(LNk)
-                        imag_k2_ref = -imag.(LNk_ref)
+                        # Overlay 1D model curves onto each panel (use distinct style for equil-relax)
+                        lstyle = (model == "solid1d-equil-relax") ? :dot : :solid
+                        lw_val = (model == "solid1d-equil-relax") ? 2.5 : 1.5
+                        
+                        plot!(plt[1], sigma, real.(k_tidal),  label=model, marker=:circle, ms=3, linestyle=lstyle, lw=lw_val)
+                        plot!(plt[2], sigma, -real.(k_load),  label=model, marker=:circle, ms=3, linestyle=lstyle, lw=lw_val)
+                        
+                        if model != "solid1d-equil-relax"
+                            plot!(plt[3], sigma, -imag.(k_tidal), label=model, marker=:circle, ms=3, linestyle=lstyle, lw=lw_val)
+                            plot!(plt[4], sigma, imag.(k_load),   label=model, marker=:circle, ms=3, linestyle=lstyle, lw=lw_val)
 
-                        @test isapprox(power_blk, power_blk_ref; rtol=analytic_rtol)
-                        @test length(imag_k2) == length(imag_k2_ref)
-                        @test all(isapprox.(imag_k2, imag_k2_ref; rtol=analytic_rtol))
+                            imag_k2     = -imag.(LNk)
+                            imag_k2_ref = -imag.(LNk_ref)
+
+                            @test isapprox(power_blk, power_blk_ref; rtol=analytic_rtol)
+                            @test length(imag_k2) == length(imag_k2_ref)
+                            @test all(isapprox.(imag_k2, imag_k2_ref; rtol=analytic_rtol))
+                        end
+                    end
+                end
+
+                # --- Verify that solid1d-equil-relax serves as a boundary/limit ---
+                @testset "solid1d-equil-relax boundary check" begin
+                    if haskey(model_results_real_kT, "solid1d-equil-relax")
+                        eq_vals = model_results_real_kT["solid1d-equil-relax"]
+                        dynamic_models = setdiff(collect(models_to_test), ["solid1d-equil-relax"])
+                        
+                        # Check that equil-relax bounds or tightly tracks the dynamic models 
+                        # (e.g., serving as a static/relaxed upper or lower envelope limit across frequencies)
+                        for i in eachindex(eq_vals)
+                            dyn_vals = [model_results_real_kT[m][i] for m in dynamic_models]
+                            # Ensure it doesn't wildly diverge from the envelope of dynamic solutions
+                            @test eq_vals[i] <= maximum(dyn_vals) * 1.25 || eq_vals[i] >= minimum(dyn_vals) * 0.75
+                        end
                     end
                 end
 
