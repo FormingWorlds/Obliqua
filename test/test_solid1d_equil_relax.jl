@@ -142,7 +142,7 @@ end
         Nr = 2000
         r = exp.(range(log(R_planet*1e-6), log(R_planet), length=Nr))
         ρ  = fill(ρ0, Nr)
-        g  = 4/3*π*G .* ρ .* r        # exact analytic gravity of a homogeneous sphere
+        g  = 4/3*π*G .* ρ .* r
         μ  = complex.(zeros(Nr))
         K  = complex.(zeros(Nr))
         ω  = 0.0
@@ -156,7 +156,7 @@ end
             k_L = real(y_l[5]) - 1.0
             k2_T, k2_L = love_reference(0.0, mass_tot, R_planet, n)
 
-            @test isapprox(k_T, k2_T; rtol=1e-3)   # tighten once you've seen actual convergence
+            @test isapprox(k_T, k2_T; rtol=1e-3)
             @test isapprox(k_L, k2_L; atol=1e-6)
 
             @test isapprox(imag(y_t[5]), 0.0; atol=1e-9)

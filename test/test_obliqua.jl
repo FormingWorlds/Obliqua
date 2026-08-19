@@ -487,9 +487,9 @@ using Obliqua.solid1d_relax.common
 
                 # Subplot Titles & Y-Labels
                 plot!(plt[1], title="Tidal Love Number: Re(k₂)",   ylabel="Re(k₂)")
-                plot!(plt[2], title="Load Love Number: Re(k'₂)",   ylabel="Re(k'₂)")
+                plot!(plt[2], title="Load Love Number: -Re(k'₂)",   ylabel="-Re(k'₂)")
                 plot!(plt[3], title="Tidal Love Number: -Im(k₂)",   ylabel="-Im(k₂)")
-                plot!(plt[4], title="Load Love Number: -Im(k'₂)",  ylabel="-Im(k'₂)")
+                plot!(plt[4], title="Load Love Number: Im(k'₂)",  ylabel="Im(k'₂)")
 
                 # Helper plot function to apply across all 4 panels
                 plot_ref_line! = (sp, data, lbl) -> plot!(
@@ -503,7 +503,7 @@ using Obliqua.solid1d_relax.common
                 plot_ref_line!(3, -imag.(k_tidal_ref), "solid0d (ref)")
                 plot_ref_line!(4, imag.(k_load_ref),   "solid0d (ref)")
 
-                # --- Discretised 1D models (including equil-relax boundary model) ---
+                # --- Discretised 1D models ---
                 models_to_test = ("solid1d", "solid1d-mush", "solid1d-relax", "solid1d-mush-relax", "solid1d-equil-relax")
                 
                 # Dictionary to store results for boundary checks
@@ -532,7 +532,7 @@ using Obliqua.solid1d_relax.common
                         # Cache real tidal results for boundary evaluation
                         model_results_real_kT[model] = real.(k_tidal)
 
-                        # Overlay 1D model curves onto each panel (use distinct style for equil-relax)
+                        # Overlay 1D model curves onto each panel
                         lstyle = (model == "solid1d-equil-relax") ? :dot : :solid
                         lw_val = (model == "solid1d-equil-relax") ? 2.5 : 1.5
                         
@@ -616,7 +616,7 @@ using Obliqua.solid1d_relax.common
         idx = 5     # corresponds to a solid layer
 
         n_points    = 100
-        radius_homo = collect(range(0.50*radius[end], stop=radius[end], length=n_points+1))
+        radius_homo = collect(range(0.5*radius[end], stop=radius[end], length=n_points+1))
         rho_homo    = fill(rho[idx],   n_points)
         visc_homo   = fill(visc[idx],  n_points)
         shear_homo  = fill(shear[idx], n_points)
@@ -682,9 +682,9 @@ using Obliqua.solid1d_relax.common
 
                 # Subplot Titles & Y-Labels
                 plot!(plt[1], title="Tidal Love Number: Re(k₂)",   ylabel="Re(k₂)")
-                plot!(plt[2], title="Load Love Number: Re(k'₂)",  ylabel="Re(k'₂)")
+                plot!(plt[2], title="Load Love Number: -Re(k'₂)",  ylabel="-Re(k'₂)")
                 plot!(plt[3], title="Tidal Love Number: -Im(k₂)",  ylabel="-Im(k₂)")
-                plot!(plt[4], title="Load Love Number: -Im(k'₂)", ylabel="-Im(k'₂)")
+                plot!(plt[4], title="Load Love Number: Im(k'₂)", ylabel="Im(k'₂)")
 
                 # Helper plot function to apply across all 4 panels
                 plot_ref_line! = (sp, data, lbl) -> plot!(
