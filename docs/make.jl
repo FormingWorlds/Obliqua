@@ -6,6 +6,8 @@ using Obliqua
 format = Documenter.HTML(
     edit_link = "main",  # branch name for "Edit on GitHub"
     prettyurls = get(ENV, "CI", nothing) == "true",
+    size_threshold = 300 * 1024,
+    size_threshold_warn = 200 * 1024,
 )
 
 # Build the docs

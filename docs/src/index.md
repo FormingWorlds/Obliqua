@@ -1,10 +1,21 @@
 ```@raw html
+    <p align="center">
     <a href="https://opensource.org/license/mit">
-        <img src="https://img.shields.io/badge/License-MIT-blue.svg">
+        <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT">
     </a>
-    <a href="https://codecov.io/gh/FormingWorlds/Obliqua" > 
-    <img src="https://codecov.io/gh/FormingWorlds/Obliqua/graph/badge.svg?token=wNmXt5ld7H"/> 
+    <a href="https://codecov.io/gh/FormingWorlds/Obliqua"> 
+        <img src="https://codecov.io/gh/FormingWorlds/Obliqua/graph/badge.svg?token=wNmXt5ld7H" alt="Codecov">
     </a>
+    <a href="https://github.com/FormingWorlds/Obliqua/actions/workflows/runtests.yml">
+        <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FMarijnJ0%2Febf04f7a12a5b14edb8198927121d149%2Fraw%2Ftests-unit.json" alt="Unit Tests">
+    </a>
+    <a href="https://github.com/FormingWorlds/Obliqua/actions/workflows/runtests.yml">
+        <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FMarijnJ0%2Febf04f7a12a5b14edb8198927121d149%2Fraw%2Ftests-integration.json" alt="Integration Tests">
+    </a>
+    <a href="https://github.com/FormingWorlds/Obliqua/actions/workflows/runtests.yml">
+        <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FMarijnJ0%2Febf04f7a12a5b14edb8198927121d149%2Fraw%2Ftests-total.json" alt="Total Tests">
+    </a>
+    </p>
 ```
 
 # Obliqua (Tidal heating model)
@@ -13,7 +24,7 @@ A Julia package to calculate the tidal deformation (i.e., tidal Love numbers) of
 
 ### Documentation
 
-Obliqua: [https://proteus-framework.org/Obliqua/](https://proteus-framework.org/Obliqua/)
+Obliqua: [https://proteus-framework.org/Obliqua/](https://proteus-framework.org/Obliqua/) \
 PROTEUS: [https://proteus-framework.org/PROTEUS/](https://proteus-framework.org/PROTEUS/)
 
 ### Repository structure
