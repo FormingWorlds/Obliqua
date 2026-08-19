@@ -572,6 +572,39 @@ module common
 
 
     """
+        get_A(ω, r, ρ, g, n; G0=1, Y=[1,2])
+
+    Compute the 2x2 `A` matrix in the ODE for the equilibrium-(fluid)-body problem.
+    This is a simplified version of the A matrix used for the fluid-body problem, where 
+    shear and bulk moduli are assumed zero, as well as forcing frequency ω is zero.
+
+    The formulation is based on the work of Saito 1974, and reduces to the Love 1911
+    formulation for the tidal response of a homogeneous fluid body. Note, this model 
+    does apply to inhomogeneous fluid bodies, as the density and gravity can vary with radius.
+
+    # Arguments
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2]`             : Ordering of the solution vector components. This allows for different conventions in the literature.
+
+    # Returns
+    - `A::Array{precc,2}`               : 2x2 A matrix at radius r, which is used in the ODE for the equilibrium-(fluid)-body problem.
+    """
+    function get_A(r::prec, ρ::prec, g::prec, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2])::Array{precc,2}
+        M = length(Y)
+        A = zeros(precc, M, M) 
+        get_A!(A, r, ρ, g, n; G0=G0, Y=Y)
+        return A
+    end
+
+
+    """
         get_A(ω, r, ρ, g, K, n; G0=1, Y=[1,2,3,4])
 
     Compute the 4x4 `A` matrix in the ODE for the fluid-body problem.
@@ -665,6 +698,36 @@ module common
         A = zeros(precc, 8, 8)
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
         return A
+    end
+
+
+    """
+        get_A!(A, ω, r, ρ, g, n; G0=1, Y=[1,2])
+
+    Compute the 2x2 `A` matrix in the ODE for the fluid-body problem. These correspond to 
+    the coefficients given in Saito 1974 Eq. 18.
+
+    # Arguments
+    - `A::Array{precc,2}`                : 2x2 A matrix at radius r, which is used in the ODE for the fluid-body problem.
+    - `ω::prec`                          : Forcing frequency of the tidal forcing.
+    - `r::prec`                          : Radius at which to compute the A matrix.
+    - `ρ::prec`                          : Density at radius r.
+    - `g::prec`                          : Gravity at radius r.
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2]`             : Ordering of the solution vector components. This allows for different conventions in the literature.
+    """
+    function get_A!(A::Matrix, r::prec, ρ::prec, g::prec, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2])
+        G_norm = G / G0
+        r_inv = 1.0/r
+
+        A[Y[1],Y[1]] = 4π*G_norm*ρ/g - (n+1)*r_inv
+        A[Y[1],Y[2]] = 1
+
+        A[Y[2],Y[1]] = 2*(n-1)*r_inv * 4π*G_norm*ρ/g
+        A[Y[2],Y[2]] = (n-1)*r_inv - 4π*G_norm*ρ/g
     end
 
 
@@ -881,8 +944,8 @@ module common
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Indices for the state variables (default is for standard case).
 
     # Returns
-    - `B::Array{precc,2}`                : 3x6 matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
-    - `b::Vector{precc}`                 : Vector of length 6 representing the inhomogeneous part of the surface boundary conditions.
+    - `B::Array{precc,2}`                : NxM matrix representing the linear relationship between the state variables at the surface and the boundary conditions.
+    - `b::Vector{precc}`                 : Vector of length M representing the inhomogeneous part of the surface boundary conditions.
     """
     function get_surface_bc!(R::prec, g::prec, n::Int, U::Int, U_prime::Int, tau::Int, P::Int; G0=1, Y=[1,2,3,4,5,6])
         
@@ -892,33 +955,41 @@ module common
         # b vector (Right Hand Side of the B*y = b system)
         b = zeros(precc, M) 
         
+        y2 = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
+        y4 = tau
+        y6 = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+        y8 = 0
+
         if M == 8
             # radial Stress y3
-            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
+            b[Y[3]] = y2
             
             # tangential Stress y4
-            b[Y[4]] = tau
+            b[Y[4]] = y4
             
             # potential Stress y6
-            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+            b[Y[6]] = y6
             
             # darcy flux boundary
-            b[Y[8]] = 0
+            b[Y[8]] = y8
         elseif M == 6
             # radial Stress y3
-            b[Y[3]] = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
+            b[Y[3]] = y2
             
             # tangential Stress y4
-            b[Y[4]] = tau
+            b[Y[4]] = y4
             
             # potential Stress y6
-            b[Y[6]] = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
+            b[Y[6]] = y6
+        elseif M == 2
+            # helper y7 = y6 + 4πG/g y2
+            b[Y[2]] = y6 + (4 * pi * G/G0 / g) * y2
         else
             error("Unsupported M value. M should be either 6 or 8.")
         end
         
         # construct the 4x8 B matrix
-        # this matrix extracts y3, y4, and the combination for y6
+        # this matrix extracts y3, y4, and y6
         B = zeros(precc, N, M)
 
         if M == 8
@@ -934,9 +1005,18 @@ module common
             B[2, Y[4]] = 1.0  # tangential stress y4
             # potential component
             B[3, Y[6]] = 1.0        
+        elseif M == 2
+            # only potential component
+            B[1, Y[2]] = 1.0  # helper y7
+        else
+            error("Unsupported M value. M should be either 2, 6, or 8.")
         end
-
-        return B, b
+        
+        if M == 2
+            return B, b, y2, y6
+        else
+            return B, b
+        end
     end
 
 

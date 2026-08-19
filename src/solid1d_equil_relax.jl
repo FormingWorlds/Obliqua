@@ -1,6 +1,6 @@
 
 
-module solid1d_relax
+module solid1d_equil_relax
     
     include("constants.jl")
     include("common.jl")
@@ -141,8 +141,8 @@ module solid1d_relax
     # Returns
     - `y_t::Vector{precc}`              : Vector of length 6 representing the tidal solution at the surface (radius = R_planet). This includes the displacements, stresses, and potential at the surface.
     - `y_l::Vector{precc}`              : Vector of length 6 representing the load solution at the surface (radius = R_planet). This includes the displacements, stresses, and potential at the surface.
-    - `R::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the coefficients of the ODE system at each radial layer.
-    - `S::Matrix{prec}`                 : 6x6 matrix representing the normalization.
+    - `R::Vector{Matrix{precc}}`        : Vector of 2x2 matrices representing the coefficients of the ODE system at each radial layer.
+    - `S::Matrix{prec}`                 : 2x2 matrix representing the normalization.
     """    
     function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid", patch::Bool=false)
 
@@ -188,6 +188,47 @@ module solid1d_relax
 
 
     """
+        get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, type::String, n::Int; G0::prec=1, Y::Vector{Int}=[1,2,3,4,5,6])
+            
+    Get the core solution vector. This function computes the initial solution vectors at the core-mantle boundary 
+    to serve as starting conditions for numerical integration through a planetary interior. It supports one 
+    distinct physical regime: a liquid (quasi-static inviscid) core.
+    
+    # Arguments
+    - `ω::prec`                          : Angular frequency.
+    - `r::prec`                          : Radius of the core boundary.
+    - `ρ::prec`                          : Density of the core.
+    - `g::prec`                          : Gravity at the core boundary.
+    - `μ::precc`                         : Shear modulus of the core.
+    - `K::precc`                         : Bulk modulus of the core.
+    - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
+    - `n::Int`                           : Tidal degree.
+
+    # Keyword Arguments
+    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `Y::Vector{Int}=[1,2]`             : Ordering of the solution vector components. This allows for different conventions in the literature.
+
+    # Returns
+    - `Ic::Array{precc,2}`               : MxN array of linearly independent solutions at the core boundary. These are used as starting vectors for the numerical integration across the interior.
+    """
+    function get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2])::Array{precc,2}
+    
+        M = length(Y)
+        N = Int(M / 2)
+        Ic = zeros(precc, M, N)
+
+        if type=="liquid"
+            Ic[Y[1],1] = r^n
+            Ic[Y[2],1] = 2(n-1)*r^(n-1)
+        else
+            throw(ArgumentError("Invalid type for get_Ic: $type. Must be 'liquid'."))
+        end
+
+        return Ic
+    end
+
+    
+    """
         core_boundary(R, ids, r, ρ, g, μ, K, ω, ρ_core, μ_core, κ_core, core, n; G0=1)
 
     Perform the forward-backward relaxation step at the core boundary. This function implements the recursion described 
@@ -195,7 +236,7 @@ module solid1d_relax
     get the first solution for the first layer above the core.
 
     # Arguments
-    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
+    - `R::Vector`                       : Vector of 2x2 matrices representing the coefficients of the ODE system at each radial layer.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -226,21 +267,21 @@ module solid1d_relax
         # first layer (n = 1)
         dr = r[end_id] - r[start_id]
 
-        A1 = get_A(ω, r[start_id], ρ[start_id], g[start_id], μ[start_id], K[start_id], n; G0=G0)
-        A2 = get_A(ω, r[end_id], ρ[end_id], g[end_id], μ[end_id], K[end_id], n; G0=G0)
+        A1 = get_A(r[start_id], ρ[start_id], g[start_id], n; G0=G0)
+        A2 = get_A(r[end_id], ρ[end_id], g[end_id], n; G0=G0)
 
-        I6 = Matrix{precc}(I, 6, 6)
+        I2 = Matrix{precc}(I, 2, 2)
 
-        C1 =  I6 + 0.5 * dr * A1
-        D2 = -I6 + 0.5 * dr * A2
+        C1 =  I2 + 0.5 * dr * A1
+        D2 = -I2 + 0.5 * dr * A2
 
         # split matrices
-        C1u, C1l = C1[1:3, :], C1[4:6, :]
-        D2u, D2l = D2[1:3, :], D2[4:6, :]
+        C1u, C1l = C1[1:1, :], C1[2:2, :]
+        D2u, D2l = D2[1:1, :], D2[2:2, :]
 
         # build S1 and Q1
-        S1 = [B1; C1u]              # 6×6
-        Q1 = [zeros(3,6); D2u]      # 6×6
+        S1 = [B1; C1u]              # 2×2
+        Q1 = [zeros(1,2); D2u]      # 2×2
 
         # initial recursion
         R[start_id] = -S1 \ Q1
@@ -257,10 +298,10 @@ module solid1d_relax
     layers, where we propagate the solution up to the surface using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `B::Vector{Matrix{precc}}`        : Vector of 8x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
-    - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
-    - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
+    - `R::Vector`                       : Vector of 2x2 matrices representing the coefficients of the ODE system at each radial layer.
+    - `B::Vector{Matrix{precc}}`        : Vector of 2x1 matrices representing the inhomogeneous terms of the ODE system at each radial layer.
+    - `Cn_l::Matrix{precc}`             : 1x2 matrix representing the "stored" lower half of the Cn matrix from the previous step.
+    - `Dnp_l::Matrix{precc}`            : 1x2 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -274,17 +315,17 @@ module solid1d_relax
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
 
     # Returns
-    - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
-    - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
+    - `Cn_l::Matrix{precc}`             : Updated 1x2 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
+    - `Dnp_l::Matrix{precc}`            : Updated 1x2 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
     function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1)
 
         start_id, end_id = ids
 
-        I6 = Matrix{precc}(I, 6, 6)
+        I2 = Matrix{precc}(I, 2, 2)
 
-        Cn_u = zeros(3,6)
-        Dnp_u = zeros(3,6)
+        Cn_u = zeros(1,2)
+        Dnp_u = zeros(1,2)
 
         # forward recursion
         for i in start_id:end_id
@@ -292,24 +333,24 @@ module solid1d_relax
             dr = r[i+1] - r[i]
 
             # Calculate A at current and next step
-            A_n  = get_A(ω, r[i],   ρ[i],   g[i],   μ[i],   K[i],   n; G0=G0)
-            A_np = get_A(ω, r[i+1], ρ[i+1], g[i+1], μ[i+1], K[i+1], n; G0=G0)
+            A_n  = get_A(r[i],   ρ[i],   g[i],   n; G0=G0)
+            A_np = get_A(r[i+1], ρ[i+1], g[i+1], n; G0=G0)
 
-            Cn  =  I6 + 0.5 * dr * A_n
-            Dnp = -I6 + 0.5 * dr * A_np
+            Cn  =  I2 + 0.5 * dr * A_n
+            Dnp = -I2 + 0.5 * dr * A_np
 
             # 1. Use the "stored" lower halves from the previous step 
             # to fill the upper blocks of P and S.
             Pn_u = Cn_l
             Sn_u = Dnp_l
-            Qn_u = zeros(precc, 3, 6)
+            Qn_u = zeros(precc, 1, 2)
 
             # 2. Get the upper halves of the NEWLY calculated Cn and Dnp
-            Cn_u  = Cn[1:3, :]
-            Dnp_u = Dnp[1:3, :]
+            Cn_u  = Cn[1:1, :]
+            Dnp_u = Dnp[1:1, :]
 
-            # 3. Build the 6x6 blocks
-            Pn = [Pn_u; zeros(precc, 3, 6)]
+            # 3. Build the 2x2 blocks
+            Pn = [Pn_u; zeros(precc, 1, 2)]
             Sn = [Sn_u; Cn_u]
             Qn = [Qn_u; Dnp_u]
 
@@ -318,8 +359,8 @@ module solid1d_relax
             R[i] = -Xn \ Qn
 
             # 5. Update the "stored" lower halves for the next iteration
-            Cn_l  = Cn[4:6, :]
-            Dnp_l = Dnp[4:6, :]
+            Cn_l  = Cn[2:2, :]
+            Dnp_l = Dnp[2:2, :]
         end
 
         return Cn_l, Dnp_l
@@ -334,9 +375,9 @@ module solid1d_relax
     solve for the final solution at the surface, using the 6x6 system of equations.
 
     # Arguments
-    - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `CNm_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the CNm matrix from the previous step.
-    - `DN_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the DN matrix from the previous step.
+    - `R::Vector`                       : Vector of 2x2 matrices representing the coefficients of the ODE system at each radial layer.
+    - `CNm_l::Matrix{precc}`            : 1x2 matrix representing the "stored" lower half of the CNm matrix from the previous step.
+    - `DN_l::Matrix{precc}`             : 1x2 matrix representing the "stored" lower half of the DN matrix from the previous step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -358,15 +399,11 @@ module solid1d_relax
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0)
+        BN_t, b_t, y2_t, y6_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0, Y=[1,2])
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0)
+        BN_l, b_l, y2_l, y6_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, Y=[1,2])
 
-        # permute the boundary condition vector
-        b_t = b_t[ [1,2,5,3,4,6] ]
-        b_l = b_l[ [1,2,5,3,4,6] ]
-
-        PN = [CNm_l; zeros(3,6)]
+        PN = [CNm_l; zeros(1,2)]
         SN_t = [DN_l; BN_t]
         SN_l = [DN_l; BN_l]
 
@@ -374,9 +411,16 @@ module solid1d_relax
         XN_l = PN * R[start_id] + SN_l
 
         # solve outer (tides)
-        y_t = XN_t \ b_t
+        y57_t = XN_t \ b_t
         # solve outer (load)
-        y_l = XN_l \ b_l
+        y57_l = XN_l \ b_l
+
+        y1_t = y2_t/(g[end]*ρ[end]) + y57_t[1]/(g[end])
+        y1_l = y2_l/(g[end]*ρ[end]) + y57_l[1]/(g[end])
+
+        # note y3 is unconstrained and set to 0, y4 is constrainted 0 as no shear forces act in the fluid
+        y_t = [y1_t; y2_t; precc(0.0); precc(0.0); y57_t[1]; y6_t]
+        y_l = [y1_l; y2_l; precc(0.0); precc(0.0); y57_l[1]; y6_l]
 
         return y_t, y_l
 
@@ -404,18 +448,18 @@ module solid1d_relax
     - `G0::prec=1`                        : Gravitational constant scale for non-dimensionalization.
 
     # Returns
-    - `B::Array{precc,2}`                 : 3x6 matrix representing the linear constraint B * y = 0 at the core.
+    - `B::Array{precc,2}`                 : 1x2 matrix representing the linear constraint B * y = 0 at the core.
     """
     function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0=1)
 
         Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0)
 
         # Compute a basis for the left nullspace of Ic (i.e. x where xᵀ * Ic = 0).
-        # This automatically generates the 3 linearly independent constraint rows 
+        # This automatically generates the 1 linearly independent constraint row 
         # for B * y = 0 without inverting Ms or assuming non-singularity.
-        Bt = nullspace(transpose(Ic))  # 6x3 matrix
+        Bt = nullspace(transpose(Ic))  # 2x1 matrix
 
-        # Return as 3x6 constraint matrix B
+        # Return as 1x2 constraint matrix B
         return permutedims(Bt)
     end
 
@@ -458,24 +502,12 @@ module solid1d_relax
         T = eltype(yN_t)
 
         # allocate as 6 x N matrix 
-        y_t = Matrix{T}(undef, 6, Nr)
+        y_t = Matrix{T}(undef, 6, 1)
         y_l = Matrix{T}(undef, 6, 1)
 
-        # solve outer  (tides)
-        y_t[:, Nr] = yN_t
-        # solve outer (load)
-        y_l[:, 1] = yN_l
-
-        # back-substitution
-        for i in Nr-1:-1:1
-            y_t[:, i] = R[i] * y_t[:, i+1]
-        end
-
         # scale the solution back to physical units
-        for i in 1:Nr
-            y_t[:, i] = S * y_t[:, i]
-        end
-        y_l[:, 1] = S * y_l[:, 1]
+        y_t = S * yN_t
+        y_l = S * yN_l
 
         # convert to ComplexF64
         y_t = ComplexF64.(y_t)

@@ -25,6 +25,7 @@ module Obliqua
     include("solid1d_mush.jl")
     include("solid1d_relax.jl")
     include("solid1d_mush_relax.jl")
+    include("solid1d_equil_relax.jl")
     include("fluid0d.jl")
     include("Hansen.jl")
     include("load.jl")
@@ -38,6 +39,7 @@ module Obliqua
     import .solid1d_mush
     import .solid1d_relax
     import .solid1d_mush_relax
+    import .solid1d_equil_relax
     import .fluid0d
     import .Hansen
     import .load
@@ -50,6 +52,7 @@ module Obliqua
     export solid1d_mush
     export solid1d_relax
     export solid1d_mush_relax
+    export solid1d_equil_relax
     export fluid0d
     export Hansen
     export load
@@ -599,8 +602,10 @@ module Obliqua
                 # specify forcing frequency
                 σ = σ_range[iss]
 
-                # if forcing frequency is zero, then skip to next frequency (no heating)
-                iszero(σ) && continue
+                # if forcing frequency is zero, switch any solid1d variant to equil-relax model
+                if abs(σ) < 1e-18 && occursin("solid1d", module_solid)
+                    module_solid = "solid1d-equil-relax"
+                end
 
                 # if segment is solid
                 if seg == "solid"
@@ -673,6 +678,21 @@ module Obliqua
                             porosity_thresh=porosity_thresh, 
                             optimize_scales=optimize_scales, patch=patch
                         )
+                    # elseif 1D interior and heating profile from strain tensor
+                    elseif module_solid=="solid1d-equil-relax"
+                        knms_T[iss, iseg], knms_L[iss, iseg] = run_solid1d_equil_relax( 
+                            σ, ρ_seg, r_seg, g_seg,
+                            η_seg, μc_seg[:, iss], 
+                            κc_seg[:, iss], R, 
+                            m_core, ρ_core, 
+                            μ_core[iss], κ_core[iss];
+                            dr_min=dr_min, dr_max=dr_max, 
+                            n=n_i, m=m_i, core=core, 
+                            optimize_scales=optimize_scales, patch=patch
+                        )
+
+                        # reset solid module to original value for next frequency/segment
+                        module_solid = cfg["orbit"]["obliqua"]["module_solid"]
                     else
                         throw("No compatible solid tides module: $module_solid.")
                     end
@@ -1283,7 +1303,6 @@ module Obliqua
                 end
             end
         elseif material == "andrade"
-            # Precompute the gamma factor outside the loops
             gamma_factor = gamma(1 + α)
             
             @inbounds for i in 1:nlayer
@@ -1297,15 +1316,19 @@ module Obliqua
 
                 η = η_profile[i]
                 τM = η / x  # Maxwell time
-                τA = τM     # Andrade time 
                 
                 for j in 1:nfreq
                     σ = σ_range[j]
                     
-                    term_andrade = gamma_factor * (1im * σ * τA)^(-α)
-                    term_maxwell = 1 / (1im * σ * τM)
-
-                    xc[i,j] = x / (1 + term_andrade + term_maxwell)
+                    if iszero(σ)
+                        xc[i,j] = zero(precc)
+                    else
+                        im_σ_τM = 1im * σ * τM
+                        
+                        # Rewritten fraction to avoid division by zero
+                        denom = 1 + im_σ_τM + gamma_factor * (im_σ_τM)^(1 - α)
+                        xc[i,j] = x * im_σ_τM / denom
+                    end
                 end
             end
         
@@ -2035,6 +2058,93 @@ module Obliqua
         end
 
         return power_prf, Eμ_glb_itp, Eκ_glb_itp, El_glb_itp, kn_T, kn_L
+    end
+
+
+    """
+        run_solid1d_relax(omega, rho, radius, gravity, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", optimize_scales=false, patch=false)
+
+    Use 1D solid tides model with relaxation method to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
+    This method includes inertia effects, but is more computationally expensive. 
+    
+    # Arguments
+    - `omega::prec`                     : Forcing frequency range.
+    - `rho::Array{prec,1}`              : Density profile of the planet.
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface.
+    - `gravity::Array{prec,1}`          : Gravity profile of the planet.
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet.
+    - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet.
+    - `bulk::Array{precc,1}`            : Complex bulk modulus profile of the planet.
+    - `R::prec`                         : Planet radius.
+    - `m_core::prec`                    : Core mass.
+    - `ρ_core::prec`                    : Core density.
+    - `μ_core::precc`                   : Core shear modulus.
+    - `κ_core::precc`                   : Core bulk modulus.
+
+    # Keyword Arguments
+    - `dr_min::Int=300`                 : Minimum layer thickness in m.
+    - `dr_max::Int=3000`                : Maximum layer thickness in m.
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
+    - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
+    - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
+    - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
+
+    # Returns
+    - `kn_T::ComplexF64`                : Complex Tidal kn Lovenumber.
+    - `kn_L::ComplexF64`                : Complex Load kn Lovenumber.
+    """
+    function run_solid1d_equil_relax( omega::Float64,
+                        rho::Array{prec,1},
+                        radius::Array{prec,1},
+                        gravity::Array{prec,1},
+                        visc::Array{prec,1},
+                        shear::Array{precc,1},
+                        bulk::Array{precc,1},
+                        R::prec,
+                        m_core::prec,
+                        ρ_core::prec,
+                        μ_core::precc,
+                        κ_core::precc;
+                        dr_min::Int=300,
+                        dr_max::Int=3000,
+                        n::Int=2,
+                        m::Int=2,
+                        core::String="liquid",
+                        optimize_scales::Bool=false,
+                        patch::Bool=false
+                        )::Tuple{ComplexF64,ComplexF64}
+
+        # convert inputs
+        ω = prec(omega)
+        ρ = convert(Vector{prec}, rho)
+        r = convert(Vector{prec}, radius)
+        g = convert(Vector{prec}, gravity)
+        η = convert(Vector{prec}, visc)
+        μc = convert(Vector{precc}, shear)
+        κc = convert(Vector{precc}, bulk)
+
+        # resample profiles onto new grid
+        r_grid, ρ, η, μc, κc, g_grid, M_tot = solid1d_equil_relax.resample_profiles(r, ρ, η, μc, κc, m_core, dr_min, dr_max)
+
+        # use cell centers
+        r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
+
+        # get non-dimensionalization scales
+        if optimize_scales
+            scales = solid1d_equil_relax.common.optimize_scales(r[2:end], ρ, g, μc, κc, ω, n, [r[end], M_tot, G])
+        else
+            scales = [r[end], M_tot, G] # default scales if not optimizing
+        end
+
+        # solve y functions across grid
+        y_t, y_l = solid1d_equil_relax.compute_y(r_centers, ρ, g_grid, μc, κc, ω, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)
+
+        # Love numbers
+        kn_T = y_t[5, end] - 1
+        kn_L = y_l[5, 1]   - 1
+
+        return kn_T, kn_L
     end
 
 
