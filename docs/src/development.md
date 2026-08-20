@@ -4,7 +4,7 @@ CollapsedDocStrings = true
 
 # Development manual
 
-###Contributing
+### Contributing
 If you are interested in contributing to the model, please contact the developers using the information on the Home page.
 
 ### Coding style
