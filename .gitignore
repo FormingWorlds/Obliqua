@@ -12,3 +12,6 @@ __pycache__
 .venv/
 .CondaPkg/
 Obliqua/
+coverage.*
+src/*.cov
+docs/build/
