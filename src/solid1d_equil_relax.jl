@@ -338,7 +338,7 @@ module solid1d_equil_relax
     - `ω::prec`                           : Forcing frequency.
     - `r::prec`                           : Radial position of the core-mantle boundary.
     - `ρ::prec`                           : Average core density.
-    - `g::prec`                           : Average core gravity.
+    - `g::prec`                           : Gravity at the core-mantle boundary.
     - `μ::precc`                          : Average core shear modulus.
     - `K::precc`                          : Average core bulk modulus.
     - `type::String`                      : Type of core boundary condition to apply ("liquid", "solid", or "inertial").

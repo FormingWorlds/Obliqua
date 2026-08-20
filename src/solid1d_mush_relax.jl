@@ -808,7 +808,7 @@ module solid1d_mush_relax
     - `ω::Float64`                        : Forcing frequency.
     - `r::prec`                           : Radial position of the core-mantle boundary.
     - `ρ::prec`                           : Average core density.
-    - `g::prec`                           : Average core gravity.
+    - `g::prec`                           : Gravity at the core-mantle boundary.
     - `μ::precc`                          : Average core shear modulus.
     - `K::precc`                          : Average core bulk modulus.
     - `type::String`                      : Type of core boundary condition to apply ("liquid", "solid", or "inertial").
@@ -823,14 +823,14 @@ module solid1d_mush_relax
     """
     function get_core_bc!(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0=1, Y=[1,2,3,4,5,6])
         
-        # 1. Get the Initial Conditions matrix (M x N, where N = M/2 fundamental solutions)
+        # Get the Initial Conditions matrix (M x N, where N = M/2 fundamental solutions)
         Ic = get_Ic(ω, r, ρ, g, μ, K, type, n; G0=G0, Y=Y)
 
-        # 2. Compute the left nullspace directly via SVD (xᵀ * Ic = 0)
-        # Returns an M x N matrix where columns form an orthonormal basis for the nullspace
+        # Compute the left nullspace directly via SVD (xᵀ * Ic = 0)
+        # Returns an 8 x 4 matrix where columns form an orthonormal basis for the nullspace
         Bt = nullspace(transpose(Ic))
 
-        # 3. Return as N x M constraint matrix B
+        # Return as 4 x 8 constraint matrix B
         return permutedims(Bt)
     end
 

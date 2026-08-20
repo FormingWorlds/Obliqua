@@ -381,12 +381,15 @@ module solid1d
         # Compute the boundary conditions at the surface
         _, b = get_surface_bc!(r[end,end]/scale[1], g[end,end]/scale[6], n, U, U_prime, tau, P; G0=scale[5], Y=[1,2,3,4,5,6])
         
+        # Compute the weights of integration for the three linearly independent solutions
         C = M \ b[collect((3, 4, 6))]
         
+        # Compute the modal solution vector y across the interior
         y = zeros(ComplexF64, 6, nsublayers-1, nlayers)
 
         for i in 1:nlayers
             for j in 1:nsublayers-1
+                # modal solution = dimensional scaling * elementary solutions * weights of integration
                 y[:,j,i] = S*@view(y1_4[:,:,j,i])*C
             end
         end
