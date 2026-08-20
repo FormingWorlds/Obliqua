@@ -50,6 +50,7 @@ makedocs(
         ),
         "How-to guides" => "how-to-guides/index.md",
         PageNode("Reference" => "reference/index.md", [
+            "0 - Configuring Model" => "reference/configuration-file.md", 
             "1 - Forcing Frequency" => "reference/forcing-frequency.md",
             "2 - Rheology" => "reference/rheology.md", 
             PageNode("3 -Solid-phase" => "reference/solid-phase.md", [
@@ -57,7 +58,8 @@ makedocs(
                 "Solid1d" => "reference/solid/solid1d.md", 
                 "Solid1d-mush" => "reference/solid/solid1d_mush.md", 
                 "Solid1d-relax" => "reference/solid/solid1d_relax.md", 
-                "Solid1d-mush-relax" => "reference/solid/solid1d_mush_relax.md"
+                "Solid1d-mush-relax" => "reference/solid/solid1d_mush_relax.md",
+                "Solid1d-equil-relax" => "reference/solid/solid1d_equil_relax.md", 
                 ]
             ),
             "4 - Mush layer" => "reference/mush-layer.md", 
