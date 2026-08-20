@@ -149,7 +149,7 @@ module solid1d
 
 
     """
-        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1)
+        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1, inertial_terms::Bool=false)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
 
@@ -166,6 +166,7 @@ module solid1d
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Returns
     - `B::Array{precc,2}`               : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
@@ -173,15 +174,15 @@ module solid1d
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec), inertial_terms::Bool=false)
         B = zeros(precc, 6, 6)
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0, inertial_terms=inertial_terms)
         return B
     end
 
 
     """
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0::prec=1, inertial_terms::Bool=false)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
@@ -200,19 +201,20 @@ module solid1d
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec), inertial_terms::Bool=false)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
         ghalf = g1 + 0.5*(g2 - g1)
 
-        A1 = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0)
-        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0)
-        A2 = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0)
+        A1 = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0, inertial_terms=inertial_terms)
+        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0, inertial_terms=inertial_terms)
+        A2 = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0, inertial_terms=inertial_terms)
 
         k16 = zeros(precc, 6, 6)
         k26 = zeros(precc, 6, 6)
@@ -232,7 +234,7 @@ module solid1d
 
 
     """
-        get_B_product!(Brod, ω, r, ρ, g, μ, K, n; G0::prec=1)
+        get_B_product!(Brod, ω, r, ρ, g, μ, K, n; G0::prec=1, inertial_terms::Bool=false)
 
     Compute the product of the 6x6 B matrices within a primary layer. This is used to propgate the
     y solution across one single-phase (solid) primary layer. Bprod is denoted by D in Eq. S5.14 
@@ -250,8 +252,9 @@ module solid1d
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
     """
-    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, n::Int; G0=one(prec))
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, n::Int; G0=one(prec), inertial_terms::Bool=false)
         Bstart = Matrix{precc}(I, 6, 6)  
         B = zeros(precc, 6, 6) 
 
@@ -263,7 +266,7 @@ module solid1d
             g1 = g[j]
             g2 = g[j+1]
 
-            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+            get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0, inertial_terms=inertial_terms)
             Bprod2[:,:,j] .= B * (j==1 ? Bstart : Bprod2[:,:,j-1])
 
             r1 = r2
@@ -272,7 +275,7 @@ module solid1d
 
 
     """
-        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core, scales; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, n, ρ_core, μ_core, κ_core, scales; core="liquid", inertial_terms=false)
 
     Compute the M matrix, which is used to propagate the solution across the entire interior. This is used in the `compute_y` function.
 
@@ -287,18 +290,19 @@ module solid1d
     - `ρ_core::prec`                     : Density of the core, which is used to compute the starting vector for the numerical integration across the interior.
     - `μ_core::precc`                    : Shear modulus of the core.
     - `κ_core::precc`                    : Bulk modulus of the core.
-    - `scales::Vector{prec}`            : Vector of scaling parameters for non-dimensionalization.
+    - `scales::Vector{prec}`             : Vector of scaling parameters for non-dimensionalization.
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Returns
     - `M::Array{precc,2}`               : 3x3 M matrix, which is used to propagate the solution across the entire interior. 
     - `y1_4::Array{precc,4}`            : 4D array of the y solutions across each layer, which is used in the `compute_y` function to compute the solution vector across the interior.
     - `S::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the normalization.
-    - `scale::Vector{prec}`              : Vector of scaling parameters for non-dimensionalization.
+    - `scale::Vector{prec}`             : Vector of scaling parameters for non-dimensionalization.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid", inertial_terms::Bool=false)
         r, ρ, g, μ, K = convert_params_to_prec(r, ρ, g, μ, K)
 
         nlayers = size(r)[2]
@@ -323,7 +327,7 @@ module solid1d
                 
         for i in 1:nlayers
             Bprod = zeros(precc, 6, 6, nsublayers-1)
-            @views get_B_product!(Bprod, ωs, rs[:, i], ρs[1], gs[:, i], μs[i], Ks[i], n; G0=G0)
+            @views get_B_product!(Bprod, ωs, rs[:, i], ρs[1], gs[:, i], μs[i], Ks[i], n; G0=G0, inertial_terms=inertial_terms)
 
             for j in 1:nsublayers-1
                 y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 

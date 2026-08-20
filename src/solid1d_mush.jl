@@ -165,7 +165,7 @@ module solid1d_mush
 
     
     """
-        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1)
+        get_B(ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1, inertial_terms=false)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
 
@@ -182,6 +182,7 @@ module solid1d_mush
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Returns
     - `B::Array{precc,2}`               : 6x6 numerical integrator matrix for integrating dy/dr from r1 to r2 for the solid-body problem.
@@ -189,15 +190,15 @@ module solid1d_mush
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec), inertial_terms::Bool=false)
         B = zeros(precc, 6, 6)
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0, inertial_terms=inertial_terms)
         return B
     end
 
 
     """
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=1, inertial_terms=false)
 
     Compute the 6x6 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the solid-body problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
@@ -216,19 +217,20 @@ module solid1d_mush
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec))
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, n::Int; G0=one(prec), inertial_terms::Bool=false)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
         ghalf = g1 + 0.5*(g2 - g1)
 
-        A1 = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0)
-        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0)
-        A2 = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0)
+        A1 = get_A(ω, r1, ρ, g1, μ, K, n; G0=G0, inertial_terms=inertial_terms)
+        Ahalf = get_A(ω, rhalf, ρ, ghalf, μ, K, n; G0=G0, inertial_terms=inertial_terms)
+        A2 = get_A(ω, r2, ρ, g2, μ, K, n; G0=G0, inertial_terms=inertial_terms)
 
         k16 = zeros(precc, 6, 6)
         k26 = zeros(precc, 6, 6)
@@ -246,7 +248,7 @@ module solid1d_mush
 
 
     """
-        get_B(ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0::prec=1)
+        get_B(ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false)
 
     Compute the 8x8 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the two-phase problem.
 
@@ -270,6 +272,7 @@ module solid1d_mush
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Returns
     - `B::Array{precc,2}`               : 8x8 numerical integrator matrix for integrating dy/dr from r1 to r2 for the two-phase problem.
@@ -277,16 +280,16 @@ module solid1d_mush
     # Notes
     See 'get_B!' for definition.
     """ 
-    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec))
+    function get_B(ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec), inertial_terms::Bool=false)
         B = zeros(precc, 8, 8)
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms)
 
         return B
     end
 
 
     """
-        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0::prec=1)
+        get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false)
 
     Compute the 8x8 numerical integrator matrix, which integrates dy/dr from `r1` to `r2` for the two-phase problem.
     `B` here represnts the RK4 integrator, given by Eq. S5.5 in Hay et al., (2025).
@@ -312,11 +315,12 @@ module solid1d_mush
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Notes
     See also [`get_B`](@ref)
     """
-    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec))
+    function get_B!(B::Array{precc,2}, ω::prec, r1::prec, r2::prec, g1::prec, g2::prec, ρ::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec), inertial_terms::Bool=false)
         dr = r2 - r1
         rhalf = r1 + 0.5dr
         
@@ -326,9 +330,9 @@ module solid1d_mush
         Amid_p = zeros(precc, 8, 8)
         Atop_p = zeros(precc, 8, 8)
 
-        get_A!(Abot_p, ω, r1, ρ, g1, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0)
-        get_A!(Amid_p, ω, rhalf, ρ, ghalf, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0)
-        get_A!(Atop_p, ω, r2, ρ, g2, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0)
+        get_A!(Abot_p, ω, r1, ρ, g1, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms)
+        get_A!(Amid_p, ω, rhalf, ρ, ghalf, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms)
+        get_A!(Atop_p, ω, r2, ρ, g2, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms)
 
         k18 = zeros(precc, 8, 8)
         k28 = zeros(precc, 8, 8)
@@ -347,7 +351,7 @@ module solid1d_mush
 
 
     """
-        get_B_product!(Bprod2, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0::prec=1)
+        get_B_product!(Bprod2, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false)
 
     Compute the product of the 8x8 B matrices within a primary layer. This is used to propgate the
     y solution across a single two-phase primary layer. Bprod is denoted by D in Eq. S5.14 in 
@@ -372,8 +376,9 @@ module solid1d_mush
 
     Keyword Arguments
     - `G0=1`                             : Gravitational constant used for non-dimensional scaling.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
     """
-    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec))
+    function get_B_product!(Bprod2::Array{precc}, ω::prec, r::SubArray{prec}, ρ::prec, g::SubArray{prec}, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0=one(prec), inertial_terms::Bool=false)
         # Check dimensions of Bprod2
 
         nr = size(r)[1]
@@ -399,9 +404,9 @@ module solid1d_mush
             g2 = g[j+1]
 
             if ϕ>0 
-                get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0)
+                get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms)
             else
-                get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0)
+                get_B!(B, ω, r1, r2, g1, g2, ρ, μ, K, n; G0=G0, inertial_terms=inertial_terms)
             end
 
             Bprod2[:,:,j] .= B * (j==1 ? Bstart : @view(Bprod2[:,:,j-1])) 
@@ -413,7 +418,7 @@ module solid1d_mush
 
 
     """
-        compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core="liquid")
+        compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core="liquid", inertial_terms=false)
 
     Compute the 4x4 M matrix, which relates the solution at the surface and porous layer interface to the core solution.
      
@@ -439,6 +444,7 @@ module solid1d_mush
 
     # Keyword Arguments
     - `core::String="liquid"`            : Type of core, either "liquid" or "solid". This is used to compute the starting vector for the numerical integration across the interior.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
 
     # Returns
     - `M::Array{precc,2}`                : 4x4 M matrix, which is used to propagate the solution across the entire interior. 
@@ -446,7 +452,7 @@ module solid1d_mush
     - `S::Vector{Matrix{precc}}`         : Vector of 8x8 matrices representing the normalization.
     - `scale::Vector{prec}`              : Vector of scaling parameters for non-dimensionalization.
     """
-    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{precc,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid")
+    function compute_M(ω::prec, r::Array{prec,2}, ρ::Array{prec,1}, g::Array{prec,2}, μ::Array{precc,1}, K::Array{precc,1}, ρₗ::Array{prec,1}, Kl::Array{prec,1}, Kd::Array{precc,1}, α::Array{precc,1}, ηₗ::Array{prec,1}, ϕ::Array{prec,1}, k::Array{prec,1}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid", inertial_terms::Bool=false)
         porous_layer = ϕ .> 0.0
 
         ## Convert parameters to the precision of precc:
@@ -487,7 +493,7 @@ module solid1d_mush
         
         for i in 1:nlayers
             Bprod = zeros(precc, 8, 8, nsublayers-1) # D matrix from Eq. S5.13
-            @views get_B_product!(Bprod, ωs, rs[:,i], ρs[i], gs[:,i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], α[i], ηₗs[i], ϕ[i], ks[i], n; G0=G0)
+            @views get_B_product!(Bprod, ωs, rs[:,i], ρs[i], gs[:,i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], α[i], ηₗs[i], ϕ[i], ks[i], n; G0=G0, inertial_terms=inertial_terms)
 
             # Modify starting vector if the layer is porous
             # If a new porous layer (i.e., sitting on a non-porous layer)

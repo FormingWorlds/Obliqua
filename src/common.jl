@@ -131,7 +131,7 @@ module common
     layer boundaries). 
 
     Note: exclusively used with relaxation method discretization.
-    
+
     # Arguments
     - `radius::Vector{prec}`              : Original radius profile (layer boundaries).
     - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
@@ -906,7 +906,7 @@ module common
 
 
     """
-        get_A(ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6])
+        get_A(ω, r, ρ, g, μ, K, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6])
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
 
@@ -921,22 +921,23 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix.
     - `λ::prec=nothing`                  : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature.
 
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
         M = length(Y)
         A = zeros(precc, M, M) 
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, λ=λ, Y=Y)
+        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y)
         return A
     end
 
     
     """
-        get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6,7,8])
+        get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6,7,8])
 
     Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025).
@@ -959,6 +960,7 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Ordering of the solution vector components. This allows for different conventions in the literature.
 
@@ -967,9 +969,9 @@ module common
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         A = zeros(precc, 8, 8)
-        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, λ=λ, Y=Y)
+        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y)
         return A
     end
 
@@ -1050,7 +1052,7 @@ module common
 
 
     """
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6])
+        get_A!(A, ω, r, ρ, g, μ, K, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6])
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025) when α=φ=0, as well as Sabadini and Vermeersen 
@@ -1068,10 +1070,11 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature.
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
         if isnothing(λ)
             λ = K - 2μ/3
         end
@@ -1084,7 +1087,7 @@ module common
 
         A[Y[1],Y[1]] = -2λ * r_inv*β_inv
         A[Y[2],Y[1]] = -r_inv
-        A[Y[3],Y[1]] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g) #- ω^2 * ρ 
+        A[Y[3],Y[1]] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g)
         A[Y[4],Y[1]] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
         A[Y[5],Y[1]] = 4π * G_norm * ρ
         A[Y[6],Y[1]] = 4π*(n+1)*G_norm*ρ*r_inv
@@ -1092,7 +1095,7 @@ module common
         A[Y[1],Y[2]] = n*(n+1) * λ * r_inv*β_inv
         A[Y[2],Y[2]] = r_inv
         A[Y[3],Y[2]] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 ) #- ω^2 * ρ 
+        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 )
         A[Y[6],Y[2]] = -4π*n*(n+1)*G_norm*ρ*r_inv
 
         A[Y[1],Y[3]] = β_inv
@@ -1110,11 +1113,16 @@ module common
         A[Y[3],Y[6]] = -ρ
         A[Y[5],Y[6]] = 1.0
         A[Y[6],Y[6]] = (n-1)r_inv
+
+        if inertial_terms
+            A[Y[3],Y[1]] -= ω^2 * ρ
+            A[Y[4],Y[2]] -= ω^2 * ρ
+        end
     end
 
 
     """
-        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, λ=nothing, Y=[1,2,3,4,5,6,7,8])
+        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6,7,8])
 
     Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
     the coefficients given in Equation S4.6 in Hay et al., (2025).
@@ -1138,18 +1146,19 @@ module common
 
     # Keyword Arguments
     - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
+    - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]` : Ordering of the solution vector components. This allows for different conventions in the literature.
 
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
         # First add the solid-body coefficients, but using drained moduli. 
-        get_A!(A, ω, r, ρ, g, μ, Kd, n; λ=λ, G0=G0, Y=Y)    # Note that here we replace the bulk modulus with the compaction modulus
+        get_A!(A, ω, r, ρ, g, μ, Kd, n; λ=λ, G0=G0, inertial_terms=inertial_terms, Y=Y)    # Note that here we replace the bulk modulus with the compaction modulus
 
         r_inv = 1.0/r
         β_inv = 1.0/(2μ + λ)

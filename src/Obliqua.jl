@@ -347,6 +347,7 @@ module Obliqua
         dr_min       = cfg["orbit"]["obliqua"]["solid"]["dr_min"]
         dr_max       = cfg["orbit"]["obliqua"]["solid"]["dr_max"]
         core         = cfg["orbit"]["obliqua"]["solid"]["core"]
+        inertial_terms = cfg["orbit"]["obliqua"]["solid"]["inertial_terms"]
         bulk_l       = cfg["orbit"]["obliqua"]["solid"]["bulk_l"]
         porosity_thresh = cfg["orbit"]["obliqua"]["solid"]["porosity_thresh"]
 
@@ -638,6 +639,7 @@ module Obliqua
                             m_core, ρ_core, 
                             μ_core[iss], κ_core[iss];
                             ncalc=ncalc, n=n_i, m=m_i, core=core,
+                            inertial_terms=inertial_terms,
                             optimize_scales=optimize_scales
                         )
                     # elseif 1D interior and heating profile from strain tensor
@@ -653,6 +655,7 @@ module Obliqua
                             μ_core[iss], κ_core[iss];
                             dr_min=dr_min, dr_max=dr_max, 
                             n=n_i, m=m_i, core=core, 
+                            inertial_terms=inertial_terms,
                             optimize_scales=optimize_scales, patch=patch
                         )
                     # elseif 1D interior with mush interface and heating profile from strain tensor
@@ -665,8 +668,11 @@ module Obliqua
                             ϕ_seg, α_seg[:, iss], K_seg, R, 
                             m_core, ρ_core, 
                             μ_core[iss], κ_core[iss];
-                            ncalc=ncalc, n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
-                            porosity_thresh=porosity_thresh, optimize_scales=optimize_scales
+                            ncalc=ncalc, n=n_i, m=m_i, core=core, 
+                            inertial_terms=inertial_terms,
+                            visc_l=visc_l, bulk_l=bulk_l, 
+                            porosity_thresh=porosity_thresh, 
+                            optimize_scales=optimize_scales
                         )
                     elseif module_solid=="solid1d-mush-relax"
                         prf_total[iss, i_start:i_end], 
@@ -681,7 +687,9 @@ module Obliqua
                             m_core, ρ_core,
                             μ_core[iss], κ_core[iss];
                             dr_min=dr_min, dr_max=dr_max, 
-                            n=n_i, m=m_i, core=core, visc_l=visc_l, bulk_l=bulk_l,
+                            n=n_i, m=m_i, core=core, 
+                            inertial_terms=inertial_terms, 
+                            visc_l=visc_l, bulk_l=bulk_l,
                             porosity_thresh=porosity_thresh, 
                             optimize_scales=optimize_scales, patch=patch
                         )
@@ -1512,7 +1520,7 @@ module Obliqua
 
 
     """
-        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid", optimize_scales=false)
+        run_solid1d(omega, rho, radius, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid", inertial_terms=false, optimize_scales=false)
 
     Use 1D solid tides model to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
     This method ignores inertia effects, since they break the numerical stability.
@@ -1535,6 +1543,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid" or "solid".
+    - `inertial_terms::Bool=false`      : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
     - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
 
     # Returns
@@ -1557,6 +1566,7 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid",
+                        inertial_terms::Bool=false,
                         optimize_scales::Bool=false
                         )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
@@ -1596,7 +1606,7 @@ module Obliqua
         solid1d.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4, S, scale = solid1d.compute_M(omega, rr, ρ, g, μc, κc, n, ρ_core, μ_core, κ_core, scales; core=core)
+        M, y1_4, S, scale = solid1d.compute_M(omega, rr, ρ, g, μc, κc, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms)
         # Tidal
         tidal_solution_T = solid1d.compute_y(rr, g, M, y1_4, n, S, scale; load=false)
         # Load
@@ -1620,7 +1630,7 @@ module Obliqua
     
 
     """
-        run_solid1d_relax(omega, rho, radius, gravity, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", optimize_scales=false, patch=false)
+        run_solid1d_relax(omega, rho, radius, gravity, visc, shear, bulk, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, optimize_scales=false, patch=false)
 
     Use 1D solid tides model with relaxation method to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
     This method includes inertia effects, but is more computationally expensive. 
@@ -1645,6 +1655,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
+    - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
 
@@ -1672,6 +1683,7 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid",
+                        inertial_terms::Bool=true,
                         optimize_scales::Bool=false,
                         patch::Bool=false
                         )::Tuple{Array{Float64,1},Array{Float64, 3},Array{Float64, 3},ComplexF64,ComplexF64}
@@ -1707,7 +1719,7 @@ module Obliqua
         SphericalGrid = solid1d_relax.define_spherical_grid(res, n, m)
 
         # solve y functions across grid
-        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g_grid, μc, κc, ω, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)
+        y_t, y_l = solid1d_relax.compute_y(r_centers, ρ, g_grid, μc, κc, ω, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch)
 
         # Love numbers
         kn_T = y_t[5, end] - 1
@@ -1762,7 +1774,7 @@ module Obliqua
     
 
     """
-        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5, optimize_scales=false)
+        run_solid1d_mush(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, ρ_core, μ_core, κ_core; ncalc=2000, n=2, m=2, core="liquid", inertial_terms=false, visc_l=1e2, bulk_l=1e9, permea=1e-7, porosity_thresh=1e-5, optimize_scales=false)
 
     Use 1D solid tides model with mush interface to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
 
@@ -1788,6 +1800,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid" or "solid".
+    - `inertial_terms::Bool=false`      : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
@@ -1820,6 +1833,7 @@ module Obliqua
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
                         porosity_thresh::Float64=1e-5,
+                        inertial_terms::Bool=false,
                         optimize_scales::Bool=false
                         )::Tuple{Array{Float64,1},ComplexF64,ComplexF64}
 
@@ -1883,7 +1897,7 @@ module Obliqua
         solid1d_mush.define_spherical_grid(res, n, m)
 
         # get y-functions
-        M, y1_4, S, scale = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core)
+        M, y1_4, S, scale = solid1d_mush.compute_M(omega, rr, ρs, g, μc, κs, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms)
         #   Tidal
         tidal_solution_T = solid1d_mush.compute_y(rr, g, M, y1_4, n, S, scale; load=false)
         #   Load
@@ -1911,7 +1925,7 @@ module Obliqua
 
 
     """
-        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", visc_l=1e2, bulk_l=1e9, porosity_thresh=1e-5, optimize_scales=false, patch=false)
+        run_solid1d_mush_relax(omega, rho, radius, visc, shear, bulk, bulkd, phi, alpha, perm, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, bulk_l=1e9, porosity_thresh=1e-5, optimize_scales=false, patch=false)
 
     Use 1D solid tides model with relaxation method to calculate kn Lovenumbers, and compute 1D heating profile from strain tensor.
     This method includes inertia effects, but is more computationally expensive. 
@@ -1940,6 +1954,7 @@ module Obliqua
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
     - `core::String="liquid"`           : Core state, either "liquid", "solid", or "inertial".
+    - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
@@ -1975,6 +1990,7 @@ module Obliqua
                         n::Int=2,
                         m::Int=2,
                         core::String="liquid",
+                        inertial_terms::Bool=true,
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
                         porosity_thresh::Float64=1e-5,
@@ -2028,7 +2044,7 @@ module Obliqua
         SphericalGrid = solid1d_mush_relax.define_spherical_grid(res, n, m)
         
         # solve y functions across grid
-        y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g_grid, μc, κs, ω, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, patch=patch)
+        y_t, y_l = solid1d_mush_relax.compute_y(r_centers, ρ, g_grid, μc, κs, ω, ρl, κl, κd, α, ηl, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch)
 
         # Love numbers
         kn_T = y_t[5, end] - 1
