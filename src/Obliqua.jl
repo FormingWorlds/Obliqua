@@ -386,6 +386,13 @@ module Obliqua
         ϕ = convert(Vector{prec}, phi)
         K = convert(Vector{prec}, perm)
         
+        # 1d tidal models have singularity at r=0, so we add a small offset to avoid this
+        # 0d models only consider r[end] and remain unaffected.
+        if iszero(r[1])
+            # Add small offset to avoid singularity at r=0
+            r[1] = 1e-6 * r[2]
+        end
+
         # number of layers
         N_layers = length(r)-1
 
@@ -1565,6 +1572,11 @@ module Obliqua
         # subdivide input layers such that we have ~ncalc in total
         rr = solid1d.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
 
+        # check for zero values in the expanded radius array
+        if iszero.(rr) |> any
+            throw(ArgumentError("Expanded radius array contains zero values. Check input radius and ncalc."))
+        end
+
         # get gravity at each layer
         g = solid1d.get_g(rr, ρ, m_core)
 
@@ -1678,6 +1690,11 @@ module Obliqua
 
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
+
+        # check for zero values in the expanded radius array
+        if iszero.(r_centers) |> any
+            throw(ArgumentError("Expanded radius array contains zero values. Check input radius and ncalc."))
+        end
 
         # get non-dimensionalization scales
         if optimize_scales
@@ -1842,6 +1859,11 @@ module Obliqua
         # subdivide input layers such that we have ~ncalc in total
         rr = solid1d_mush.expand_layers(r, nr=convert(Int,div(ncalc,length(η))))
 
+        # check for zero values in the expanded radius array
+        if iszero.(rr) |> any
+            throw(ArgumentError("Expanded radius array contains zero values. Check input radius and ncalc."))
+        end
+
         # get gravity at each layer
         g = solid1d_mush.get_g(rr, ρ, m_core)
 
@@ -1990,6 +2012,11 @@ module Obliqua
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
 
+        # check for zero values in the expanded radius array
+        if iszero.(r_centers) |> any
+            throw(ArgumentError("Expanded radius array contains zero values. Check input radius and ncalc."))
+        end
+
         # get non-dimensionalization scales
         if optimize_scales
             scales = solid1d_mush_relax.common.optimize_scales(r[2:end], ρs, ρl, g, μc, κs, κl, κd, α, ηl, ϕ, k, ω, n, [r[end], M_tot, G])
@@ -2130,6 +2157,11 @@ module Obliqua
         # use cell centers
         r_centers = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
 
+        # check for zero values in the expanded radius array
+        if iszero.(r_centers) |> any
+            throw(ArgumentError("Expanded radius array contains zero values. Check input radius and ncalc."))
+        end
+        
         # get non-dimensionalization scales
         if optimize_scales
             scales = solid1d_equil_relax.common.optimize_scales(r[2:end], ρ, g, μc, κc, ω, n, [r[end], M_tot, G])

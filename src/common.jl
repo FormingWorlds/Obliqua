@@ -15,7 +15,280 @@ module common
     using LinearAlgebra
     using Optim
 
-    export optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
+    export expand_layers, resample_profiles, get_g, optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
+
+    
+    """
+        expand_layers(r; nr::Int=80)
+
+    Discretize the primary layers given by `r` into `nr` discrete secondary layers.
+
+    Note: exclusively used with shooting method discretization.
+
+    # Arguments
+    - `r::Array{prec,1}`               : 1D array of primary layer boundaries.
+
+    # Keyword Arguments
+    - `nr::Int=80`                        : Number of secondary layers to discretize.
+
+    # Returns
+    - `rs::Array{prec,2}`              : 2D array of secondary layer boundaries/
+    """
+    function expand_layers(r::Array{prec,1}; nr::Int=80)
+        
+        rs = zeros(prec, (nr+1, length(r)-1))
+        
+        for i in 1:length(r)-1
+            rfine = LinRange(r[i], r[i+1], nr+1)
+            rs[:, i] .= rfine[1:end] 
+        end
+    
+        return rs
+    end
+
+
+    """
+        resample_profiles(radius, rho, visc, shear, bulk, m_core, dr_min, dr_max)
+
+    Resample the input profiles onto a new grid with `ncalc` points. The new grid is generated using a 
+    stretched and refined scheme, which allows for better resolution in regions of interest (e.g., near 
+    layer boundaries). 
+
+    Note: exclusively used with relaxation method discretization.
+
+    # Arguments
+    - `radius::Vector{prec}`              : Original radius profile (layer boundaries).
+    - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
+    - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
+    - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
+    - `bulk::Vector{precc}`               : Original bulk modulus profile (defined at layer centers).
+    - `m_core::prec`                      : Mass of the core, used for gravity calculations.
+    - `Δr_min::Int64`                     : Minimum grid spacing for the new grid.
+    - `Δr_max::Int64`                     : Maximum grid spacing for the new grid.
+
+    # Returns
+    Tuple of resampled profiles on the new grid:
+    - `r_new_b::Vector{prec}`             : New radius profile at layer boundaries.
+    - `ρ_new::Vector{prec}`               : New density profile at layer centers.
+    - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
+    - `μ_new::Vector{precc}`              : New shear modulus profile at layer centers.
+    - `κ_new::Vector{precc}`              : New bulk modulus profile at layer centers.
+    - `g_new::Vector{prec}`               : New gravity profile at layer centers.
+    - `M_tot::Float64`                    : Total mass enclosed within the outermost layer boundary.
+    """ 
+    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk::Vector{precc}, m_core::prec, dr_min::Int64, dr_max::Int64)
+        # setup grids
+        α = log(dr_max / dr_min)
+
+        N = Int(ceil((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
+
+        # indices i = 1:N
+        i = collect(1:N)
+
+        # convert to BigFloat for consistency
+        i_bf = prec.(i)
+        N_bf = prec(N)
+
+        # compute normalized coordinate (N - i)/(N - 1)
+        ξ = (N_bf .- i_bf) ./ (N_bf - 1)
+
+        # compute r_i
+        r_new_b = radius[end] .+ (radius[1] - radius[end]) .* (
+            (exp.(α .* ξ) .- 1) ./ (exp(α) - 1)
+        )
+
+        # cell centers
+        r_new_c = 0.5 .* (r_new_b[1:end-1] .+ r_new_b[2:end])
+
+        # obtain new profiles (Constant per original layer)
+        ρ_new = similar(rho, N-1)
+        η_new = similar(visc, N-1)
+        μ_new = similar(shear, N-1)
+        κ_new = similar(bulk, N-1)
+
+        for i in 1:N-1
+            # find index such that r_b[idx] <= r_new_c[i] < r_b[idx+1]
+            idx = searchsortedfirst(radius, r_new_c[i]) - 1
+            idx = clamp(idx, 1, length(rho)) # Safety clamp
+
+            ρ_new[i] = rho[idx]
+            η_new[i] = visc[idx]
+            μ_new[i] = shear[idx]
+            κ_new[i] = bulk[idx]
+        end
+
+        g_new, M_tot = get_g(r_new_b, ρ_new, m_core) 
+
+        return r_new_b, ρ_new, η_new, μ_new, κ_new, g_new, M_tot
+    end
+
+
+    """
+        resample_profiles(radius, rho, visc, shear, bulk_s, bulk_l, bulk_d, alpha, visc_l, phi, k, m_core, dr_min, dr_max)
+
+    Resample the input profiles onto a new grid with `ncalc` points. The new grid is generated using a 
+    stretched and refined scheme, which allows for better resolution in regions of interest (e.g., near 
+    layer boundaries). 
+
+    Note: exclusively used with relaxation method discretization.
+    
+    # Arguments
+    - `radius::Vector{prec}`              : Original radius profile (layer boundaries).
+    - `rho::Vector{prec}`                 : Original density profile (defined at layer centers).
+    - `visc::Vector{prec}`                : Original viscosity profile (defined at layer centers).
+    - `shear::Vector{precc}`              : Original shear modulus profile (defined at layer centers).
+    - `bulk_s::Vector{precc}`             : Original solid bulk modulus profile (defined at layer centers).
+    - `bulk_l::Vector{prec}`              : Original liquid bulk modulus profile (defined at layer centers).
+    - `bulk_d::Vector{precc}`             : Original deep bulk modulus profile (defined at layer centers).
+    - `alpha::Vector{precc}`              : Original alpha profile (defined at layer centers).
+    - `visc_l::Vector{prec}`              : Original liquid viscosity profile (defined at layer centers).
+    - `phi::Vector{prec}`                 : Original phi profile (defined at layer centers).
+    - `m_core::prec`                      : Mass of the core, used for gravity calculations.
+    - `Δr_min::Int64`                     : Minimum grid spacing for the new grid.
+    - `Δr_max::Int64`                     : Maximum grid spacing for the new grid.
+
+    # Returns
+    Tuple of resampled profiles on the new grid:
+    - `r_new_b::Vector{prec}`             : New radius profile at layer boundaries.
+    - `ρ_new::Vector{prec}`               : New density profile at layer centers.
+    - `η_new::Vector{prec}`               : New viscosity profile at layer centers.
+    - `μ_new::Vector{precc}`              : New shear modulus profile at layer centers.
+    - `κs_new::Vector{precc}`             : New solid bulk modulus profile at layer centers.
+    - `κl_new::Vector{prec}`              : New liquid bulk modulus profile at layer centers.
+    - `κd_new::Vector{precc}`             : New deep bulk modulus profile at layer centers.
+    - `α_new::Vector{precc}`              : New alpha profile at layer centers.
+    - `ηl_new::Vector{prec}`              : New liquid viscosity profile at layer centers.
+    - `φ_new::Vector{prec}`               : New phi profile at layer centers.
+    - `k_new::Vector{prec}`               : New k profile at layer centers.
+    - `g_new::Vector{prec}`               : New gravity profile at layer centers.
+    - `M_tot::prec`                       : Total mass of the body, used for non-dimensionalization.
+    """ 
+    function resample_profiles(radius::Vector{prec}, rho::Vector{prec}, visc::Vector{prec}, shear::Vector{precc}, bulk_s::Vector{precc}, bulk_l::Vector{prec}, bulk_d::Vector{precc}, alpha::Vector{precc}, visc_l::Vector{prec}, phi::Vector{prec}, k::Vector{prec}, m_core::prec, dr_min::Int64, dr_max::Int64)
+        # setup grids
+        α = log(dr_max / dr_min)
+
+        N = Int(ceil((radius[end] - radius[1]) / dr_min * α / (exp(α) - 1)))
+
+        # indices i = 1:N
+        i = collect(1:N)
+
+        # convert to prec for consistency
+        i_bf = prec.(i)
+        N_bf = prec(N)
+
+        # compute normalized coordinate (N - i)/(N - 1)
+        ξ = (N_bf .- i_bf) ./ (N_bf - 1)
+
+        # compute r_i
+        r_new_b = radius[end] .+ (radius[1] - radius[end]) .* (
+            (exp.(α .* ξ) .- 1) ./ (exp(α) - 1)
+        )
+
+        # cell centers
+        r_new_c = 0.5 .* (r_new_b[1:end-1] .+ r_new_b[2:end])
+
+        # obtain new profiles (Constant per original layer)
+        ρ_new = similar(rho, N-1)
+        η_new = similar(visc, N-1)
+        μ_new = similar(shear, N-1)
+        κs_new = similar(bulk_s, N-1)
+        κl_new = similar(bulk_l, N-1)
+        κd_new = similar(bulk_d, N-1)
+        α_new = similar(alpha, N-1)
+        ηl_new = similar(visc_l, N-1)
+        φ_new = similar(phi, N-1)
+        k_new = similar(k, N-1)
+
+        for i in 1:N-1
+            # find index such that r_b[idx] <= r_new_c[i] < r_b[idx+1]
+            idx = searchsortedfirst(radius, r_new_c[i]) - 1
+            idx = clamp(idx, 1, length(rho)) # Safety clamp
+
+            ρ_new[i] = rho[idx]
+            η_new[i] = visc[idx]
+            μ_new[i] = shear[idx]
+            κs_new[i] = bulk_s[idx]
+            κl_new[i] = bulk_l[idx]
+            κd_new[i] = bulk_d[idx]
+            α_new[i] = alpha[idx]
+            ηl_new[i] = visc_l[idx]
+            φ_new[i] = phi[idx]
+            k_new[i] = k[idx]
+        end
+
+        g_new, M_tot = get_g(r_new_b, ρ_new, m_core) 
+
+        return r_new_b, ρ_new, η_new, μ_new, κs_new, κl_new, κd_new, α_new, ηl_new, φ_new, k_new, g_new, M_tot
+    end
+
+
+    """
+        get_g(r, ρ, m_core)
+
+    Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
+
+    Note: exclusively used with shooting method discretization.
+
+    # Arguments
+    - `r::Array{prec,2}`               : 2D array of layer boundaries. 
+    - `ρ::Array{prec,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::prec`                   : Mass of the core, which is used to compute the gravity at the core boundary.
+
+    # Returns
+    - `g::Array{prec,2}`               : 2D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+
+    # Notes
+    `r` must be be a 2D array, with index 1 representing the top radius of secondary layers, and index 2
+    representing the top radius of primary layers. 
+    """
+    function get_g(r::Array{prec,2}, ρ::Array{prec,1}, m_core::prec)
+        g = zeros(prec, size(r))
+        M = zeros(prec, size(r))
+
+        # Base mass enclosed at the inner boundary of the first layer (Core Mass)
+        M[1, 1] = m_core
+
+        # Shell mass incremental calculations
+        for i in 1:size(r, 2)
+            # Shell masses for elements 2:end in layer i
+            M[2:end, i] = (4.0/3.0) * π .* diff(r[:, i].^3) .* ρ[i]
+        end
+
+        # Cumulative mass enclosed at every point in the grid
+        M_enclosed = accumulate(+, M)
+
+        # Gravity g = G * M_enclosed / r^2
+        g .= G .* M_enclosed ./ (r.^2)
+
+        return g
+    end
+
+
+    """
+        get_g(r, ρ, m_core)
+
+    Compute the radial gravity structure associated with a density profile `r` at intervals given by `r`.
+
+    Note: exclusively used with relaxation method discretization.
+    # Arguments
+    - `r::Array{prec,1}`               : 1D array of layer boundaries. 
+    - `ρ::Array{prec,1}`               : 1D array of layer densities. The length of `ρ` must be equal to the number of columns in `r`.
+    - `m_core::prec`                   : Mass of the core.
+
+    # Returns
+    - `g::Array{prec,1}`               : 1D array of gravity values at the layer boundaries. The dimensions of `g` are the same as `r`.
+    - `M_enc::prec`                    : Total mass enclosed within the outermost layer boundary.
+    """
+    function get_g(r::Vector{prec}, ρ::Vector{prec}, m_core::prec)
+
+        dm = 4.0/3.0 * π .* diff(r.^3) .* ρ
+
+        M_enc = cumsum(dm) .+ m_core
+            
+        g = G .* M_enc ./ r[2:end].^2
+
+        return g, M_enc[end]
+    end
 
 
     """
