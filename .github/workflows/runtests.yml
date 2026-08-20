@@ -52,7 +52,6 @@ jobs:
           slug: FormingWorlds/Obliqua
         
       - name: Publish test badges to gist
-        if: ${{(github.event_name == 'push')}}
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
