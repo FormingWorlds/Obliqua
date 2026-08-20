@@ -1,6 +1,7 @@
 using Test
 using Obliqua
 using Obliqua.solid1d_relax
+using Obliqua.solid1d_relax.common
 using LinearAlgebra
 using DoubleFloats
 using Obliqua.constants
@@ -106,6 +107,22 @@ TEST_DIR        = joinpath(ROOT_DIR,"test/")
         # Test Load configuration parameters: (U=0, U_prime=1, tau=0, P=0)
         B_l, b_l = solid1d_relax.get_surface_bc!(R_planet, g_surface, n, 0, 1, 0, 0; G0=1.0)
         @test b_l[3] != complex(0.0) # Radial stress should change with surface mass load (U_prime=1)
+    end
+
+    @testset "Boundary Conditions: get_core_bc!" begin
+        ω, r, ρ, g, μ, K, n = 1.0, 1.0, 1.0, 1.0, complex(1.0), complex(1.0), 2
+        
+        Ic = solid1d_relax.get_Ic(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        B  = solid1d_relax.get_core_bc!(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        
+        # Check dimensions
+        @test size(B) == (3, 6)
+        
+        # Check linear independence of constraint rows
+        @test rank(B) == 3
+
+        # Check left-nullspace orthogonality constraint: B * Ic ≈ 0
+        @test B * Ic ≈ zeros(ComplexF64, 3, size(Ic, 2)) atol=1e-12
     end
 
     @testset "Relaxation Steps: Core, Propagate, and Surface execution loops" begin

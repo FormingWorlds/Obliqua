@@ -55,6 +55,22 @@ end
 
         @test_throws ArgumentError solid1d_equil_relax.get_Ic(0.0, r, 3000.0, 1.0, complex(0.0), complex(0.0), "solid", n)
     end
+    
+    @testset "Boundary Conditions: get_core_bc!" begin
+        ω, r, ρ, g, μ, K, n = 1.0, 1.0, 1.0, 1.0, complex(1.0), complex(1.0), 2
+        
+        Ic = solid1d_equil_relax.get_Ic(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        B  = solid1d_equil_relax.get_core_bc!(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        
+        # Check dimensions
+        @test size(B) == (1, 2)
+        
+        # Check linear independence of constraint rows
+        @test rank(B) == 1
+
+        # Check left-nullspace orthogonality constraint: B * Ic ≈ 0
+        @test B * Ic ≈ zeros(ComplexF64, 1, size(Ic, 2)) atol=1e-12
+    end
 
     @testset "get_surface_bc!: tidal vs load forcing" begin
         R_planet, g_surface, n = 2.0e6, 4.2, 2

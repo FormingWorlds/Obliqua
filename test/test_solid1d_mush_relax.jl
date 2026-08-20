@@ -2,6 +2,7 @@ using Test
 using LinearAlgebra
 using Obliqua
 using Obliqua.solid1d_mush_relax
+using Obliqua.solid1d_mush_relax.common
 using Obliqua.constants
 
 
@@ -98,6 +99,38 @@ using Obliqua.constants
         @test size(C1l_m) == (4, 8)
         @test size(D2l_m) == (4, 8)
         @test any(R_mush[1] .!= 0.0)
+    end
+    
+    @testset "Boundary Conditions: get_core_bc!" begin
+        ω, r, ρ, g, μ, K, n = 1.0, 1.0, 1.0, 1.0, complex(1.0), complex(1.0), 2
+        
+        Ic = solid1d_mush_relax.common.get_Ic(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        B  = solid1d_mush_relax.get_core_bc!(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0)
+        
+        # Check dimensions
+        @test size(B) == (3, 6)
+        
+        # Check linear independence of constraint rows
+        @test rank(B) == 3
+
+        # Check left-nullspace orthogonality constraint: B * Ic ≈ 0
+        @test B * Ic ≈ zeros(ComplexF64, 3, size(Ic, 2)) atol=1e-12
+    end
+
+    @testset "Boundary Conditions: get_core_bc! (mush)" begin
+        ω, r, ρ, g, μ, K, n = 1.0, 1.0, 1.0, 1.0, complex(1.0), complex(1.0), 2
+        
+        Ic = solid1d_mush_relax.common.get_Ic(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0, Y=[1,2,3,4,5,6,7,8])
+        B  = solid1d_mush_relax.get_core_bc!(ω, r, ρ, g, μ, K, "liquid", n; G0=1.0, Y=[1,2,3,4,5,6,7,8])
+        
+        # Check dimensions
+        @test size(B) == (4, 8)
+        
+        # Check linear independence of constraint rows
+        @test rank(B) == 4
+
+        # Check left-nullspace orthogonality constraint: B * Ic ≈ 0
+        @test B * Ic ≈ zeros(ComplexF64, 4, size(Ic, 2)) atol=1e-12
     end
 
     @testset "3. Layer Propagation Routines" begin
