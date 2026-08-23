@@ -2298,13 +2298,6 @@ module Obliqua
         r = convert(Vector{prec}, radius)
         
         Nz = length(r) - 1
-
-        # setup spherical grid used for angular averaging (`res` is defined in `constants.jl`)
-        lat_vals = deg2rad.(0:res:180)
-        nlats    = length(lat_vals)
-        nlons    = length(0:res:360-0.001)
-        dres     = deg2rad(res)
-        Ω_total  = sum(sin.(lat_vals)) * nlons * dres^2
         
         # determine angular mean of a lat/lon map (for anisotropic maps)
         weight = reshape(sin.(lat_vals), :, 1)
