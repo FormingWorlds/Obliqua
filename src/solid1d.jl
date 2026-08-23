@@ -327,7 +327,7 @@ module solid1d
                 
         for i in 1:nlayers
             Bprod = zeros(precc, 6, 6, nsublayers-1)
-            @views get_B_product!(Bprod, ωs, rs[:, i], ρs[1], gs[:, i], μs[i], Ks[i], n; G0=G0, inertial_terms=inertial_terms)
+            @views get_B_product!(Bprod, ωs, rs[:, i], ρs[i], gs[:, i], μs[i], Ks[i], n; G0=G0, inertial_terms=inertial_terms)
 
             for j in 1:nsublayers-1
                 y1_4[:,:,j,i] = @view(Bprod[:,:,j]) * y_start 
