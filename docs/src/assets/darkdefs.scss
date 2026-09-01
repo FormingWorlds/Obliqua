@@ -322,6 +322,127 @@ html.theme--documenter-dark {
   @each $name, $bg in $proteus-admonition-header-bg {
     .admonition.is-#{$name} > .admonition-header { background-color: $bg; }
   }
+
+  // Base Container (All admonitions)
+  article.admonition,
+  div.admonition,
+  .admonition {
+    background-color: $basalt !important;
+    border: 1px solid lighten-color($basalt, 1.5) !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    overflow: hidden;
+
+    p, span, div {
+      color: $paper;
+    }
+
+    .admonition-title,
+    .admonition-header {
+      font-family: $family-heading !important;
+      font-weight: 600 !important;
+      border: none !important;
+    }
+  }
+
+  // 1. WARNING CALLOUT (Magma / Crimson)
+  // Force-override WARNING header & body
+  .admonition.warning,
+  .admonition.is-warning,
+  article.admonition.warning,
+  div.admonition.warning {
+    background-color: rgba($mantle, 0.25) !important;
+    border: 1px solid rgba($magma, 0.4) !important;
+    border-left: 5px solid $magma !important;
+
+    // Direct header override (targets Bulma's .message-header, .admonition-title, and all inner elements)
+    &,
+    > .message-header,
+    > .admonition-title,
+    > .admonition-header,
+    .message-header,
+    .admonition-title,
+    .admonition-header {
+      background-color: rgba($magma, 0.25) !important;
+      background: rgba($magma, 0.25) !important; // Overrides gradient/solid background sets
+      color: lighten-color($magma, 1) !important;
+
+      // Targets icon, bold titles, and text spans inside the header bar
+      *, p, span, i, svg, strong {
+        background-color: transparent !important;
+        color: lighten-color($magma, 1) !important;
+        fill: lighten-color($magma, 1) !important;
+      }
+    }
+
+    // Inner text content area
+    .message-body,
+    .admonition-text,
+    .admonition-content,
+    > p:not(.admonition-title):not(.message-header) {
+      background-color: transparent !important;
+      color: $paper !important;
+    }
+  }
+
+  // 2. INFO / NOTE CALLOUT (Ocean / Azure)
+  article.admonition.info,
+  article.admonition.note,
+  div.admonition.info,
+  div.admonition.note,
+  .admonition.info,
+  .admonition.note {
+    background-color: rgba($abyss, 0.3) !important;
+    border: 1px solid rgba($azure, 0.3) !important;
+    border-left: 5px solid $azure !important;
+
+    > .admonition-title,
+    > .admonition-header,
+    p.admonition-title {
+      background-color: rgba($abyss, 0.7) !important;
+      color: $ice !important;
+
+      &::before, svg, i, span {
+        color: $ice !important;
+        fill: $ice !important;
+      }
+    }
+  }
+
+  // 3. DANGER / ERROR CALLOUT (Mantle)
+  article.admonition.danger,
+  article.admonition.error,
+  div.admonition.danger,
+  div.admonition.error {
+    background-color: rgba($mantle, 0.4) !important;
+    border: 1px solid $mantle !important;
+    border-left: 5px solid $crimson !important;
+
+    > .admonition-title,
+    > .admonition-header,
+    p.admonition-title {
+      background-color: rgba($mantle, 0.7) !important;
+      color: $paper !important;
+    }
+  }
+
+  // 4. SUCCESS / TIP CALLOUT (Verdant)
+  article.admonition.tip,
+  article.admonition.success,
+  div.admonition.tip,
+  div.admonition.success {
+    background-color: rgba(darken-color($verdant, 3), 0.3) !important;
+    border: 1px solid rgba($verdant, 0.3) !important;
+    border-left: 5px solid $verdant !important;
+
+    > .admonition-title,
+    > .admonition-header,
+    p.admonition-title {
+      background-color: rgba(darken-color($verdant, 2), 0.5) !important;
+      color: lighten-color($verdant, 1) !important;
+    }
+  }
+
 }
 
 #documenter .docs-sidebar { // This makes sidebar have shadow at all displays

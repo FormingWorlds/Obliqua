@@ -86,3 +86,10 @@ figcaption, time,
 .eyebrow, .caption {
   font-family: $family-monospace;
 }
+
+// Hide settings gear container and button target
+#documenter .docs-right-buttons .docs-settings-button,
+#documenter .docs-right-buttons #documenter-settings-button,
+#documenter #documenter-settings-button {
+  display: none !important;
+}
