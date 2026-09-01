@@ -86,6 +86,13 @@ figcaption, time,
 .eyebrow, .caption {
   font-family: $family-monospace;
 }
+
+// Hide settings gear container and button target
+#documenter .docs-right-buttons .docs-settings-button,
+#documenter .docs-right-buttons #documenter-settings-button,
+#documenter #documenter-settings-button {
+  display: none !important;
+}
 // This template file overrides some of the Documenter theme variables to customize the theme:
 $themename: "documenter-light"; // CSS file must be called `$(themename).css`
 
@@ -156,43 +163,185 @@ $input-focus-border-color: $mainwhite;
 // This should be the last thing in the SCSS file.
 @import "documenter-light";
 
-html.theme--documenter-light {
-  // Code block custom styling (light mode)
-  pre, 
-  div.copy-wrapper {
-    // Barely breaks apart from the paper background
-    background-color: darken-color($paper, 0.4) !important;
-    border: none !important;
-    border-left: 3px solid $crimson !important; // Red edge on the left
-    border-top-left-radius: 4px;
-    border-bottom-left-radius: 4px;
-    position: relative;
+// Code block custom styling (light mode)
+pre, 
+div.copy-wrapper {
+  // Barely breaks apart from the paper background
+  background-color: darken-color($paper, 0.4) !important;
+  border: none !important;
+  border-left: 3px solid $crimson !important; // Red edge on the left
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  position: relative;
 
-    code {
+  code {
+    background-color: transparent !important;
+    color: $ink !important;
+  }
+}
+
+// Copy button icon styling
+button.copy-button,
+.docs-copy-button,
+.copy-action {
+  background-color: darken-color($paper, 0.8) !important;
+  border: 1px solid darken-color($paper, 1.5) !important;
+  border-radius: 6px;
+  opacity: 0.45; // Subtle muted default state
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+
+  // SVG icon tinting inside the copy button
+  svg, img, i {
+    fill: $ink !important;
+    color: $ink !important;
+  }
+
+  &:hover {
+    opacity: 1.0; // Brightens fully on hover
+    background-color: darken-color($paper, 1.2) !important;
+  }
+}
+
+// =========================================================================
+// PROTEUS Admonition Overrides (Light Theme)
+// =========================================================================
+
+// Base Admonition Styling
+article.admonition,
+div.admonition,
+.admonition {
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  overflow: hidden;
+
+  p, span, div {
+    color: $ink;
+  }
+
+  .admonition-title,
+  .admonition-header {
+    font-family: $family-heading !important;
+    font-weight: 600 !important;
+    border: none !important;
+  }
+}
+
+// 1. WARNING CALLOUT (Crimson accent matching Dark Mode)
+.admonition.warning,
+.admonition.is-warning,
+article.admonition.warning,
+div.admonition.warning {
+  background-color: lighten-color($crimson, 5.2) !important;
+  border: 1px solid rgba($crimson, 0.3) !important;
+  border-left: 5px solid $crimson !important;
+
+  &,
+  > .message-header,
+  > .admonition-title,
+  > .admonition-header,
+  .message-header,
+  .admonition-title,
+  .admonition-header {
+    background-color: lighten-color($crimson, 4.2) !important;
+    background: lighten-color($crimson, 4.2) !important;
+    color: $crimson !important;
+
+    *, p, span, i, svg, strong {
       background-color: transparent !important;
-      color: $ink !important;
+      color: $crimson !important;
+      fill: $crimson !important;
     }
   }
 
-  // Copy button icon styling
-  button.copy-button,
-  .docs-copy-button,
-  .copy-action {
-    background-color: darken-color($paper, 0.8) !important;
-    border: 1px solid darken-color($paper, 1.5) !important;
-    border-radius: 6px;
-    opacity: 0.45; // Subtle muted default state
-    transition: opacity 0.2s ease, background-color 0.2s ease;
+  .message-body,
+  .admonition-text,
+  .admonition-content,
+  > p:not(.admonition-title):not(.message-header) {
+    background-color: transparent !important;
+    color: $ink !important;
+  }
+}
 
-    // SVG icon tinting inside the copy button
-    svg, img, i {
-      fill: $ink !important;
-      color: $ink !important;
+// 2. DANGER / ERROR CALLOUT (Crimson)
+.admonition.danger,
+.admonition.error,
+article.admonition.danger,
+div.admonition.danger {
+  background-color: lighten-color($crimson, 5.2) !important;
+  border: 1px solid rgba($crimson, 0.3) !important;
+  border-left: 5px solid $crimson !important;
+
+  &,
+  > .message-header,
+  > .admonition-title,
+  > .admonition-header,
+  .message-header,
+  .admonition-title,
+  .admonition-header {
+    background-color: lighten-color($crimson, 4.2) !important;
+    background: lighten-color($crimson, 4.2) !important;
+    color: $crimson !important;
+
+    *, p, span, i, svg, strong {
+      background-color: transparent !important;
+      color: $crimson !important;
+      fill: $crimson !important;
     }
+  }
+}
 
-    &:hover {
-      opacity: 1.0; // Brightens fully on hover
-      background-color: darken-color($paper, 1.2) !important;
+// 3. INFO / NOTE CALLOUT (Ice / Ocean)
+.admonition.info,
+.admonition.note,
+article.admonition.info,
+div.admonition.info {
+  background-color: lighten-color($ice, 2.5) !important;
+  border: 1px solid rgba($ocean, 0.2) !important;
+  border-left: 5px solid $ocean !important;
+
+  &,
+  > .message-header,
+  > .admonition-title,
+  > .admonition-header,
+  .message-header,
+  .admonition-title,
+  .admonition-header {
+    background-color: lighten-color($ice, 1.2) !important;
+    background: lighten-color($ice, 1.2) !important;
+    color: $ocean !important;
+
+    *, p, span, i, svg, strong {
+      background-color: transparent !important;
+      color: $ocean !important;
+      fill: $ocean !important;
+    }
+  }
+}
+
+// 4. SUCCESS / TIP CALLOUT (Verdant)
+.admonition.tip,
+.admonition.success,
+article.admonition.tip,
+div.admonition.tip {
+  background-color: lighten-color($verdant, 4.8) !important;
+  border: 1px solid rgba($verdant, 0.3) !important;
+  border-left: 5px solid $verdant !important;
+
+  &,
+  > .message-header,
+  > .admonition-title,
+  > .admonition-header,
+  .message-header,
+  .admonition-title,
+  .admonition-header {
+    background-color: lighten-color($verdant, 3.8) !important;
+    background: lighten-color($verdant, 3.8) !important;
+    color: darken-color($verdant, 1.5) !important;
+
+    *, p, span, i, svg, strong {
+      background-color: transparent !important;
+      color: darken-color($verdant, 1.5) !important;
+      fill: darken-color($verdant, 1.5) !important;
     }
   }
 }
