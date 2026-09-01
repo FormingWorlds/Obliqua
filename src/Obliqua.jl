@@ -184,7 +184,7 @@ module Obliqua
         cfg_dict = parsefile(cfg_path)
 
         # check headers
-        headers = ["params", "planet", "orbit", "struct", "interior_energetics", "title", "version"]
+        headers = ["params", "orbit", "struct", "interior_energetics", "title", "version"]
         for h in headers
             if !haskey(cfg_dict, h)
                 error("Key $h is missing from configuration file at '$cfg_path'")
@@ -258,7 +258,6 @@ module Obliqua
         # Check that config has these always-required keys
         req_keys = Dict(
             "params.out" => ["path"],
-            "planet" => ["mass_tot"],
             "orbit.obliqua" => [
                 "store_3D", "min_frac","visc_l","visc_lus","visc_sus",
                 "n","m","spectrum", "material_mu", "material_k",
@@ -363,8 +362,6 @@ module Obliqua
             b_width  = cfg["orbit"]["obliqua"]["mushy"]["b_width"]
             t_width  = cfg["orbit"]["obliqua"]["mushy"]["t_width"]
         end
-
-        mass_tot     = cfg["planet"]["mass_tot"]*M_Earth
 
         # convert "true" to true and "false" to false
         store_3D   = true_if_true(store_3D)
@@ -1151,7 +1148,7 @@ module Obliqua
     - `η::Array{prec,1}`                : Viscosity profile of the planet.
     - `η_l::Float64`                    : Liquidus viscosity.
     - `η_s::Float64`                    : Solidus viscosity.
-    
+
     # Keyword Arguments
     - `min_frac::Float64=0.02`          : Minimal segment radius fraction before smoothing.
 
@@ -1161,6 +1158,25 @@ module Obliqua
     - `mask_c::Vector{Bool}`            : Mush region mask.
     - `is_seg::Vector{Tuple{Int,Int}}`  : Segment [start, stop] index array.
     - `segments::Vector{String}`        : Segment phase array.
+
+    # Smoothing behaviour
+    Two passes are applied to `phase_prf` before segments are finalised, and
+    repeated to a fixed point (segment count only ever decreases, so this always
+    terminates):
+
+    1. **Interior islands**: a segment strictly between two neighbours of the
+    *same* phase (a "sandwich"), and thinner than `min_frac`, is absorbed into
+    that surrounding phase. Phase-agnostic: applies equally to a thin solid/mush
+    sliver in fluid, or a thin fluid sliver between two solid/mush segments.
+    2. **Edge layers**: a segment touching the CMB (r[1]) or the surface (r[end])
+    that is thinner than `min_frac` is absorbed into its single neighbour,
+    but *only* if that neighbour is itself "substantial" (thickness/H ≥
+    min_frac). This is the CMB-touching residual-melt-layer case: a thin
+    fluid sliver sitting directly on the core, next to a thick solid/mush
+    layer, gets folded into the solid/mush segment once the latter is no
+    longer negligible. If the neighbour is also thin (e.g. early in
+    crystallisation, before the solid/mush layer has grown past threshold),
+    no merge happens yet — pass 1 handles that regime instead.
     """
     function get_layers(r::Array{prec,1},
                         η::Array{prec,1},
@@ -1171,7 +1187,7 @@ module Obliqua
 
         # masks for liquid and solid regions
         mask_l = η .< η_l
-        mask_s = η_s .< η 
+        mask_s = η_s .< η
 
         # total mantle thickness
         H = r[end] - r[1]
@@ -1192,38 +1208,92 @@ module Obliqua
             end
         end
 
-        # smooth phase profile
-        #   moving up from the CMB
-        i = 1
-        while i < N
-            p = phase_prf[i]
-            i_start = i
-
-            # extend segment while in same phase
-            while i < N && phase_prf[i] == p
-                i += 1
+        # ---- helper: contiguous same-phase runs of phase_prf[1:N] ----
+        # NOTE: this mirrors the segment-building loop further below (i <= N,
+        # no extra increment after the inner while). The original smoothing loop
+        # used `i < N` plus a stray `i += 1` after the inner while, which
+        # (a) never visits index N as a segment start, and (b) skips the first
+        # index of every segment after the first when reading it back for a
+        # neighbour-phase comparison. Both are fixed here.
+        function segment_bounds(pf::Vector{Int})
+            segs = Vector{Tuple{Int,Int}}()
+            j = 1
+            while j <= N
+                pj = pf[j]
+                j_start = j
+                while j <= N && pf[j] == pj
+                    j += 1
+                end
+                push!(segs, (j_start, j - 1))
             end
+            return segs
+        end
 
-            i_end = i - 1
+        # ---- smooth phase profile, to a fixed point ----
+        # Bounded above by N: each sweep that changes anything strictly reduces
+        # the segment count, which is bounded below by 1, so this cannot loop
+        # more than (initial segment count - 1) times. N is a safe, non-arbitrary
+        # cap; if it's ever hit without convergence something upstream broke the
+        # monotonic-decrease assumption, so warn rather than fail silently.
+        converged = false
+        for _ in 1:N
+            changed = false
 
-            # check island layer 
-            if i_start > 1 && i_end < N
-                # get neighbouring segment phases
-                p_below = phase_prf[i_start - 1]
-                p_above = phase_prf[i_end + 1]
-
-                # if sandwiched, check island layer thickness
-                if p_below == p_above && p_below != p
-                    dr = r[i_end] - r[i_start]
-                    # if less then threshold fraction smooth phase profile
-                    if dr / H < min_frac
-                        phase_prf[i_start:i_end] .= p_below
+            # --- Pass 1: interior islands (sandwich) ---
+            segs = segment_bounds(phase_prf)
+            for idx in 1:length(segs)
+                i_start, i_end = segs[idx]
+                if idx > 1 && idx < length(segs)
+                    p = phase_prf[i_start]
+                    p_below = phase_prf[segs[idx-1][1]]
+                    p_above = phase_prf[segs[idx+1][1]]
+                    if p_below == p_above && p_below != p
+                        dr = r[i_end+1] - r[i_start]
+                        if dr / H < min_frac
+                            phase_prf[i_start:i_end] .= p_below
+                            changed = true
+                        end
                     end
                 end
             end
 
-            i += 1
+            # --- Pass 2: edge layers (CMB and surface) ---
+            segs = segment_bounds(phase_prf)
+            if length(segs) > 1
+                # bottom (CMB-touching) segment
+                i_start, i_end = segs[1]
+                i_start2, i_end2 = segs[2]
+                p = phase_prf[i_start]
+                p_nb = phase_prf[i_start2]
+                dr = r[i_end+1] - r[i_start]
+                dr_nb = r[i_end2+1] - r[i_start2]
+                if p != p_nb && dr / H < min_frac && dr_nb / H >= min_frac
+                    phase_prf[i_start:i_end] .= p_nb
+                    changed = true
+                end
+
+                # re-fetch: the bottom merge above may have changed segment count
+                segs = segment_bounds(phase_prf)
+                if length(segs) > 1
+                    i_start, i_end = segs[end]
+                    i_start2, i_end2 = segs[end-1]
+                    p = phase_prf[i_start]
+                    p_nb = phase_prf[i_start2]
+                    dr = r[i_end+1] - r[i_start]
+                    dr_nb = r[i_end2+1] - r[i_start2]
+                    if p != p_nb && dr / H < min_frac && dr_nb / H >= min_frac
+                        phase_prf[i_start:i_end] .= p_nb
+                        changed = true
+                    end
+                end
+            end
+
+            if !changed
+                converged = true
+                break
+            end
         end
+        converged || @warn "get_layers: phase-profile smoothing did not converge within N sweeps; check for an unexpected oscillation."
 
         # update masks
         mask_s .= phase_prf .== 1
@@ -1232,7 +1302,7 @@ module Obliqua
         # build segments + bottom mask
         segments = String[]
         mask_c = falses(length(r))
-              
+
         # build boundary indices array
         is_seg = Vector{Tuple{Int,Int}}()
 
@@ -1240,7 +1310,7 @@ module Obliqua
         while i <= N
             p = phase_prf[i]
 
-            # mark bottom of this 
+            # mark bottom of this
             if i > 1
                 mask_c[i-1] = true # "bottom" radius is r[i-1]
             end
