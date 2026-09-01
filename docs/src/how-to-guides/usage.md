@@ -26,12 +26,12 @@ The evolution of the tidal heating profile and the tidal ``k``-Love number respo
     <div style="display: flex; gap: 12px; justify-content: center; align-items: stretch; flex-wrap: wrap;">
         <div style="flex: 1 1 0; min-width: 280px; max-width: 530px; display: flex;">
             <video id="vid1" playsinline style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block;">
-                <source src="panels/heating_evolution_m2_dark.webm" type="video/webm">
+                <source src="../panels/heating_evolution_m2_dark.webm" type="video/webm">
             </video>
         </div>
         <div style="flex: 1 1 0; min-width: 280px; max-width: 530px; display: flex;">
             <video id="vid2" playsinline style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block;">
-                <source src="panels/love_evolution_dark.webm" type="video/webm">
+                <source src="../panels/love_evolution_dark.webm" type="video/webm">
             </video>
         </div>
     </div>
