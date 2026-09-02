@@ -13,41 +13,40 @@ This is a simple test case to demonstrate the use of Obliqua for a zero-dimensio
 
 ### Creating the data file
 
-Use your favourite file editor IDE to create a new file called `moon_data.json` in the `res/interior_data` directory of the Obliqua package. The data file should be a JSON file with the following structure:
+Use your favourite file editor IDE to create a new file called `0d_test_moon.json` in the `res/interior_data` directory of the Obliqua package. The data file should be a JSON file with the following structure:
 
 ```json
 {
-    "omega": 1.0e-06,
-    "axial": 1.0e-06,
-    "ecc": 0.1,
-    "sma": 1.82e7,
-    "S_mass": 6e24,
-    "density": [
-        3500.0,
-        3500.0
+    "omega": 1.0e-06,       // Orbital frequency in rad/s
+    "axial": 1.0e-06,       // Axial rotation frequency in rad/s
+    "ecc": 0.1,             // Orbital eccentricity
+    "sma": 1.82e7,          // Semi-major axis in meters
+    "S_mass": 6e24,         // Mass of the central body in kg
+    "density": [            // Radial density profile in kg/m^3
+        3500.0,             // Solid mantle density
+        3500.0              // Molten crust density
     ],
-    "radius": [
-        480000.0,
-        995613.0,
-        1650000.0
+    "radius": [             // Radial radius profile in meters
+        480000.0,           // Radius of the iron core in meters
+        995613.0,           // Radius of the solid mantle in meters
+        1650000.0           // Radius of the molten crust in meters (i.e. the surface)
     ],
-    "visc": [
-        1e22,
-        1e2
+    "visc": [               // Viscosity profile in Pa.s
+        1e22,               // Viscosity of the solid mantle in Pa.s
+        1e2                 // Viscosity of the molten crust in Pa.s
     ],
-    "shear": [
-        65857968278.256905,
-        10.0
+    "shear": [              // Shear modulus profile in Pa
+        65857968278.256905, // Shear modulus of the solid mantle in Pa
+        10.0                // Shear modulus of the molten crust in Pa
     ],
-    "bulk": [
-        147739735943.7933,
-        1000000000.0
+    "bulk": [               // Bulk modulus profile in Pa
+        147739735943.7933,  // Bulk modulus of the solid mantle in Pa
+        1000000000.0        // Bulk modulus of the molten crust in Pa
     ],
-    "phi": [
-        0.0,
-        1.0
-    ],
-    "ncalc": 1000
+    "phi": [                // Porosity profile (dimensionless)
+        0.0,                // Porosity of the solid mantle (dimensionless)
+        1.0                 // Porosity of the molten crust (dimensionless
+    ]
 }
 ```
 
@@ -60,12 +59,12 @@ The values provided here reflect a partially molten Moon, with a fluid iron core
 The configuration file should be a TOML file with the following structure:
 
 ```toml
-title = "Moon"
+title = "Moon"                      # Given title for the configuration file
 version = "1.0"
 
 [params]
     [params.out]
-        path        = "out"
+        path        = "out"         # Set the outpath for the output files
         time        = 0.0
         logging     = "INFO"
         plot_fmt    = "png"
@@ -85,21 +84,20 @@ version = "1.0"
         visc_sus    = 1e21
         n           = [2]
         m           = [0, 2]
-        spectrum    = "full"
-        N_sigma     = 100
-        p_min       = -8
-        p_max       = 4
+        spectrum    = "full"        # Specify the use of the full spectrum 
+        N_sigma     = 100           # Set the number of probe forcing frequencies
+        p_min       = -8            # Set the minimum probe forcing frequency (in [log(kyr)])
+        p_max       = 4             # Set the maximum probe forcing frequency (in [log(kyr)])
         s_min       = "none"
         s_max       = "none"
         
-        material_mu = "andrade"
-        material_k  = "andrade"
-        alpha       = 0.3
+        material_mu = "andrade"     # Set the rheological model to use for the shear modulus
+        material_k  = "andrade"     # Set the rheological model to use for the bulk modulus
+        alpha       = 0.3           # Set the Andrade power-law exponent.
 
-
-        module_solid = "solid0d"
-        module_mushy = "none"
-        module_fluid = "fluid0d"
+        module_solid = "solid0d"    # Set the tidal model to use for the solid layer
+        module_mushy = "none"       
+        module_fluid = "fluid0d"    # Set the tidal model to use for the fluid layer
 
         [orbit.obliqua.solid]
             ncalc       = 100
@@ -113,7 +111,7 @@ version = "1.0"
             porosity_thresh = 3e-2
 
         [orbit.obliqua.fluid]
-            sigma_R     = 2e-3
+            sigma_R     = 2e-3      # Specifiy the Rayleigh drag coefficient for the fluid layer
             sigma_R_inf = 1e-3
             sigma_R_prf = "dynamic_interp"
             H_R         = 1e5
@@ -138,17 +136,23 @@ Note that many of the parameters in the configuration file are not used in this 
 
 ### Running the test case
 
-With these files in place, we can now run the test case. The following code snippet demonstrates how to do this.
+With these files in place, we can now run the test case. Create a new Julia script called `run_moon.jl` in the root directory of the Obliqua package with the following content:
 
 ```julia
 using Obliqua
+
+# Clean up output directory
+rm("out/",force=true,recursive=true)
+if !isdir("out/") && !isfile("out/")
+    mkdir("out/")
+end
 
 # Load configuration
 cfg = Obliqua.open_config("res/config/moon_config.toml")
 
 # Load interior model
 omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
-    load.load_interior_mush_full("res/interior_data/moon_data.json", false)
+    load.load_interior_mush_full("res/interior_data/0d_test_moon.json", false)
 
 # Extract mush zone properties
 perm      = Obliqua.interior.get_permeability(phi, cfg)
@@ -161,6 +165,25 @@ power_prf, power_blk, nmk, σ_range, LNk = Obliqua.run_tides(
 )
 ```
 
+!!! check 
+    The filetree should look like this: 
+
+    ```bash
+    Obliqua/
+    ├── 📂 res/
+    │   ├── 📂 config
+    |   │   └── 📄 moon_config.toml
+    │   └── 📂 interior_data
+    │       └── 📄 0d_test_moon.json
+    ├── 📄 run_moon.jl
+    ```
+
+Run the script using 
+
+```bash
+julia --project run_moon.jl
+```
+
 ---
 
 ### Expected output
@@ -168,7 +191,7 @@ power_prf, power_blk, nmk, σ_range, LNk = Obliqua.run_tides(
 At this point, the function will return several outputs in the terminal:
 
 ```bash
-[ Info: Loading interior from JSON file: res/interior_data/moon_data.json
+[ Info: Loading interior from JSON file: res/interior_data/0d_test_moon.json
 [ Info: Using configuration 'Moon'
 [ Info: Using (n, m, k) = (2, 0, 1) for full spectrum.
 [ Info: Smoothing complex modulus profiles to avoid sharp jumps in viscosity...

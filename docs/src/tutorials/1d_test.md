@@ -15,7 +15,7 @@ This is an advanced test case to demonstrate the use of Obliqua for a one-dimens
 
 ### Creating the data file
 
-This time the interior data will be provided, so it can simply be loaded using the `Obliqua.load` module. The file we will use is `res/interior_data/channel_showcase_updated.json`. 
+This time the interior data will be provided, so it can simply be loaded using the `Obliqua.load` module. The file we will use is `res/interior_data/1d_test_earth.json`. 
 
 ---
 
@@ -24,12 +24,12 @@ This time the interior data will be provided, so it can simply be loaded using t
 The configuration file should be a TOML file with the following structure:
 
 ```toml
-title = "Earth"
+title = "Earth"                     # Given title for the configuration file
 version = "1.0"
 
 [params]
     [params.out]
-        path        = "out"
+        path        = "out"         # Set the outpath for the output files
         time        = 0.0
         logging     = "INFO"
         plot_fmt    = "png"
@@ -38,57 +38,57 @@ version = "1.0"
 [orbit]
     [orbit.obliqua]
         store_3D    = false
-        enforce_ec  = true
+        enforce_ec  = true          # Enable enforce energy conservation to clean up the tidal response at low frequencies
         optimize_scales = false
-        solid_shell = true
+        solid_shell = false
 
-        min_frac    = 0.05
-        visc_l      = 1e2
-        visc_lus    = 5e4
-        visc_s      = 1e22
-        visc_sus    = 5e6
+        min_frac    = 0.05          # Set 5% of the radius as the minimum fraction of the radius to consider for the tidal response
+        visc_l      = 1e2           # Set the liquid viscosity to 100 Pa s
+        visc_lus    = 5e4           # Set the liquid-mush handoff viscosity to 5e4 Pa s
+        visc_s      = 1e22          # Set the solid viscosity to 1e22 Pa s
+        visc_sus    = 5e6           # Set the solid-mush handoff viscosity to 5e6 Pa s
         n           = [2]
         m           = [0, 2]
-        spectrum    = "full"
-        N_sigma     = 100
-        p_min       = -8
-        p_max       = 4
+        spectrum    = "full"        # Specify the use of the full spectrum 
+        N_sigma     = 100           # Set the number of probe forcing frequencies
+        p_min       = -8            # Set the minimum probe forcing frequency (in [log(kyr)])
+        p_max       = 4             # Set the maximum probe forcing frequency (in [log(kyr)])
         s_min       = "none"
         s_max       = "none"
         
-        material_mu = "andrade"
-        material_k  = "andrade"
-        alpha       = 0.3
+        material_mu = "andrade"     # Set the rheological model to use for the shear modulus
+        material_k  = "andrade"     # Set the rheological model to use for the bulk modulus
+        alpha       = 0.3           # Set the Andrade power-law exponent.
 
 
-        module_solid = "solid1d-relax"
-        module_mushy = "interp"
-        module_fluid = "fluid1d"
+        module_solid = "solid1d-relax"    # Set the tidal model to use for the solid layer
+        module_mushy = "interp"     # Use interpolation for the mushy layer
+        module_fluid = "fluid1d"    # Set the tidal model to use for the fluid layer
 
         [orbit.obliqua.solid]
             ncalc       = 100
-            dr_min      = 10
-            dr_max      = 3000
-            core        = "liquid"
-            core_props  = "core"
-            inertial_terms = true
+            dr_min      = 10        # For relaxation models, set the minimum radial step size to 10 m
+            dr_max      = 3000      # For relaxation models, set the maximum radial step size to 3000 m
+            core        = "liquid"  # Set the core solution vector to be liquid
+            core_props  = "core"    # Use core properties specified below for the core solution vector
+            inertial_terms = true   # Include inertial terms in the tidal calculation
             bulk_l      = 1e9
             dbulk_power = 0.5
             porosity_thresh = 3e-2
 
         [orbit.obliqua.fluid]
-            sigma_R     = 2e-3
-            sigma_R_inf = 1e-3
-            sigma_R_prf = "dynamic_interp"
-            H_R         = 1e5
+            sigma_R     = 2e-3      # Rayleigh drag at the interface
+            sigma_R_inf = 1e-3      # Rayleigh drag in the bulk fluid
+            sigma_R_prf = "dynamic_interp"      # Use the detailed radial dissipation profile
+            H_R         = 1e5       # The scale height associated with dissipation in the fluid layer
             efficiency  = 1e0
 
         [orbit.obliqua.mushy]
-            b_width     = 5e-1
-            t_width     = 3e-2
+            b_width     = 5e-1      # Arbitrary smoothing width for the mushy layer from the solid
+            t_width     = 3e-2      # Arbitrary smoothing width for the mushy layer from the fluid
 
 [struct]
-    core_density = 10738.33
+    core_density = 10738.33         # Core density used for the core solution vector. This is the density of the Earth's inner core.
     core_shear   = 0.0
     core_bulk    = 5e11
 
@@ -106,12 +106,18 @@ With these files in place, we can now run the test case. The following code snip
 ```julia
 using Obliqua
 
+# Clean up output directory
+rm("out/",force=true,recursive=true)
+if !isdir("out/") && !isfile("out/")
+    mkdir("out/")
+end
+
 # Load configuration
 cfg = Obliqua.open_config("res/config/earth_config.toml")
 
 # Load interior model
 omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
-    load.load_interior_mush_full("res/interior_data/channel_showcase_updated.json", false)
+    load.load_interior_mush_full("res/interior_data/1d_test_earth.json", false)
 
 # Extract mush zone properties
 perm      = Obliqua.interior.get_permeability(phi, cfg)
@@ -124,6 +130,25 @@ power_prf, power_blk, nmk, σ_range, LNk = Obliqua.run_tides(
 )
 ```
 
+!!! check 
+    The filetree should look like this: 
+
+    ```bash
+    Obliqua/
+    ├── 📂 res/
+    │   ├── 📂 config
+    |   │   └── 📄 earth_config.toml
+    │   └── 📂 interior_data
+    │       └── 📄 1d_test_earth.json
+    ├── 📄 run_earth.jl
+    ```
+
+We can now run the script using 
+
+```bash
+julia --project run_earth.jl
+```
+
 ---
 
 ### Expected output
@@ -131,7 +156,7 @@ power_prf, power_blk, nmk, σ_range, LNk = Obliqua.run_tides(
 At this point, the function will return several outputs in the terminal:
 
 ```bash
-[ Info: Loading interior from JSON file: res/interior_data/channel_showcase_updated.json
+[ Info: Loading interior from JSON file: res/interior_data/1d_test_earth.json
 [ Info: Using configuration 'Earth'
 [ Info: Using (n, m, k) = (2, 0, 1) for full spectrum.
 [ Info: Smoothing complex modulus profiles to avoid sharp jumps in viscosity...
