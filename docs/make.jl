@@ -30,7 +30,7 @@ format = Documenter.HTML(
     prettyurls = get(ENV, "CI", nothing) == "true",
     assets = [
         "assets/style.css",
-        "assets/logo.ico",
+        "assets/glyph_tidal.ico",
         "assets/theme-toggle.js",
     ]
 )
