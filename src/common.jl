@@ -878,34 +878,6 @@ module common
 
 
     """
-        get_A(ω, r, ρ, g, K, n; G0=1, Y=[1,2,3,4])
-
-    Compute the 4x4 `A` matrix in the ODE for the fluid-body problem.
-
-    # Arguments
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `K::precc`                         : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `Y::Vector{Int}=[1,2,3,4]`         : Ordering of the solution vector components. This allows for different conventions in the literature.
-
-    # Returns
-    - `A::Array{precc,2}`               : 4x4 A matrix at radius r, which is used in the ODE for the fluid-body problem.
-    """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, K::precc, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4])::Array{precc,2}
-        M = length(Y)
-        A = zeros(precc, M, M) 
-        get_A!(A, ω, r, ρ, g, K, n; G0=G0, Y=Y)
-        return A
-    end
-
-
-    """
         get_A(ω, r, ρ, g, μ, K, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6])
 
     Compute the 6x6 `A` matrix in the ODE for the solid-body problem.
@@ -1003,51 +975,6 @@ module common
 
         A[Y[2],Y[1]] = 2*(n-1)*r_inv * 4π*G_norm*ρ/g
         A[Y[2],Y[2]] = (n-1)*r_inv - 4π*G_norm*ρ/g
-    end
-
-
-    """
-        get_A!(A, ω, r, ρ, g, K, n; G0=1, Y=[1,2,3,4])
-
-    Compute the 4x4 `A` matrix in the ODE for the fluid-body problem. These correspond to 
-    the coefficients given in Korenaga, (2025) Eq. 12.
-
-    # Arguments
-    - `A::Array{precc,2}`                : 4x4 A matrix at radius r, which is used in the ODE for the fluid-body problem.
-    - `ω::prec`                          : Forcing frequency of the tidal forcing.
-    - `r::prec`                          : Radius at which to compute the A matrix.
-    - `ρ::prec`                          : Density at radius r.
-    - `g::prec`                          : Gravity at radius r.
-    - `K::precc`                         : Bulk modulus at radius r.
-    - `n::Int`                           : Tidal degree.
-
-    # Keyword Arguments
-    - `G0::prec=1`                       : Gravitational constant scale for non-dimensionalization.
-    - `Y::Vector{Int}=[1,2,3,4]`         : Ordering of the solution vector components. This allows for different conventions in the literature.
-    """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, K::precc, n::Int; G0::prec=prec(1.0), Y::Vector{Int}=[1,2,3,4])
-       
-        G_norm = G / G0
-
-        r_inv = 1.0/r
-
-        A[Y[1],Y[1]] = -2/r + n*(n+1)*g / (r^2 * ω^2)
-        A[Y[2],Y[1]] = -4*ρ*g*r_inv - ρ*ω^2 + n*(n+1)*g^2 / (r^2 * ω^2)
-        A[Y[3],Y[1]] = 4π * G_norm * ρ
-        A[Y[4],Y[1]] = 4π * G_norm * ρ * (n+1) * (r_inv - n*g / (r^2 * ω^2))
-
-        A[Y[1],Y[2]] = 1/K - n*(n+1) / (r^2 * ρ * ω^2)
-        A[Y[2],Y[2]] = - n*(n+1)*g / (r^2 * ω^2)
-        A[Y[4],Y[2]] = 4π * G_norm * n*(n+1) / (r^2 * ω^2)
-
-        A[Y[1],Y[3]] = -n*(n+1) / (r^2 * ω^2)
-        A[Y[2],Y[3]] = ρ*(n+1)*r_inv - n*(n+1)*ρ*g / (r^2 * ω^2)
-        A[Y[3],Y[3]] = -(n+1)*r_inv
-        A[Y[4],Y[3]] = 4π * G_norm * ρ * n*(n+1) / (r^2 * ω^2)
-
-        A[Y[2],Y[4]] = -ρ
-        A[Y[3],Y[4]] = 1.0
-        A[Y[4],Y[4]] = (n-1)*r_inv
     end
 
 

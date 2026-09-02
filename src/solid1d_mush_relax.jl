@@ -71,6 +71,11 @@ module solid1d_mush_relax
 
         # insert solid shell around core
         if patch
+            μ  = copy(μ)   # break aliasing with caller's array before mutating
+            K  = copy(K)
+            Kd = copy(Kd)
+            k  = copy(k)
+            ϕ  = copy(ϕ)
             μ[1] = precc(1.47e11)   # these values are chosen to be representative of a solid shell
             K[1] = precc(6.58e10)
             Kd[1] = precc(1.47e11)
