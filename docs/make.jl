@@ -32,6 +32,8 @@ format = Documenter.HTML(
         "assets/style.css",
         "assets/glyph_tidal.ico",
         "assets/theme-toggle.js",
+        "assets/os-tabs.css",
+        "assets/os-tabs.js",
     ]
 )
 

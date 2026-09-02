@@ -11,10 +11,10 @@ This section describes how to use Obliqua. The module can be run three ways:
 
 Naturally, one can also use the full spectrum mode in conjunction with PROTEUS in post-processing. This can forexample be used to validate the adaptive mode or to study the impact of different forcing frequencies on the tidal response. Moreover, it may be used to test model convergence. Below, we provide here an example run of the full spectrum mode in conjunction with PROTEUS computed in post-processing.
 
-In all cases you configure the model through a configuration file, described in the [configuration guide](config_file.md). If you run into problems, see the [troubleshooting](troubleshooting.md) page.
+In all cases you configure the model through a configuration file, described in the [configuration guide](@ref "Configuration file"). If you run into problems, see the [troubleshooting](@ref "Troubleshooting") page.
 
 !!! info
-    For a quick start, jump to the [tutorials](https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html) section!
+    For a quick start, jump to the [tutorials](@ref "Zero-dimensional test case: The Moon") section!
 
 ### Example output
 
