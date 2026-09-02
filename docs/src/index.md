@@ -38,38 +38,61 @@ The documentation for Obliqua is hosted on the PROTEUS website. The documentatio
 ### Get started
 
 ```@raw html
-    <table width="100%" style="border-collapse: separate; border-spacing: 10px;">
-    <tr>
-        <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
-        <h5 style="margin-top: 0; text-align: left;">📥 Install Obliqua</h5>
-        <p style="text-align: left;">Set up the package and its dependencies within the Julia environment.</p>
-        <div style="margin-top: 16px; text-align: left;">
-            <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/install.html"><b>Installation guide →</b></a>
-        </div>
-        </td>
-        <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
-        <h5 style="margin-top: 0; text-align: left;">🎓 New to Obliqua?</h5>
-        <p style="text-align: left;">Start with the quick-start guide to calculate basic tidal Love numbers.</p>
-        <div style="margin-top: 16px; text-align: left;">
-            <a href="https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html"><b>Quick start tutorial →</b></a>
-        </div>
-        </td>
-        <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
-        <h5 style="margin-top: 0; text-align: left;">🌍 Ready for science?</h5>
-        <p style="text-align: left;">Run full planet-mantle dissipation models integrated with PROTEUS.</p>
-        <div style="margin-top: 16px; text-align: left;">
-            <a href="https://proteus-framework.org/Obliqua/dev/tutorials/1d_test.html"><b>Science examples →</b></a>
-        </div>
-        </td>
-    </tr>
-    </table>
+<table width="100%" style="border-collapse: separate; border-spacing: 10px;">
+<tr>
+    <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
+    <h5 style="margin-top: 0; text-align: left;">📥 Install Obliqua</h5>
+    <p style="text-align: left;">Set up the package and its dependencies within the Julia environment.</p>
+    <div style="margin-top: 16px; text-align: left;">
+
 ```
+
+**[Installation guide →](@ref "Quick installation")**
+
+```@raw html
+    </div>
+    </td>
+    <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
+    <h5 style="margin-top: 0; text-align: left;">🎓 New to Obliqua?</h5>
+    <p style="text-align: left;">Start with the quick-start guide to calculate basic tidal Love numbers.</p>
+    <div style="margin-top: 16px; text-align: left;">
+
+```
+
+**[Quick start tutorial →](@ref "Zero-dimensional test case: The Moon")**
+
+```@raw html
+    </div>
+    </td>
+    <td width="33%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
+    <h5 style="margin-top: 0; text-align: left;">🌍 Ready for science?</h5>
+    <p style="text-align: left;">Run full planet-mantle dissipation models integrated with PROTEUS.</p>
+    <div style="margin-top: 16px; text-align: left;">
+
+```
+
+**[Science examples →](@ref "One-dimensional test case: The Earth")**
+
+```@raw html
+    </div>
+    </td>
+</tr>
+</table>
+
+```
+
 
 ---
 
 ### Repository structure
 
 The repository structure is laid out below. The main components of the repository are the source code, documentation, tests, and examples. The source code is located in the `src/` directory, while the documentation is located in the `docs/` directory. The tests are located in the `test/` directory, and the examples are located in the `examples/` directory.
+
+```@raw html
+<details>
+<summary><b>📁 Click to view repository structure</b></summary>
+
+```
 
 ```bash
 Obliqua/
@@ -122,6 +145,12 @@ Obliqua/
 ├── 📝 LICENSE.txt
 ├── 📝 CODE_OF_CONDUCT.md
 └── 📝 Project.toml
+
+```
+
+```@raw html
+</details>
+
 ```
 
 ---
@@ -162,4 +191,4 @@ This software is available under the MIT license. Different components within th
 
 This project is being developed in close collaboration with the [PROTEUS](https://github.com/FormingWorlds/PROTEUS) similation framework. Obliqua can be used seamlessly within PROTEUS to model tidal dissipation and Love number evolution in planetary interiors.
 
-For detailed instructions on installing and using Obliqua in combination with PROTEUS, refer to the [installation guide](https://proteus-framework.org/Obliqua/dev/how-to-guides/install.html) in the Obliqua documentation.
+For detailed instructions on installing and using Obliqua in combination with PROTEUS, refer to the [installation guide](@ref "Quick installation") in the Obliqua documentation.

@@ -4,11 +4,11 @@ CollapsedDocStrings = true
 
 ### Reference (0)
 
-# Configuration file
+# Configuration
 
 The configuration files follow the conventions used within PROTEUS. The default `all_options.toml` file contains all available parameters.
 
-### Global Parameters
+### Globals
 These define metadata and output behavior:
 * **`title`**: Identifier for the simulation setup.
 * **`version`**: Configuration file version for reproducibility.

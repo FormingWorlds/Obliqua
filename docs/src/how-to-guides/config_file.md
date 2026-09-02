@@ -5,7 +5,7 @@ Obliqua uses [TOML](https://toml.io/en/) to structure its configuration files. T
 
 
 
-For worked examples, see the [tutorials](https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html).
+For worked examples, see the [tutorials](@ref "Zero-dimensional test case: The Moon").
 
 ---
 

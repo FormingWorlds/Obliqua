@@ -7,22 +7,12 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
 
 ### Quick path
 
-```@raw html
-<ol>
-  <li>
-    Install Obliqua: set up the code and required dependencies.<br>
-    ➔ <a href="[https://proteus-framework.org/Obliqua/dev/how-to-guides/install.html](https://proteus-framework.org/Obliqua/dev/how-to-guides/install.html)">Installation guide</a>
-  </li>
-  <li>
-    Run a simple example: calculate tidal Love numbers for a simple planet-mantle model.<br>
-    ➔ <a href="[https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html](https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html)">Quick start tutorial</a>
-  </li>
-  <li>
-    Run a more complex example: simulate a multi-phase radially resolved tidal dissipation model.<br>
-    ➔ <a href="[https://proteus-framework.org/Obliqua/dev/tutorials/1d_test.html](https://proteus-framework.org/Obliqua/dev/tutorials/1d_test.html)">Science examples</a>
-  </li>
-</ol>
-```
+1. Install Obliqua: set up the code and required dependencies.  
+   ➔ [Installation guide](@ref "Quick installation")
+2. Run a simple example: calculate tidal Love numbers for a simple planet-mantle model.  
+   ➔ [Quick start tutorial](@ref "Zero-dimensional test case: The Moon")
+3. Run a more complex example: simulate a multi-phase radially resolved tidal dissipation model.  
+   ➔ [Science examples](@ref "One-dimensional test case: The Earth")
 
 ---
 
@@ -34,13 +24,23 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">📥 Install</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/install.html"><b>Go to installation guide</b></a>
+
+```
+
+**[Go to installation guide](@ref "Quick installation")**
+
+```@raw html
       </div>
     </td>
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">🎛️ Configure</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/config_file.html"><b>Go to configuration</b></a>
+
+```
+
+**[Go to configuration](@ref "Configuration file")**
+
+```@raw html
       </div>
     </td>
   </tr>
@@ -48,13 +48,23 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">🎓 Learn by example</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/tutorials/0d_test.html"><b>Go to tutorials</b></a>
+
+```
+
+**[Go to tutorials](@ref "Zero-dimensional test case: The Moon")**
+
+```@raw html
       </div>
     </td>
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">🚀 Run Obliqua</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/usage.html"><b>Go to usage</b></a>
+
+```
+
+**[Go to usage](@ref "Usage")**
+
+```@raw html
       </div>
     </td>
   </tr>
@@ -62,13 +72,23 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">🛈 Troubleshoot</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/troubleshooting.html"><b>Go to troubleshooting</b></a>
+
+```
+
+**[Go to troubleshooting](@ref "Troubleshooting")**
+
+```@raw html
       </div>
     </td>
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">📖 Understand the model</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/reference/index.html"><b>Go to model description</b></a>
+
+```
+
+**[Go to model description](@ref "Reference")**
+
+```@raw html
       </div>
     </td>
   </tr>
@@ -76,13 +96,23 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">⚙️ Configuration reference</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/config_file.html"><b>Go to config parameters</b></a>
+
+```
+
+**[Go to config parameters](@ref "Global Parameters")**
+
+```@raw html
       </div>
     </td>
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">📈 Understand the output</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/how-to-guides/running_output.html"><b>Go to output format</b></a>
+
+```
+
+**[Go to output format](@ref "Output and results")**
+
+```@raw html
       </div>
     </td>
   </tr>
@@ -90,7 +120,12 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
       <h5 style="margin-top: 0; text-align: left;">🛠️ Contribute or develop</h5>
       <div style="margin-top: 16px; text-align: left;">
-        <a href="https://proteus-framework.org/Obliqua/dev/development.html"><b>Go to contributing guide</b></a>
+
+```
+
+**[Go to contributing guide](@ref "Contributing")**
+
+```@raw html
       </div>
     </td>
     <td width="50%" valign="top" style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: left;">
@@ -100,5 +135,5 @@ The Obliqua documentation follows the [Diataxis](https://diataxis.fr/) framework
       </div>
     </td>
   </tr>
-</table>
+</table> 
 ```
