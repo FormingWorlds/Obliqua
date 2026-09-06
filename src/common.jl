@@ -676,19 +676,56 @@ module common
 
 
     """
-        get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::prec, type::String, n::Int; G0::prec=1, Y::Vector{Int}=[1,2,3,4,5,6])
-            
-    Get the core solution vector. This function computes the initial solution vectors at the core-mantle boundary 
-    to serve as starting conditions for numerical integration through a planetary interior. It supports three 
-    distinct physical regimes: a solid (incompressible elastic) core, a liquid (quasi-static inviscid) core, and 
-    an inertial (dynamic compressible fluid) core. 
-    
-    Use Solid for a rigid inner core, Liquid for a quick/stable calculation of a fluid outer core at low tidal 
-    frequencies, and Inertial if you are looking for dynamic resonances or high-frequency tidal interactions where 
-    the sound speed and fluid inertia matter.
+        get_Ic(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, type::String, n::Int; G0::prec=1, Y::Vector{Int}=[1,2,3,4,5,6])
+
+    Core solution basis at the core-mantle boundary: the linearly independent
+    starting vectors for radially integrating the tidal/Love-number ODEs
+    through the overlying mantle.
+
+    # Core types
+
+    - `"solid"`: Static, incompressible, elastic solid core (Love 1911). Valid
+      in the incompressible limit (K -> infinity); K does not enter the
+      formula. All three columns are genuine elementary solutions, regular at
+      r = 0.
+    - `"liquid"`: Static (ω = 0) fluid core. A hydrostatic fluid responds to
+      loading instantaneously, so this is not a continuous solution of the
+      interior ODE but a boundary condition embedding the liquid-solid
+      interface: two columns carry the physical degrees of freedom, and one
+      column is a pure tangential-slip vector (Y[2] = 1, elsewhere 0),
+      representing the discontinuity in horizontal displacement that a fluid
+      core permits.
+    - `"inertial"`: General, oscillating (ω != 0), compressible, finite-μ/K
+      solid core (Takeuchi & Saito 1972; Kervazo et al. 2021). All three
+      columns are genuine elementary solutions, regular at r = 0: one regular
+      power-law solution, and two independent solutions built from spherical
+      Bessel functions (the two roots of the dispersion relation for the
+      radial wavenumber). A solid core has no fluid-solid interface, so —
+      unlike `"liquid"` and `"inertial-liquid"` — none of its columns is a
+      slip vector.
+    - `"inertial-liquid"`: General, oscillating (ω != 0) fluid (μ = 0) core
+      (Takeuchi & Saito 1972; Kervazo et al. 2021; Korenaga 2025). Two columns
+      are genuine elementary solutions (one regular, one Bessel-based); the 
+      third is the tangential-slip vector, as in `"liquid"`.
+
+    # How the core types relate
+
+    - `"solid"` (μ -> 0) reduces to `"liquid"` (ω = 0): incompressible, static
+      elasticity without shear rigidity is a hydrostatic fluid.
+    - `"inertial-liquid"` reduces to `"liquid"` as ω -> 0: a slowly
+      oscillating fluid approaches hydrostatic equilibrium.
+    - `"inertial"` reduces to `"inertial-liquid"` as μ -> 0: an oscillating
+      solid without shear rigidity is an oscillating fluid.
+    - `"inertial"` reduces to `"solid"` as ω -> 0 and K -> infinity: the
+      static, incompressible limit of the general oscillating solid recovers
+      the classical elastic solution.
+
+    Use `"solid"`/`"liquid"` for the static limit, and
+    `"inertial"`/`"inertial-liquid"` when frequency-dependent (dynamic)
+    effects matter.
 
     https://academic.oup.com/gji/article/203/3/2150/2594863
-    
+
     Note: Ordering in Y corresponds to the mapping of the ith element, hence the y-functions order
     
         Y = [1,2,5,3,4,6]
@@ -712,7 +749,7 @@ module common
     - `g::prec`                          : Gravity at the core boundary.
     - `μ::precc`                         : Shear modulus of the core.
     - `K::precc`                         : Bulk modulus of the core.
-    - `type::String`                     : Type of core, either "liquid", "inertial", or "solid".
+    - `type::String`                     : Type of core, either "liquid", "inertial", "inertial-liquid", or "solid".
     - `n::Int`                           : Tidal degree.
 
     # Keyword Arguments
@@ -738,69 +775,105 @@ module common
             Ic[Y[6],1] = -2(n-1)*r^(n-1)
             Ic[Y[6],3] = -4π * G_norm * ρ
         elseif type == "inertial"
+            # General finite-mu, finite-K, inertial (omega != 0) solid core solution,
+            # after Kervazo et al. (2021, A&A) Appendix B, Eqs. B.22-B.34, with the
+            # index convention Y[2]<->Y[3] swapped relative to Kervazo's own y2(radial
+            # stress)/y3(tangential displacement V) labels (confirmed against get_A!).
+            #
             # 1. Define physical parameters
             γ = 4π * G_norm * ρ / 3
-            α = sqrt(K / ρ)
-            f = -ω^2 / γ
-            h = f - (n + 1)
-            
-            # 2. Calculate wavenumber k and dimensionless x
-            k2 = (ω^2 + 4γ - n*(n+1)*γ^2 / ω^2) / α^2
+            λ = K - (2/3)*μ
+            α = sqrt(μ / ρ)                 # shear wave speed (Kervazo B.29)
+            β = sqrt((K + (4/3)*μ) / ρ)     # compressional wave speed (Kervazo B.29)
+
+            # 2. Calculate wavenumber k and dimensionless x.
+            # Kervazo's B.29 assigns alpha to the shear speed and beta to the
+            # compressional speed. Their own B.30/B.32 dispersion relation for k^2
+            # and f, however, was carried over unchanged from Takeuchi & Saito
+            # (1972) Eq. 99, whose own caption assigns alpha to the COMPRESSIONAL
+            # speed and beta to shear -- the opposite of B.29. Re-deriving k^2, f
+            # from the momentum equation (get_A! rows 3/4) directly, independent of
+            # either paper's labelling, confirms the T&S/Kervazo B.29 labelling is
+            # the one that must appear in B.30/B.32: alpha and beta are transposed
+            # relative to what Kervazo prints. This is a typo in Kervazo's paper.
+            # Verified numerically: with alpha, beta swapped here 
+            # (and in Y[5]/Y[6] below), the finite-difference residual on the 
+            # radial/tangential stress rows drops from O(1)-O(1e3) to the 
+            # floating-point/finite-difference noise floor (~1e-6 to 1e-11).
+            disc2 = (ω^2/α^2 - (ω^2+4γ)/β^2)^2 + 4*n*(n+1)*γ^2/(α^2*β^2)
+            disc = sqrt(Complex{BigFloat}(disc2))
+            k2 = 0.5*((ω^2+4γ)/β^2 + ω^2/α^2 + disc)      # "+" root -> column 2
             k = sqrt(Complex{BigFloat}(k2))
             x = k * r
-            
-            # 3. First Elementary Solution (Takeuchi & Saito, 1972)
+
+            f = α^2/γ * (k2 - ω^2/α^2)      # Kervazo B.32, alpha/beta corrected (see above)
+            h = f - (n + 1)                 # Kervazo B.32
+
+            k2m = 0.5*((ω^2+4γ)/β^2 + ω^2/α^2 - disc)      # "-" root -> column 3
+            km = sqrt(Complex{BigFloat}(k2m))
+            xm = km * r
+            fm = α^2/γ * (k2m - ω^2/α^2)
+            hm = fm - (n + 1)
+
+            # 3. Third Elementary Solution (Takeuchi & Saito 1972, Eq. 100 -- the
+            # k^2->0 degenerate/regular solution). 
             Ic[Y[1],1] = n * r^(n-1)
             Ic[Y[2],1] = r^(n-1)
-            Ic[Y[3],1] = 0.0
-            Ic[Y[4],1] = 0.0
-            Ic[Y[5],1] = -(n*γ - ω^2) * r^n
-            Ic[Y[6],1] = -(2*(n-1)*n*γ - (2*n + 1)*ω^2) * r^(n-1)
+            Ic[Y[3],1] = 2μ * n * (n-1) * r^(n-2)
+            Ic[Y[4],1] = 2μ * (n-1) * r^(n-2)
+            Ic[Y[5],1] = (n*γ - ω^2) * r^n
+            Ic[Y[6],1] = (2*(n-1)*n*γ - (2*n + 1)*ω^2) * r^(n-1)
 
-            # 4. Second Elementary Solution (Stability Switching)
-            # Condition: 4ω^2 << n(n+1)γ
-            is_low_freq = (4 * ω^2) < 0.00001 * (n * (n+1) * γ)
+            # 4. Second Elementary Solution (Kervazo B.23-B.28, general finite-mu,K)
+            # Scaled Analytical Solution: divided by j_n(x) to prevent numerical
+            # overflow. sbesselj wraps SpecialFunctions.besselj, which is numerically
+            # stable across the physically relevant range of x, so no separate
+            # small-x/low-frequency branch is required.
+            @info("Using full inertial solution for core boundary conditions.")
+            jn = sbesselj(n, x)
+            jnp1 = sbesselj(n+1, x)
 
-            if is_low_freq
-                @info("Using low-frequency approximation for inertial core boundary conditions.")
-                # Use the Simplified Algebraic Form
-                zn = x^2 / (2n + 3) 
-                
-                Ic[Y[1],2] = -r^(n+1) * (f * zn - n * h)
-                Ic[Y[2],2] = r^(n+1) * (zn + h)
-                Ic[Y[3],2] = -K * f * r^n * x^2  
-                Ic[Y[4],2] = 0.0
-                Ic[Y[5],2] = -3γ * f * r^(n+2)
-                Ic[Y[6],2] = -3γ * ((2n+1)*f - n*h) * r^(n+1)
-            else
-                @info("Using full inertial solution for core boundary conditions.")
-                # Use the Scaled Analytical Solution
-                # Divided by j_n(x) to prevent numerical overflow
-                jn = sbesselj(n, x)
-                jnp1 = sbesselj(n+1, x)
-                
-                zn = x * jnp1 / jn
-                ϕl_scaled = doublefactorial(2n+1) / x^n 
-                ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
-                ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
-                
-                pref = -r^(n+1) / (2n + 3)
+            ϕl_scaled = doublefactorial(2n+1) / x^n
+            ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
+            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
 
-                Ic[Y[1],2] = pref * (0.5 * n * h * ψl_scaled + f * ϕlp1_scaled)
-                Ic[Y[2],2] = pref * (0.5 * h * ψl_scaled - ϕlp1_scaled)
-                Ic[Y[3],2] = -K * r^n * f * ϕl_scaled
-                Ic[Y[4],2] = 0.0
-                Ic[Y[5],2] = -r^(n+2) * ((α^2 * f / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
-                Ic[Y[6],2] = -r^(n+1) * (((2n+1)*α^2*f / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
-            end
+            pref = -r^(n+1) / (2n + 3)
 
-            # 5. Boundary Condition Column
-            Ic[:,3] .= 0.0
-            Ic[Y[2],3] = 1.0 # tangential slip at CMB
-            
+            Ic[Y[1],2] = pref * (0.5 * n * h * ψl_scaled + f * ϕlp1_scaled)
+            Ic[Y[2],2] = pref * (0.5 * h * ψl_scaled - ϕlp1_scaled)
+            Ic[Y[3],2] = (-(λ + 2μ) * r^n * f * ϕl_scaled
+                          + μ * r^n / (2n+3) * (-n*(n-1)*h*ψl_scaled + 2*(2*f + n*(n+1))*ϕlp1_scaled))
+            Ic[Y[4],2] = μ * r^n * (ϕl_scaled - 1/(2n+3) * ((n-1)*h*ψl_scaled + 2*(f+1)*ϕlp1_scaled))
+            # Takeuchi & Saito (1972) Eq. 102's y5 has a bare (non-Bessel) term
+            # -(n+1)*(shear speed)^2/r^2 in addition to (compressional speed)^2*f/r^2
+            Ic[Y[5],2] = r^(n+2) * (((β^2*f - (n+1)*α^2) / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[6],2] = r^(n+1) * ((((2n+1)*(β^2*f - (n+1)*α^2)) / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
+
+            # 5. Third Elementary Solution (Kervazo B.23-B.28, "-" root of B.30).
+            # A genuinely solid (elastic, finite mu) core has no fluid-solid
+            # interface, so there is no physical tangential-slip surface to
+            # embed here (unlike "liquid"/"inertial-liquid", whose third column
+            # IS that slip vector) -- the correct third basis vector is instead
+            # this second, independent Bessel elementary solution. 
+            jnm = sbesselj(n, xm)
+            jnp1m = sbesselj(n+1, xm)
+
+            ϕl_scaled_m = doublefactorial(2n+1) / xm^n
+            ψl_scaled_m = 2*(2n+3)/xm^2 * (1/jnm - ϕl_scaled_m)
+            ϕlp1_scaled_m = (doublefactorial(2n+3) / xm^(n+1)) * (jnp1m / jnm)
+
+            pref_m = -r^(n+1) / (2n + 3)
+
+            Ic[Y[1],3] = pref_m * (0.5 * n * hm * ψl_scaled_m + fm * ϕlp1_scaled_m)
+            Ic[Y[2],3] = pref_m * (0.5 * hm * ψl_scaled_m - ϕlp1_scaled_m)
+            Ic[Y[3],3] = (-(λ + 2μ) * r^n * fm * ϕl_scaled_m
+                          + μ * r^n / (2n+3) * (-n*(n-1)*hm*ψl_scaled_m + 2*(2*fm + n*(n+1))*ϕlp1_scaled_m))
+            Ic[Y[4],3] = μ * r^n * (ϕl_scaled_m - 1/(2n+3) * ((n-1)*hm*ψl_scaled_m + 2*(fm+1)*ϕlp1_scaled_m))
+            Ic[Y[5],3] = r^(n+2) * (((β^2*fm - (n+1)*α^2) / r^2) * (1/jnm) - (3γ*fm / (2*(2n+3))) * ψl_scaled_m)
+            Ic[Y[6],3] = r^(n+1) * ((((2n+1)*(β^2*fm - (n+1)*α^2)) / r^2) * (1/jnm) - (3γ*((2n+1)*fm - n*hm) / (2*(2n+3))) * ψl_scaled_m)
+
             # 6. Column-wise Normalization (Brings vectors to unit length)
-            # Uses LinearAlgebra's norm. To bound the maximum element to exactly 1 instead, 
-            # change `norm(view(Ic, :, col))` to `maximum(abs, view(Ic, :, col))`
+            # Uses LinearAlgebra's norm. 
             for col in 1:3
                 col_norm = norm(view(Ic, :, col))
                 if col_norm > 0.0
@@ -811,6 +884,73 @@ module common
             # print rank for debugging
             @debug("Rank of Ic for inertial core: ", rank(Ic))
             @debug("Condition number of Ic for inertial core: ", cond(Ic))
+
+        elseif type == "inertial-liquid"
+            # Fluid-core (mu=0) inertial (omega != 0) solid core solution, after
+            # Korenaga (2025, Icarus) Appendix B, Eqs. B.4-B.12 (the oscillating
+            # homogeneous fluid sphere solution of Love 1911 / Takeuchi & Saito
+            # 1972, in Sabadini et al. 2016 notation). A sign flip on Y[5]/Y[6] 
+            # (Phi/Psi) is required, since Korenaga's sign convention for those 
+            # two components is the opposite of Obliqua's (confirmed numerically 
+            # against get_A!).
+            #
+            # 1. Define physical parameters (K only: mu=0 identically in this branch)
+            γ = 4π * G_norm * ρ / 3
+            α = sqrt(K / ρ)                 # Korenaga's alpha: fluid compressional speed
+            f = -ω^2 / γ                    # Korenaga B.8
+            h = f - (n + 1)                 # Korenaga B.9
+
+            # 2. Calculate wavenumber k and dimensionless x (Korenaga B.7)
+            k2 = (ω^2 + 4γ - n*(n+1)*γ^2 / ω^2) / α^2
+            k = sqrt(Complex{BigFloat}(k2))
+            x = k * r
+
+            # 3. Third Elementary Solution (Takeuchi & Saito 1972, Eq. 100 -- the
+            # k^2->0 degenerate/regular solution). Y[3],Y[4] vanish here because
+            # mu=0 identically in this branch (Korenaga B.4 is the mu=0 special
+            # case of the same formula; verified exactly against get_A!).
+            Ic[Y[1],1] = n * r^(n-1)
+            Ic[Y[2],1] = r^(n-1)
+            Ic[Y[3],1] = 2μ * n * (n-1) * r^(n-2)
+            Ic[Y[4],1] = 2μ * (n-1) * r^(n-2)
+            Ic[Y[5],1] = (n*γ - ω^2) * r^n
+            Ic[Y[6],1] = (2*(n-1)*n*γ - (2*n + 1)*ω^2) * r^(n-1)
+
+            # 4. Second Elementary Solution (Korenaga B.5, fluid mu=0)
+            # Scaled Analytical Solution: divided by j_n(x) to prevent numerical
+            # overflow (sbesselj wraps SpecialFunctions.besselj, numerically stable
+            # across the physically relevant range of x).
+            @info("Using full inertial-liquid solution for core boundary conditions.")
+            jn = sbesselj(n, x)
+            jnp1 = sbesselj(n+1, x)
+
+            ϕl_scaled = doublefactorial(2n+1) / x^n
+            ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
+            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
+
+            pref = -r^(n+1) / (2n + 3)
+
+            Ic[Y[1],2] = pref * (0.5 * n * h * ψl_scaled + f * ϕlp1_scaled)
+            Ic[Y[2],2] = pref * (0.5 * h * ψl_scaled - ϕlp1_scaled)
+            Ic[Y[3],2] = -K * r^n * f * ϕl_scaled
+            Ic[Y[4],2] = 0.0
+            Ic[Y[5],2] = r^(n+2) * ((α^2 * f / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[6],2] = r^(n+1) * (((2n+1)*α^2*f / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
+
+            # 5. Boundary Condition Column
+            Ic[:,3] .= 0.0
+            Ic[Y[2],3] = 1.0 # tangential slip at CMB
+
+            # 6. Column-wise Normalization (Brings vectors to unit length)
+            for col in 1:3
+                col_norm = norm(view(Ic, :, col))
+                if col_norm > 0.0
+                    Ic[:, col] ./= col_norm
+                end
+            end
+
+            @debug("Rank of Ic for inertial-liquid core: ", rank(Ic))
+            @debug("Condition number of Ic for inertial-liquid core: ", cond(Ic))
 
         elseif type == "solid"
             # First column
@@ -832,7 +972,7 @@ module common
             Ic[Y[5], 3] = r^n
             Ic[Y[6], 3] = ( 2n + 1) * r^( n-1 )
         else
-            error("Invalid core type: $type. Must be 'liquid', 'inertial', or 'solid'.")
+            error("Invalid core type: $type. Must be 'liquid', 'inertial', 'inertial-liquid', or 'solid'.")
         end
 
         # Non-zero pore pressure and zero radial Darcy flux
@@ -1015,18 +1155,18 @@ module common
         A[Y[1],Y[1]] = -2λ * r_inv*β_inv
         A[Y[2],Y[1]] = -r_inv
         A[Y[3],Y[1]] = 4r_inv * (3K*μ*r_inv*β_inv - ρ*g)
-        A[Y[4],Y[1]] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g )
+        A[Y[4],Y[1]] = -r_inv * (6K*μ*r_inv*β_inv - ρ*g)
         A[Y[5],Y[1]] = 4π * G_norm * ρ
         A[Y[6],Y[1]] = 4π*(n+1)*G_norm*ρ*r_inv
 
         A[Y[1],Y[2]] = n*(n+1) * λ * r_inv*β_inv
         A[Y[2],Y[2]] = r_inv
-        A[Y[3],Y[2]] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g ) 
-        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0 )
+        A[Y[3],Y[2]] = -n*(n+1)*r_inv * (6K*μ*r_inv*β_inv - ρ*g) 
+        A[Y[4],Y[2]] = 2μ*r_inv^2 * (n*(n+1)*(1 + λ*β_inv) - 1.0)
         A[Y[6],Y[2]] = -4π*n*(n+1)*G_norm*ρ*r_inv
 
         A[Y[1],Y[3]] = β_inv
-        A[Y[3],Y[3]] = r_inv*β_inv * (-4μ )
+        A[Y[3],Y[3]] = r_inv*β_inv * (-4μ)
         A[Y[4],Y[3]] = -λ * r_inv*β_inv
         
         A[Y[2],Y[4]] = 1.0 / μ

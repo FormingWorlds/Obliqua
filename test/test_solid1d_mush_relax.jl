@@ -133,6 +133,51 @@ using Obliqua.constants
         @test B * Ic ≈ zeros(ComplexF64, 4, size(Ic, 2)) atol=1e-12
     end
 
+    @testset "Boundary Conditions: get_core_bc! (inertial)" begin
+        # Mirrors the liquid/solid checks above: dimensions, linear independence of
+        # the constraint rows, and left-nullspace orthogonality B * Ic ~ 0. The
+        # inertial core has two structurally different elementary-solution formulas
+        # (a low-frequency algebraic approximation and a full Bessel-function-based
+        # solution, selected by get_Ic's internal is_low_freq switch), so both code
+        # paths are exercised independently below rather than relying on a single
+        # omega value to happen to hit one of them.
+        # NOTE: this file's @testset blocks do not fully isolate variables from the
+        # enclosing scope (assignment to a name already bound in an enclosing scope
+        # rebinds it there), so every local here uses an "_iner" suffix to avoid
+        # colliding with the outer testset's r/rho/n/omega/etc. fixture variables.
+        r_iner, ρ_iner, g_iner, μ_iner, K_iner, n_iner = 1.0, 1.0, 1.0, complex(1.0), complex(4.0), 2
+
+        @testset "high-frequency / full Bessel branch" begin
+            ω_iner = 1.0  # >> the is_low_freq switch for these parameters; exercises the "else" branch
+
+            Ic = solid1d_mush_relax.common.get_Ic(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0)
+            B  = solid1d_mush_relax.get_core_bc!(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0)
+
+            @test size(B) == (3, 6)
+            @test rank(B) == 3
+            @test B * Ic ≈ zeros(ComplexF64, 3, size(Ic, 2)) atol=1e-10
+
+            # mush (8x8) variant
+            Ic8 = solid1d_mush_relax.common.get_Ic(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0, Y=[1,2,3,4,5,6,7,8])
+            B8  = solid1d_mush_relax.get_core_bc!(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0, Y=[1,2,3,4,5,6,7,8])
+
+            @test size(B8) == (4, 8)
+            @test rank(B8) == 4
+            @test B8 * Ic8 ≈ zeros(ComplexF64, 4, size(Ic8, 2)) atol=1e-10
+        end
+
+        @testset "low-frequency algebraic branch" begin
+            ω_iner = 1e-10  # << the is_low_freq switch for these parameters; exercises the "if" branch
+
+            Ic = solid1d_mush_relax.common.get_Ic(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0)
+            B  = solid1d_mush_relax.get_core_bc!(ω_iner, r_iner, ρ_iner, g_iner, μ_iner, K_iner, "inertial", n_iner; G0=1.0)
+
+            @test size(B) == (3, 6)
+            @test rank(B) == 3
+            @test B * Ic ≈ zeros(ComplexF64, 3, size(Ic, 2)) atol=1e-10
+        end
+    end
+
     @testset "3. Layer Propagation Routines" begin
         Nr = 5
         rs = collect(range(0.5, 1.0, length=Nr))

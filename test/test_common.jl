@@ -242,7 +242,137 @@ end
         end
     end
 
-    
+    # -------------------------------------------------------------------------
+    # "liquid", "inertial", and "inertial-liquid" core bases are column-wise
+    # unit-normalized inside get_Ic (unlike "solid"), so directly finite-
+    # differencing get_Ic's output does not satisfy dY/dr = A*Y exactly: an
+    # r-dependent normalization factor c(r) = 1/norm(Y_true(r)) contributes an
+    # extra d/dr[c(r)]*Y_true(r) term, which is always parallel to Y itself
+    # (a pure rescaling, not a direction change). The normalization-invariant
+    # test is therefore to project the FD residual onto the direction
+    # perpendicular to the column itself: nothing should remain there. A
+    # genuine convention/sign/formula error shows up as an O(1) perpendicular
+    # residual, not numerical noise -- the same discriminating power as the
+    # direct test above, just robust to the internal normalization.
+    #
+    # "liquid" and "inertial-liquid" each also carry one tangential-slip
+    # column at the CMB (a boundary-condition embedding, not a physical
+    # elementary solution -- see get_Ic's docstring), which is excluded below.
+    # "inertial" (a genuinely solid, elastic core) has no fluid-solid
+    # interface to admit such a slip, so all three of its columns are
+    # physical elementary solutions and are tested.
+    #
+    # `rows` restricts the comparison to a subset of the 6 equations, for two
+    # reasons:
+    #   1. At mu=0, A[Y[2],Y[4]] = 1/mu is a genuine Inf. Even though Y[4]=0
+    #      identically (no shear stress in a fluid), floating-point Inf*0 =
+    #      NaN still contaminates that row: row Y[2]'s own equation (dV/dr)
+    #      is genuinely singular at mu=0, so it is excluded for
+    #      "inertial-liquid" below.
+    #   2. The projection direction Yhat must be built from the same subset
+    #      of rows being tested, not the full 6-vector: get_Ic's column
+    #      normalization divides by the norm of the full column, which can be
+    #      dominated by one or two large-magnitude rows (the stress rows,
+    #      which carry factors of the bulk/shear modulus). Using the
+    #      full-vector norm for Yhat would let an error confined to those
+    #      rows leak into the direction used to test every other row.
+    # =========================================================================
+    function projected_ode_residual(A, Y, Y_plus, Y_minus, dr; rows=1:6)
+        dY_fd = (Y_plus - Y_minus) / (2 * dr)
+        AY = A * Y
+        residual = dY_fd - AY
+        Yhat_sub = Y[rows] / norm(Y[rows])
+        residual_sub = residual[rows]
+        residual_perp = residual_sub - dot(Yhat_sub, residual_sub) * Yhat_sub
+        return norm(residual_perp) / norm(dY_fd[rows])
+    end
+
+    # NOTE: "liquid" (the static, omega=0 fluid-core boundary condition) is
+    # deliberately not given a Ic-vs-A finite-difference test here, unlike
+    # "solid", "inertial", and "inertial-liquid" below. A static fluid core
+    # responds to loading instantaneously (pure hydrostatic equilibrium) --
+    # there is no propagating internal structure to integrate through, so
+    # "liquid" is a boundary/jump condition embedding the liquid-solid
+    # interface, not a continuous elementary solution of dY/dr = A*Y. Its
+    # correctness is instead checked structurally in the "get_Ic (Core
+    # Solution Matrix)" testset above and via the surface-BC/solid0d
+    # cross-check below.
+
+    @testset "Compatibility: Core Basis Ic vs Motion Matrix A (inertial)" begin
+        # K0 here must be a moderate, realistic value: the incompressible
+        # limit K0=1e20 used for "solid" above pushes the general finite-K
+        # Bessel formula's k^2 discriminant into a catastrophic-cancellation
+        # regime under double precision, producing spurious residuals even in
+        # otherwise-correct rows.
+        ρ0, μ0, K0, R0 = 5500.0, 6e10, 2e11, 6.371e6
+        for n in (2, 3, 4)
+            @testset "Harmonic Degree n = $n" begin
+                for ω_val in (0.0, 1e-5)   # inertial's general k^2 (Kervazo B.30) is well-defined at omega=0
+                    for r in [0.1 * R0, 0.25 * R0, 0.5 * R0, 0.75 * R0, 1.0 * R0]
+                        g_r = (4/3) * π * G * ρ0 * r
+                        A = zeros(ComplexF64, 6, 6)
+                        get_A!(A, ω_val, r, ρ0, g_r, ComplexF64(μ0), ComplexF64(K0), n; G0=1.0, inertial_terms=true)
+
+                        # dr=1e-6*r (used elsewhere in this file) sits in the
+                        # rounding-error-dominated regime for the smallest
+                        # radius/lowest-degree combination tested here (n=2,
+                        # r=0.1*R0): central-difference cancellation noise
+                        # grows as dr shrinks below the double-precision
+                        # optimum, so a slightly larger step is used for this
+                        # harder-conditioned finite-mu,K Bessel check.
+                        dr = 1e-5 * r
+                        g_plus  = (4/3) * π * G * ρ0 * (r + dr)
+                        g_minus = (4/3) * π * G * ρ0 * (r - dr)
+                        Ic       = get_Ic(ω_val, r,      ρ0, g_r,      ComplexF64(μ0), ComplexF64(K0), "inertial", n; G0=1.0)
+                        Ic_plus  = get_Ic(ω_val, r + dr, ρ0, g_plus,   ComplexF64(μ0), ComplexF64(K0), "inertial", n; G0=1.0)
+                        Ic_minus = get_Ic(ω_val, r - dr, ρ0, g_minus,  ComplexF64(μ0), ComplexF64(K0), "inertial", n; G0=1.0)
+
+                        # All three columns are genuine elementary solutions:
+                        # column 1 is the T&S Eq. 100 regular solution, and
+                        # columns 2, 3 are Kervazo B.30's "+" and "-" k^2
+                        # roots. There is no tangential-slip column here,
+                        # since a solid core has no fluid-solid interface.
+                        for c in (1, 2, 3)
+                            rel = projected_ode_residual(A, Ic[:, c], Ic_plus[:, c], Ic_minus[:, c], dr)
+                            @test rel < 1e-4
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    @testset "Compatibility: Core Basis Ic vs Motion Matrix A (inertial-liquid)" begin
+        ρ0, K0, R0 = 5500.0, 2e11, 6.371e6
+        physical_cols = (1, 2)   # column 3 is the tangential-slip boundary column
+        # omega=0 is excluded: Korenaga's fluid k^2 (B.7) has an explicit
+        # n(n+1)*gamma^2/omega^2 term that diverges as omega->0.
+        for n in (2, 3, 4)
+            @testset "Harmonic Degree n = $n" begin
+                for ω_val in (1e-4, 1e-3)   # 1e-5 overflows sbesselj (double-precision AMOS) at n=4, r=R0
+                    for r in [0.1 * R0, 0.25 * R0, 0.5 * R0, 0.75 * R0, 1.0 * R0]
+                        g_r = (4/3) * π * G * ρ0 * r
+                        A = zeros(ComplexF64, 6, 6)
+                        get_A!(A, ω_val, r, ρ0, g_r, ComplexF64(0.0), ComplexF64(K0), n; G0=1.0, inertial_terms=true)
+
+                        dr = 1e-6 * r
+                        g_plus  = (4/3) * π * G * ρ0 * (r + dr)
+                        g_minus = (4/3) * π * G * ρ0 * (r - dr)
+                        Ic       = get_Ic(ω_val, r,      ρ0, g_r,      ComplexF64(0.0), ComplexF64(K0), "inertial-liquid", n; G0=1.0)
+                        Ic_plus  = get_Ic(ω_val, r + dr, ρ0, g_plus,   ComplexF64(0.0), ComplexF64(K0), "inertial-liquid", n; G0=1.0)
+                        Ic_minus = get_Ic(ω_val, r - dr, ρ0, g_minus,  ComplexF64(0.0), ComplexF64(K0), "inertial-liquid", n; G0=1.0)
+
+                        for c in physical_cols
+                            rel = projected_ode_residual(A, Ic[:, c], Ic_plus[:, c], Ic_minus[:, c], dr; rows=[1,3,4,5,6])
+                            @test rel < 1e-4
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+
     g_uniform(r, ρ; G=G, G0=prec(1.0)) = (4/3) * π * (G / G0) * ρ * r
 
     # Local mirror of solid0d's compute_solid_lovenumbers. Note that 
