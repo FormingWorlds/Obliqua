@@ -249,7 +249,7 @@ module solid1d_mush_relax
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
         Kn = zeros(precc, 8, 8)
-        Kn[Y[4], Y[4]] = 1.0
+        Kn[Y[8], Y[8]] = 1.0
 
         # 4. Perform recursion
         Xn = Pn * R[i-1] + Sn + Kn
@@ -262,7 +262,6 @@ module solid1d_mush_relax
         # update R only for the rows that are not the Darcy flux constraint
         # this ensures y8 remains zero at the interface
         R[i][:, active_cols] .= R_ifc[:, active_cols]
-        R[i][:, Y[7]]        .= 0.0  # explicitly enforce the impermeable boundary
         R[i][:, Y[8]]        .= 0.0  # explicitly enforce the impermeable boundary
 
         # 5. Update the "stored" lower halves for the next iteration
@@ -788,9 +787,9 @@ module solid1d_mush_relax
         start_id, end_id = ids
 
         # tidal surface boundary condition
-        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; Y=Y)
+        BN_t, b_t = get_surface_bc!(r[end], g[end], n, 1, 0, 0, 0; G0=G0, Y=Y)
         # load surface boundary condition
-        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; Y=Y)
+        BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, Y=Y)
 
         PN = [CNm_l; zeros(4,8)]
         SN_t = [DN_l; BN_t]
