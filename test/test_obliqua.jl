@@ -26,6 +26,54 @@ using Obliqua.solid1d_relax.common
     end
 
     # =========================================================================
+    # cap_lovenumber: n-dependent Love-number clamp used by cap_LN
+    # =========================================================================
+    @testset "cap_lovenumber" begin
+        # n=2: fluid limit 3/(2*(2-1)) = 1.5, so re_max=4.5, im_max=3.0
+        @testset "n=2 bounds" begin
+            # Within bounds: passed through unchanged (both signs)
+            k_small = precc(1.0, -0.5)
+            @test Obliqua.cap_lovenumber(k_small, 2) == k_small
+
+            # Re exceeds +4.5: clamped to exactly the bound, Im untouched
+            k_re_hi = precc(14.19, -0.60)
+            capped = Obliqua.cap_lovenumber(k_re_hi, 2)
+            @test real(capped) == 4.5
+            @test imag(capped) == -0.60
+
+            # Re exceeds -4.5 (negative side): clamped to exactly -4.5
+            k_re_lo = precc(-14.19, 0.0)
+            @test real(Obliqua.cap_lovenumber(k_re_lo, 2)) == -4.5
+
+            # Im exceeds +3.0 and -3.0: clamped to exactly the bound
+            @test imag(Obliqua.cap_lovenumber(precc(0.0, 15.5), 2)) == 3.0
+            @test imag(Obliqua.cap_lovenumber(precc(0.0, -15.5), 2)) == -3.0
+
+            # Exactly at the boundary is not altered
+            @test Obliqua.cap_lovenumber(precc(4.5, 3.0), 2) == precc(4.5, 3.0)
+        end
+
+        # Discrimination guard: n=3 must give a DIFFERENT (smaller) bound than
+        # n=2, not the same fixed number for every degree -- this is what
+        # distinguishes the n-dependent formula from the earlier fixed-value
+        # (1.5/1.0) implementation.
+        @testset "degree dependence (n=3)" begin
+            fluid_limit_n3 = 3.0 / (2.0 * (3 - 1))  # = 0.75
+            @test Obliqua.cap_lovenumber(precc(10.0, 10.0), 3) ==
+                  precc(3.0 * fluid_limit_n3, 2.0 * fluid_limit_n3)
+            @test real(Obliqua.cap_lovenumber(precc(10.0, 0.0), 3)) <
+                  real(Obliqua.cap_lovenumber(precc(10.0, 0.0), 2))
+        end
+
+        # n=1 (translation, undefined fluid limit) is guarded up to n=2
+        # rather than dividing by zero or clamping to zero.
+        @testset "n=1 guarded to n=2 bound" begin
+            @test Obliqua.cap_lovenumber(precc(10.0, 10.0), 1) ==
+                  Obliqua.cap_lovenumber(precc(10.0, 10.0), 2)
+        end
+    end
+
+    # =========================================================================
     # 1. Solid1D Module Tests
     # =========================================================================
     @testset "solid1d module" begin
