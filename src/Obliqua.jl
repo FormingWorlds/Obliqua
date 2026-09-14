@@ -314,13 +314,6 @@ module Obliqua
         enforce_ec   = cfg["orbit"]["obliqua"]["enforce_ec"]
         optimize_scales = cfg["orbit"]["obliqua"]["optimize_scales"]
         solid_shell  = cfg["orbit"]["obliqua"]["solid_shell"]
-
-        # Optional: cap each mode's tidal/load Love number at a fixed,
-        # physically-motivated magnitude (Re: 1.5, the homogeneous-
-        # incompressible-body elastic k2 limit; Im: 1.0, mirroring the
-        # "potentially unbound" thresholds used by PROTEUS's own
-        # plot_lovenumber diagnostic). Not in req_keys: absent in older
-        # configs/callers, defaults to off.
         cap_LN       = get(cfg["orbit"]["obliqua"], "cap_LN", false)
 
         min_frac     = cfg["orbit"]["obliqua"]["min_frac"]
@@ -518,18 +511,11 @@ module Obliqua
 
         elseif spectrum == "legacy"
             # Reproduce the original LovePy module: hardcode the three dominant
-            # low-eccentricity (n, m, k) modes and force an identical forcing
-            # frequency across all three, so a single k2 Love number spectrum
-            # is evaluated (at ω) instead of the full/adaptive mode expansion.
-            # This assumes spin-orbit synchronisation and e << 1, matching the
-            # simplifications baked into LovePy; it is not a general-purpose
-            # replacement for "adaptive".
+            # low-eccentricity (n, m, k) modes mathcing LovePy.
             nmk = [(2, 0, 1), (2, 2, 1), (2, 2, 3)]
 
             # LovePy hardcodes forcing frequency = orbital mean motion (omega),
-            # which is only physically exact for spin-orbit synchronous rotation
-            # (axial == omega): warn loudly if that assumption is violated,
-            # since this mode silently ignores `axial` otherwise.
+            # warn loudly if that assumption is violated.
             if !isapprox(axial, omega; rtol=1e-3)
                 @warn "Legacy spectrum assumes spin-orbit synchronisation (axial == omega), but axial=$axial rad/s and omega=$omega rad/s differ by more than 0.1%. Forcing frequency is still hardcoded to omega; results will not match a self-consistent tidal calculation for this rotation state."
             end
@@ -545,8 +531,6 @@ module Obliqua
             N_σ = length(σ_range)
 
             @info "Using legacy (LovePy-compatible) spectrum: (n, m, k) = (2, 0, 1), (2, 2, 1), (2, 2, 3), all evaluated at ω = $omega."
-        else
-            throw("Invalid spectrum value: $spectrum. Must be 'adaptive', 'full', or 'legacy'.")
         end
 
         # get frequency dependent complex shear modulus per mode
@@ -836,9 +820,9 @@ module Obliqua
                     
                 # if segment is water
                 elseif seg == "water"
-                    # calculate water tides in water region
+                    # calculate water tides in water region 
                     knms_T[iss, iseg], knms_L[iss, iseg] = 0., 0. # no expression for this yet
-                    @warn "Water layers are currently not supported. Skipping this segment..."
+                    @warn "Water layers are currently not supported. Skipping this segment..."    
                 end
 
                 # Cap this mode's tidal/load Love number before the enforce_ec block
@@ -858,6 +842,14 @@ module Obliqua
                     prf_total[iss, i_sp:i_ep] .+= Δprf
                     knms_T[iss, iseg-1]        += ΔkT
                     knms_L[iss, iseg-1]        += ΔkL
+
+                    # Re-apply the cap: the previous segment's Love number was
+                    # already clamped above, but this interpolation increment
+                    # is added afterwards and can push it back out of bounds.
+                    if cap_LN
+                        knms_T[iss, iseg-1] = cap_lovenumber(knms_T[iss, iseg-1], n_i)
+                        knms_L[iss, iseg-1] = cap_lovenumber(knms_L[iss, iseg-1], n_i)
+                    end
                 end
 
                 # repeat for all probe forcing frequencies

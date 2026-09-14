@@ -74,6 +74,157 @@ using Obliqua.solid1d_relax.common
     end
 
     # =========================================================================
+    # spectrum = "legacy": hardcoded LovePy-compatible (n,m,k) triplet
+    # =========================================================================
+    @testset "legacy spectrum" begin
+        # runtests_mantle.json has axial != omega, so this run also exercises
+        # the spin-synchronisation mismatch @warn path (Obliqua.jl ~L534).
+        cfg["orbit"]["obliqua"]["module_solid"] = "solid1d"
+        cfg["orbit"]["obliqua"]["module_fluid"] = "none"
+        cfg["orbit"]["obliqua"]["module_mushy"] = "none"
+        cfg["orbit"]["obliqua"]["material_mu"]  = "andrade"
+        cfg["orbit"]["obliqua"]["spectrum"]     = "legacy"
+
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+            load.load_interior_mush_full(interior_json_path, false)
+
+        perm      = Obliqua.interior.get_permeability(phi, cfg)
+        perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
+        bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
+
+        power_blk_expt = 1.728319570165342e6
+        imag_k2_expt   = 0.0008308957062851288
+
+        power_prf, power_blk, nmk, sigma_range, LNk = Obliqua.run_tides(
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+        )
+        imag_k2 = -imag.(LNk)
+
+        # Mode selection matches the hardcoded LovePy (n,m,k) triplet exactly.
+        @test nmk == [(2, 0, 1), (2, 2, 1), (2, 2, 3)]
+
+        # All three modes share one forcing frequency (dropping the sign, as
+        # LovePy does), this is the whole point of the "legacy" mode.
+        @test length(unique(sigma_range)) == 1
+        @test sigma_range[1] ≈ omega
+
+        # ...and therefore also collapse onto a single shared Im(k2), not
+        # three independently-evaluated Love numbers.
+        @test length(unique(round.(imag_k2, sigdigits=12))) == 1
+        @test all(isapprox.(imag_k2, imag_k2_expt; rtol=rtol))
+
+        @test isapprox(power_blk, power_blk_expt; rtol=rtol)
+        @test power_blk > 0.0
+
+        # Restore spectrum for subsequent testsets.
+        cfg["orbit"]["obliqua"]["spectrum"] = "adaptive"
+    end
+
+    @testset "invalid spectrum value" begin
+        cfg["orbit"]["obliqua"]["module_solid"] = "solid1d"
+        cfg["orbit"]["obliqua"]["module_fluid"] = "none"
+        cfg["orbit"]["obliqua"]["module_mushy"] = "none"
+        cfg["orbit"]["obliqua"]["material_mu"]  = "andrade"
+        cfg["orbit"]["obliqua"]["spectrum"]     = "not_a_real_spectrum_mode"
+
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+            load.load_interior_mush_full(interior_json_path, false)
+
+        perm      = Obliqua.interior.get_permeability(phi, cfg)
+        perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
+        bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
+
+        @test_throws String Obliqua.run_tides(
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+        )
+
+        # Restore spectrum for subsequent testsets.
+        cfg["orbit"]["obliqua"]["spectrum"] = "adaptive"
+    end
+
+    # =========================================================================
+    # cap_LN pipeline wiring: cap_lovenumber is applied inside run_tides
+    # =========================================================================
+    @testset "cap_LN pipeline wiring" begin
+        cfg["orbit"]["obliqua"]["module_solid"] = "solid1d"
+        cfg["orbit"]["obliqua"]["module_fluid"] = "none"
+        cfg["orbit"]["obliqua"]["module_mushy"] = "none"
+        cfg["orbit"]["obliqua"]["material_mu"]  = "andrade"
+        cfg["orbit"]["obliqua"]["spectrum"]     = "adaptive"
+        cfg["orbit"]["obliqua"]["cap_LN"]       = true
+
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+            load.load_interior_mush_full(interior_json_path, false)
+
+        perm      = Obliqua.interior.get_permeability(phi, cfg)
+        perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
+        bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
+
+        # For this config, Im(k2)/Re(k2) sit far below the fluid-limit
+        # cap, so clamping must be a no-op: cap_LN=true must reproduce the
+        # exact same result as the "solid1d module / Andrade Rheology"
+        # cap_LN=false test above.
+        power_blk_expt = 1.093766208671846e6
+        imag_k2_expt   = 0.0014986632230270696
+
+        _, power_blk, _, _, LNk = Obliqua.run_tides(
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+        )
+        imag_k2 = -imag.(LNk)
+
+        @test isapprox(power_blk, power_blk_expt; rtol=rtol)
+        @test all(isapprox.(imag_k2, imag_k2_expt; rtol=rtol))
+
+        # Physical bound implied by cap_LN for n=2 (im_max = 2 * 3/(2*(2-1))).
+        @test all(imag_k2 .<= 3.0)
+
+        # Restore configuration for subsequent testsets.
+        cfg["orbit"]["obliqua"]["cap_LN"] = false
+    end
+
+    # The `module_mushy == "interp"` path adds a correction (ΔkT/ΔkL) onto the
+    # *previous* segment's Love number strictly after that segment's own
+    # cap_LN clamp already ran, which could silently push it back out of
+    # bounds. Check that the re-clamp after interpolation is applied correctly.
+    @testset "cap_LN with module_mushy=interp (re-clamp after interpolation)" begin
+        cfg["orbit"]["obliqua"]["module_solid"] = "solid1d"
+        cfg["orbit"]["obliqua"]["module_fluid"] = "fluid1d"
+        cfg["orbit"]["obliqua"]["module_mushy"] = "interp"
+        cfg["orbit"]["obliqua"]["s_min"] = -2
+        cfg["orbit"]["obliqua"]["s_max"] = 6
+        cfg["orbit"]["obliqua"]["material_mu"] = "andrade"
+        cfg["orbit"]["obliqua"]["cap_LN"] = true
+
+        omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, phi, ncalc =
+            load.load_interior_mush_full(interior_json_path, false)
+
+        perm      = Obliqua.interior.get_permeability(phi, cfg)
+        perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
+        bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
+
+        # Same config as "Complete model" (cap_LN=false there).
+        power_blk_expt = 2.8317958612079725e9
+        imag_k2_expt   = [0.011581176958188387, 0.01108652173121107, 0.010590988673882713, 0.010094581843049406, 0.009597312117327252, 0.009099198763898173, 0.008600271466978374, 0.008100573001742285, 0.007600162830519118]
+
+        _, power_blk, _, _, LNk = Obliqua.run_tides(
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+        )
+        imag_k2 = -imag.(LNk)
+
+        @test isapprox(power_blk, power_blk_expt; rtol=rtol)
+        @test all(isapprox.(imag_k2, imag_k2_expt; rtol=rtol, atol=atol))
+        @test all(imag_k2 .<= 3.0)
+
+        # Restore configuration (in particular s_min/s_max) to the test.toml
+        # defaults for subsequent testsets.
+        cfg["orbit"]["obliqua"]["cap_LN"]       = false
+        cfg["orbit"]["obliqua"]["module_fluid"] = "none"
+        cfg["orbit"]["obliqua"]["module_mushy"] = "none"
+        cfg["orbit"]["obliqua"]["s_min"]        = 1
+        cfg["orbit"]["obliqua"]["s_max"]        = 1
+    end
+
+    # =========================================================================
     # 1. Solid1D Module Tests
     # =========================================================================
     @testset "solid1d module" begin

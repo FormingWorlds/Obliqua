@@ -149,6 +149,32 @@ using Obliqua.constants
     end
 
     # -------------------------------------------------------------------------
+    # Test 8b: compute_M with a porous bottom layer (porous_layer[1] == true)
+    # -------------------------------------------------------------------------
+    # Regression test for the core-basis-radius fix: get_Ic must be evaluated
+    # at the core-mantle boundary itself (rs[1,1]), not the top of the bottom
+    # sublayer (rs[end,1]). Test 8 above only exercises the `else` branch of
+    # `if porous_layer[1]`; a porous bottom layer takes the `if` branch, which
+    # calls get_Ic with the full 8-component core basis instead.
+    @testset "Interior Boundary Matrix with porous core-adjacent layer" begin
+        r = [0.1 10.0; 5.0 20.0; 10.0 30.0]
+        g = [0.01 1.0; 0.5 1.5; 1.0 2.0]
+        ρ = [3000.0, 3200.0]; μ = [1e10+0im, 1.2e10+0im]; K = [2e10+0im, 2.5e10+0im]
+        ρₗ = [1000.0, 1000.0]; Kl = [2e9, 2e9]; Kd = [1e10+0im, 1.1e10+0im]
+        α = [0.5+0im, 0.6+0im]; ηₗ = [1.0, 1.0]
+        ϕ = [0.1, 0.0]  # porous_layer = [true, false]: bottom (core-adjacent) layer is porous
+        k = [1e-12, 1e-12]
+        ω = 1e-3; n = 2; ρ_core = 5000.0; μ_core = complex(0.0); κ_core = complex(1e11)
+
+        M_mat, y1_4 = solid1d_mush.compute_M(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, ones(prec, 3); core="liquid")
+
+        @test size(M_mat) == (4, 4)
+        @test size(y1_4) == (8, 4, size(r, 1)-1, size(r, 2))
+        # The core basis must actually be finite/nonzero once evaluated at the CMB.
+        @test !all(iszero, y1_4[:, :, 1, 1])
+    end
+
+    # -------------------------------------------------------------------------
     # Test 9: Physical Property Tensors (Strain, Displacement, Pore Pressure)
     # -------------------------------------------------------------------------
     @testset "Physical Properties Evaluators" begin
