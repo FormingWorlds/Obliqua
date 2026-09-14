@@ -72,13 +72,14 @@ Controls the tidal response model.
 | `optimize_scales` | bool | Boolean flag to optimize scaling factors for numerical stability. |
 | `solid_shell` | bool | Boolean flag to add an infinitesimal solid shell around the core to couple y2 and y4 in fluid mantles. |
 | `min_frac` | float | Minimum segment fraction of total mantle before it is considered. |
+| `cap_LN` | bool | Boolean flag to cap the Love number response to avoid divergences. |
 | `visc_l` | float | Liquid viscosity. |
 | `visc_lus` | float | Liquid-Mush handoff viscosity. |
 | `visc_s` | float | Solid viscosity. |
 | `visc_sus` | float | Solid-Mush handoff viscosity. |
 | `n` | array | Radial dependence exponent in $(r/a)^n$. |
 | `m` | array | Tidal harmonic (e.g., $m=2$ for semidiurnal tides). |
-| `spectrum` | str | Frequency sampling strategy (`"full"` or `"adaptive"`). |
+| `spectrum` | str | Frequency sampling strategy (`"full"`, `"adaptive"`, or `"legacy"`). |
 | `N_sigma` | int | Number of sampled forcing frequencies. |
 | `p_min` | float | Minimum period ($\log_{10}$ kyr). |
 | `p_max` | float | Maximum period ($\log_{10}$ kyr). |

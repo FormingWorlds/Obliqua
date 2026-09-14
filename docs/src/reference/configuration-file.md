@@ -66,6 +66,7 @@ Controls the tidal response model.
 | `enforce_ec` | bool | Enforce energy conservation in tidal response calculations. Improves stability in fluid-mush cases at low forcing frequencies (< 1e-7 Hz); does not affect the Love numbers. |
 | `optimize_scales` | bool | Optimize non-dimensionalization scales for the relaxation method, for numerical stability at low forcing frequencies. Do not combine with BigFloat precision. |
 | `solid_shell` | bool | Insert an infinitesimal solid shell around the core to patch a $y_2$/$y_4$ decoupling instability in fluid layers. Only relevant for `solid1d-relax` or `solid1d-mush-relax`. |
+| `cap_LN` | bool | Clamp each mode's Re(k2)/Im(k2) to 3x/2x the fluid Love-number limit for its degree n, rescaling heating to match via `enforce_ec`. |
 
 #### Rheology and Viscosity
 
@@ -90,7 +91,7 @@ See [Forcing Frequency](@ref) for the underlying model.
 | :--- | :--- | :--- |
 | `n` | array | Radial dependence exponent(s) in $(r/a)^n$; since $r \ll a$, only $n=2$ contributes significantly. |
 | `m` | array | Tidal harmonic(s) of the true anomaly (e.g. $m=2$ semidiurnal, $m=1$ diurnal). |
-| `spectrum` | str | Frequency sampling strategy: `"full"` samples the whole k2 spectrum, `"adaptive"` samples only the region of interest, `"legacy"` reproduces the original LovePy module (hardcoded low-eccentricity, spin-synchronous $(n,m,k) = (2,0,1),(2,2,1),(2,2,3)$ triplet evaluated at a single forcing frequency $\omega$). `"legacy"` overrides `n`, `m`, `s_min`, and `s_max`. |
+| `spectrum` | str | Frequency sampling strategy: `"full"` samples the whole k2 spectrum, `"adaptive"` samples only the region of interest, `"legacy"` reproduces the original LovePy module (hardcoded low-eccentricity, spin-synchronous $(n,m,k) = (2,0,1),(2,2,1),(2,2,3)$ triplet evaluated at a single forcing frequency. |
 | `N_sigma` | int | Number of probe frequencies to evaluate k2 at (used when `spectrum = "full"`). |
 | `p_min` | float | Minimum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
 | `p_max` | float | Maximum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
