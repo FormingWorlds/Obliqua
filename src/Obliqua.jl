@@ -841,13 +841,7 @@ module Obliqua
                     @warn "Water layers are currently not supported. Skipping this segment..."
                 end
 
-                # Cap this mode's tidal/load Love number before the
-                # enforce_ec block below uses knms_T to rescale prf_total,
-                # so the heating profile stays consistent with whatever
-                # Love number is actually reported (rather than the heating
-                # reflecting an uncapped, potentially resonant, value while
-                # the reported Love number is capped). See cap_LN's
-                # docstring for why this exists.
+                # Cap this mode's tidal/load Love number before the enforce_ec block
                 if cap_LN
                     knms_T[iss, iseg] = cap_lovenumber(knms_T[iss, iseg], n_i)
                     knms_L[iss, iseg] = cap_lovenumber(knms_L[iss, iseg], n_i)
@@ -1202,28 +1196,7 @@ module Obliqua
         cap_lovenumber(k_val::precc, n::Int)
 
     Clamp a single mode's Love number to a fixed multiple of the classical
-    fluid (zero-rigidity) Love number limit for degree `n`, as a stop-gap
-    against dynamic-tide (`inertial_terms=true`) normal-mode resonances
-    producing values far outside the range a real, damped solid body can
-    sustain for the duration PROTEUS then treats as constant (there is
-    currently no timestepping fine enough to resolve a resonance crossing
-    narrower than a macro-step; see `cap_LN`'s call site).
-
-    The baseline is `k_n^fluid = 3 / (2(n-1))`, the μ -> 0 limit of the
-    homogeneous, incompressible, self-gravitating elastic sphere Love
-    number (classical result, see e.g. Munk & MacDonald, *The Rotation of
-    the Earth*, 1960 -- verify the exact equation before citing elsewhere;
-    not independently checked against a primary source here). For n=2 this
-    is the textbook k2 = 3/2.
-
-    The Re/Im multipliers (3x, 2x) are an empirical choice, not a derived
-    physical bound -- there is no theorem bounding a real damped body's
-    *dynamic*-tide Love number at a fixed multiple of the fluid limit (a
-    resonance peak is bounded only by whatever damping is actually
-    present). They are chosen to give genuine, lightly-damped resonance
-    peaks room to appear while still bounding the clearly-unphysical
-    macro-step energy injections seen in practice; adjust them if that
-    balance turns out wrong for a given case.
+    fluid (zero-rigidity) Love number limit for degree `n`.
     """
     function cap_lovenumber(k_val::precc, n::Int)::precc
         n = max(2, n)
