@@ -94,10 +94,9 @@ surface mass load can also be written as an external potential $U'$ such
 that $\zeta_n = [(2n + 1)/4 \pi G a] U'_n$. 
 
 $$\begin{aligned}
-y_{3}(R)   &= - \frac{(2n + 1)g_e}{4 \pi G R} U'_n - P_n \\
+y_{3}(R)   &= - \frac{(2n + 1)g_e}{4 \pi G R} \left[\frac{G}{R} U'_n \right] - P_n \\
 y_{4}(R)   &= \tau_n \\
-y_{6}(R) 
-            &= \frac{2n+1}{R} (U_n + U'_n)
+y_{6}(R)   &= \frac{2n+1}{R} \left(U_n + \left[\frac{G}{R} U'_n \right] \right)
 \end{aligned}$$ 
 
 Note that `get_surface_bc!` in `src/common.jl` does not literally apply

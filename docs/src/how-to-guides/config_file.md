@@ -71,8 +71,8 @@ Controls the tidal response model.
 | `enforce_ec` | bool | Boolean flag to enforce energy conservation in tidal response calculations. |
 | `optimize_scales` | bool | Boolean flag to optimize scaling factors for numerical stability. |
 | `solid_shell` | bool | Boolean flag to add an infinitesimal solid shell around the core to couple y2 and y4 in fluid mantles. |
-| `min_frac` | float | Minimum segment fraction of total mantle before it is considered. |
 | `cap_LN` | bool | Boolean flag to cap the Love number response to avoid divergences. |
+| `min_frac` | float | Minimum segment fraction of total mantle before it is considered. |
 | `visc_l` | float | Liquid viscosity. |
 | `visc_lus` | float | Liquid-Mush handoff viscosity. |
 | `visc_s` | float | Solid viscosity. |
