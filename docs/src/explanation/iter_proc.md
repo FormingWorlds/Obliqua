@@ -19,11 +19,11 @@ deformation, a.k.a. the $n$th degree Lovenumber $k_n(\sigma)$; the
 planet-wide loading Lovenumber $k'_n(\sigma)$; and the normalized
 heating profile in the segment. All the details regarding these models
 will be given in the corresponding sections below. The currently
-available tidal models are "solid0d", "solid1d", "solid1d_relax",
-"solid1d_mush", "solid1d_mush_relax"; "fluid0d", "fluid1d"; "interp",
-"none". For details see the Reference documantation.
+available tidal models are `"solid0d"`, `"solid1d"`, `"solid1d_relax"`,
+`"solid1d_mush"`, `"solid1d_mush_relax"`, `"solid1d_equil_relax"`; `"fluid0d"`, `"fluid1d"`; `"interp"`,
+`"none"`. For details see the Reference documantation.
 
-The "interp" model requires knowledge of heating at both interfaces, as
+The `"interp"` model requires knowledge of heating at both interfaces, as
 such an additional code block is included to update the heating in the
-"interp" region during the tidal calculation in the next segment after
-the "interp" region.
+`"interp"` region during the tidal calculation in the next segment after
+the `"interp"` region.

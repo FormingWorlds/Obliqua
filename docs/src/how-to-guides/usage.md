@@ -1,13 +1,15 @@
 
 # Usage
 
-This section describes how to use Obliqua. The module can be run three ways:
+This section describes how to use Obliqua. The module can be run four ways:
 
 - **Full spectrum (Standalone)**: Compute the tidal ``k``-Love number response for a full spectrum of forcing frequencies. This mode is agnostic to the orbital parameters that feed into the Hansen mode weights and dissipative response. The generated spectrum can be used as a lookup table, or to probe the quantative dissipative response of the tidal model to a wide range of forcing frequencies.
 
 - **Adaptive (Standalone)**: Compute the tidal ``k``-Love number response for a subset of forcing frequencies that are adaptively selected based on the orbital parameters and Hansen mode weights. This mode targets the physically relevant forcing frequencies and, hence, also allows for the computation of the dissipative response. 
 
 - **Adaptive (PROTEUS)**: By extension of the previous mode, the adaptive mode can be used in conjunction with the PROTEUS framework. This allows Obliqua to interact with both dynamically evolving orbital parameters and interior properties. The tidal ``k``-Love number response is computed on-the-fly and is used to update the orbital evolution while the dissipative response feedsback into the interior. 
+
+- **Legacy (Standalone)**: Compute the tidal ``k``-Love number response for the subset of dominant forcing frequencies at small eccentricities. Given that the other modes explicitely reduce to this mode, this mode is provided for legacy purposes and is not recommended for use in new applications. Specifically, the `legacy` mode forces the returned Love numbers to be the same across the included set of modes, this makes the output directly compatible with simplified orbital dynamics models that do not resolve the full tidal spectrum.
 
 Naturally, one can also use the full spectrum mode in conjunction with PROTEUS in post-processing. This can forexample be used to validate the adaptive mode or to study the impact of different forcing frequencies on the tidal response. Moreover, it may be used to test model convergence. Below, we provide here an example run of the full spectrum mode in conjunction with PROTEUS computed in post-processing.
 
