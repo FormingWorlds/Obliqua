@@ -48,7 +48,7 @@ The tidal potential is
 
 $$U_{n,m,1} = \frac{GM}{a} \left(\frac{R}{a}\right)^n A_{n,m,1}(e)$$ 
 
-The prefactor is $$\text{prefactor} \, = \frac{(2n + 1)R}{8πG} \sigma$$ The
+The prefactor is $$\text{prefactor} \, = \frac{(2n + 1)R}{8πG} \sigma$$. The
 normalized heating profile is then simply
 
 $$H(r, \sigma) = \tilde{H}(r, \sigma) \times |U_{n,m,1}|^2$$ 

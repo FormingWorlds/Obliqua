@@ -40,15 +40,15 @@ determined by the code. The desired range increases with eccentricity,
 for our purposes the desired range $K$ contains
 
 ```math
-\{k \in K \, \forall \, k : X^{-(n+1), m}_k \geq 0.01\ | k \in Z\}
+K = \{k \in \mathbb{Z} \, \big| \, |X^{-(n+1), m}_k| \geq 0.001 \}
 ```
 
 where $X^{-(n+1), m}_k$ is the Hansen coefficient. Basically, we only
 include $k$ in the range $K$ if the corresponding Hansen coefficient
-signifies a contribution greater than 1% to the complete tidal response.
+signifies a contribution greater than 0.1% to the complete tidal response.
 One may specify a different criterion and generate their $K$ using the
 included Notebook on the Obliqua Github repository
-"/examples/hansen_k_table.ipynb".
+`"/examples/hansen_k_table.ipynb"`.
 
 For testing convenience Obliqua includes two modes: "full" and
 "adaptive". In principle, one should use "full" to test the tidal
