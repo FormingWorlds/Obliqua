@@ -2,9 +2,7 @@
 This page may be useful if you are having problems.
 
 ### Julia version is incompatible / Errors about OpenSSL library
-You must use Julia version 1.11 because there are incompatibilities between the OpenSSL library required by Julia1.12 and Python. 
-
-Switch Julia versions using the `juliaup` command. E.g:
+Julia 1.12 shipped an OpenSSL library that was incompatible with Python, which previously required pinning Obliqua to Julia 1.11. Obliqua now targets Julia 1.13 by default; whether the same OpenSSL/Python conflict resurfaces under 1.13 has not been separately verified here, since it depends on how your Python environment is set up. If you see OpenSSL-related errors when running Obliqua alongside Python on 1.13, fall back to Julia 1.11 using the `juliaup` command:
 ```bash
 juliaup status        # Show the versions you have installed
 juliaup add 1.11      # Install Julia 1.11

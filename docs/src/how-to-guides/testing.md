@@ -63,7 +63,7 @@ julia --project test/runprofiler.jl
 Pull requests are automatically tested using GitHub Actions. The workflow is defined in the `.github/workflows/ci.yml` file. The basic structure follows
 
 1. **Check out repository**: Checks out the codebase using `actions/checkout@v4`.
-2. **Set up Julia**: Initializes the Julia runtime environment (version `1.11`) via `julia-actions/setup-julia@v2`.
+2. **Set up Julia**: Initializes the Julia runtime environment (version `1.13`) via `julia-actions/setup-julia@v2`.
 3. **Run test suite**: Instantiates the project environment and executes unit and integration tests with code coverage enabled (`Pkg.test(coverage=true)`).
 4. **Process coverage**: Runs `test/runcoverage.jl` to compute coverage statistics, exports the total percentage into the environment, and appends the markdown coverage report to the job summary.
 5. **Upload to Codecov**: Submits the generated coverage reports to Codecov (`FormingWorlds/Obliqua`) using `codecov/codecov-action@v5`.
