@@ -38,14 +38,15 @@ module solid1d_relax
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
+    - `svd_floor::Float64=1e-4`         : Singular-value floor of the surface solve.
 
     # Returns
     - `y_t::Vector{precc}`              : Vector of length 6 representing the tidal solution at the surface (radius = R_planet). This includes the displacements, stresses, and potential at the surface.
     - `y_l::Vector{precc}`              : Vector of length 6 representing the load solution at the surface (radius = R_planet). This includes the displacements, stresses, and potential at the surface.
     - `R::Vector{Matrix{precc}}`        : Vector of 6x6 matrices representing the coefficients of the ODE system at each radial layer.
     - `S::Matrix{prec}`                 : 6x6 matrix representing the normalization.
-    """    
-    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid", inertial_terms::Bool=true, patch::Bool=false)
+    """
+    function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core::String="liquid", inertial_terms::Bool=true, patch::Bool=false, svd_floor::Float64=1e-4)
 
         Nr = length(r)
 
@@ -83,7 +84,7 @@ module solid1d_relax
         C1l, D2l = propagate_solid(R, C1l, D2l, ids[2], rs, ρs, gs, μs, Ks, ωs, n; G0=G0, inertial_terms=inertial_terms)
 
         # component 3: apply surface boundary condition and solve for the final solution at the surface
-        y_t, y_l = surface_boundary(R, C1l, D2l, ids[3], rs, ρs, gs, μs, Ks, ωs, n; G0=G0)
+        y_t, y_l = surface_boundary(R, C1l, D2l, ids[3], rs, ρs, gs, μs, Ks, ωs, n; G0=G0, svd_floor=svd_floor)
 
         return y_t, y_l, R, S
 
@@ -232,6 +233,23 @@ module solid1d_relax
 
 
     """
+        regularized_solve(X, b, svd_floor)
+
+    Solve `X * y = b` via a truncated-SVD (Tikhonov-like) pseudo-inverse
+    instead of a raw `\\`, flooring singular values at `svd_floor * σ_max`
+    before dividing.
+    """
+    function regularized_solve(X::AbstractMatrix, b::AbstractVector, svd_floor::Float64)
+        if svd_floor <= 0.0
+            return X \ b
+        end
+        F = svd(ComplexF64.(X))
+        s_floored = max.(F.S, svd_floor * F.S[1])
+        return precc.(F.V * ((F.U' * ComplexF64.(b)) ./ s_floored))
+    end
+
+
+    """
         surface_boundary(R, CNm_l, DN_l, ids, r, ρ, g, μ, K, ω, n; G0=1)
 
     Perform the forward-backward relaxation step at the surface boundary. This function implements the recursion described 
@@ -253,12 +271,13 @@ module solid1d_relax
 
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
+    - `svd_floor::Float64=1e-4`         : Singular-value floor of the surface solve.
 
     # Returns
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1)
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, svd_floor::Float64=1e-4)
 
         start_id, end_id = ids
 
@@ -278,10 +297,13 @@ module solid1d_relax
         XN_t = PN * R[start_id] + SN_t
         XN_l = PN * R[start_id] + SN_l
 
-        # solve outer (tides)
-        y_t = XN_t \ b_t
-        # solve outer (load)
-        y_l = XN_l \ b_l
+        # solve outer (tides), regularized -- see regularized_solve docstring.
+        # XN_t and XN_l are numerically identical (same boundary-condition
+        # matrix structure, only the forcing vector differs), so both are
+        # solved the same way for consistency, even though XN_t alone rarely
+        # needs it.
+        y_t = regularized_solve(XN_t, b_t, svd_floor)
+        y_l = regularized_solve(XN_l, b_l, svd_floor)
 
         return y_t, y_l
 
@@ -350,15 +372,16 @@ module solid1d_relax
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
+    - `svd_floor::Float64=1e-4`         : Singular-value floor of the surface solve.
 
     # Returns
     - `y_t::Matrix{ComplexF64}`         : 6xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     - `y_l::Matrix{ComplexF64}`         : 6x1 matrix of the solution at the surface for the load problem.
-    """    
-    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false)
+    """
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false, svd_floor::Float64=1e-4)
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, S = solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch)
+        yN_t, yN_l, R, S = solve_radial_system(r, ρ, g, μ, K, ω, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch, svd_floor=svd_floor)
 
         Nr = length(r)
         T = eltype(yN_t)

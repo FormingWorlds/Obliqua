@@ -5,7 +5,7 @@ module fluid0d
     include("constants.jl")
     using .constants
 
-    export compute_fluid_lovenumbers, mean_rho
+    export compute_fluid_lovenumbers, mean_rho, enclosed_mean_rho
 
     
     """
@@ -76,6 +76,31 @@ module fluid0d
         mean_density = M / sum(V)                    # Mean density (kg/m^3)
 
         return mean_density
+
+    end
+
+
+    """
+        enclosed_mean_rho(M_enclosed, r_outer)
+
+    Mean density of everything enclosed within radius `r_outer`.
+
+    # Arguments
+    - `M_enclosed::prec`                : Mass enclosed within `r_outer`, core included (kg).
+    - `r_outer::prec`                   : Outer radius of the enclosed region (m).
+
+    # Returns
+    - `mean_density::prec`              : Mean enclosed density (kg/m^3).
+    """
+    function enclosed_mean_rho(
+            M_enclosed::prec,
+            r_outer::prec
+        )::prec
+
+        if !(r_outer > 0)
+            throw(DomainError(r_outer, "outer radius must be positive"))
+        end
+        return M_enclosed / (4/3 * π * r_outer^3)
 
     end
 

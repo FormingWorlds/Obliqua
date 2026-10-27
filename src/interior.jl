@@ -100,9 +100,20 @@ module interior
     """
         get_drained_bulk(bulk, phi, cfg)
 
-    Calculate the drained bulk modulus for each layer based on its porosity and bulk modulus.
+    Calculate the drained (compaction) bulk modulus for each layer from its porosity and grain bulk modulus K_s,
+    following the power law of Hay et al. (2025, Eq. 48):
 
-    Note: The expression given here is a simple power law relationship, a more physically motivated model may be implemented in the future.
+        K_d = K_s                     for phi < phi_0
+        K_d = K_s (phi_0 / phi)^b     for phi_0 <= phi < phi_crit
+        K_d = 0                       for phi >= phi_crit   (no coherent skeleton; Biot alpha = 1 - K_d/K_s = 1)
+
+    phi_0 = 0.0769 and b = `orbit.obliqua.solid.dbulk_power`. phi_crit = `orbit.obliqua.solid.dbulk_phi_crit` (default
+    0.7715) is the melt fraction above which the solid skeleton no longer resists isotropic stress. The values 0.0769 and
+    0.7715 are the crossover melt fractions of the Blake-Kozeny-Carman, Rumpf-Gupte and Stokes permeability laws in
+    `get_permeability`. Hay et al. (2025) place phi_crit at the disaggregation limit (~0.3), where the Kervazo et al. (2021)
+    moduli also lose their shear rigidity. With K_d = 0 and a liquid-like shear modulus the radial stiffness K_d + 4 mu/3
+    becomes very small, and the porous solver then loses passivity and energy closure for 0.3 < phi < ~0.7; the default
+    therefore keeps a compaction stiffness up to the Stokes crossover.
 
     # Arguments
     - `bulk::Array{prec,1}`            : Bulk modulus profile of the planet.
@@ -121,9 +132,13 @@ module interior
         T  = eltype(bulk)
         cT = complex(T)
 
-        # define mush layer properties --> should move to config file in the future
-        ϕ0    = 0.0769 # melt fraction below which the skeleton behaves like a coherent solid
-        ϕcrit = 0.7715 # critical porosity above which there is no coherent solid skeleton to resist isotropic stresses
+        # melt fraction below which the skeleton behaves like a coherent solid
+        ϕ0    = 0.0769
+        # melt fraction above which there is no coherent solid skeleton to resist isotropic stresses
+        ϕcrit = Float64(get(cfg["orbit"]["obliqua"]["solid"], "dbulk_phi_crit", 0.7715))
+        if !(ϕ0 < ϕcrit <= 1.0)
+            throw(ArgumentError("dbulk_phi_crit = $ϕcrit must lie in ($ϕ0, 1]"))
+        end
         
         # calculate drained bulk modulus
         bulkd = @. ((p, k) -> p < ϕ0 ? cT(k) : (p < ϕcrit ? cT(k * (ϕ0 / p)^b) : cT(0.0)))(phi, bulk)
