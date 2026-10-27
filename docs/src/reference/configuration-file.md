@@ -67,6 +67,7 @@ Controls the tidal response model.
 | `optimize_scales` | bool | Optimize non-dimensionalization scales for the relaxation method, for numerical stability at low forcing frequencies. Do not combine with BigFloat precision. |
 | `solid_shell` | bool | Insert an infinitesimal solid shell around the core to patch a $y_2$/$y_4$ decoupling instability in fluid layers. Only relevant for `solid1d-relax` or `solid1d-mush-relax`. |
 | `cap_LN` | bool | Clamp each mode's Re(k2)/Im(k2) to 3x/2x the fluid Love-number limit for its degree n, rescaling heating to match via `enforce_ec`. |
+| `smooth_moduli` | bool | Optional, default `false`. Blend the complex moduli log-linearly across every > 3-decade outward viscosity drop. Not needed for energy consistency (the heating profile is volume-averaged onto the interior layers and integrated on a 20° angular grid); when enabled the blended cells get Q ~ 1 regardless of their own moduli and the blend window jumps when a drop crosses 3 decades. |
 
 #### Rheology and Viscosity
 
@@ -74,7 +75,7 @@ See [Rheology](@ref) for the underlying model.
 
 | NAME | TYPE | DESCRIPTION |
 | :--- | :--- | :--- |
-| `min_frac` | float | Minimal segment radius fraction before smoothing [dimensionless]. |
+| `min_frac` | float | Minimal segment radius fraction before smoothing [dimensionless]. Thinner segments at the CMB or sandwiched between two segments of the same phase are merged into their neighbours; a liquid layer at the surface is never merged and always stays a fluid segment. |
 | `visc_l` | float | Pure liquid viscosity [Pa s]. |
 | `visc_lus` | float | Liquidus viscosity to use [Pa s]. |
 | `visc_s` | float | Pure solid viscosity [Pa s]. |
@@ -148,6 +149,7 @@ See [Liquid-Phase](@ref) for the underlying model.
 * **`"none"`**: No fluid-phase tidal model.
 * **`"fluid0d"`**: Bulk fluid approximation. The fluid region is treated as a single effective layer with averaged mechanical properties; fast, but cannot resolve radial structure.
 * **`"fluid1d"`**: Same as `fluid0d`, but allows a user-specified radial heating distribution (see `[orbit.obliqua.fluid].sigma_R_prf`).
+* **`"fluid1d_relax"`**: Non-rotating, radially resolved column. The whole interior (solid, mush and fluid layers, in any order) is solved in one relaxation recursion from the core to the surface, instead of combining segments. It runs on the single fluid segment that `get_layers` returns when `visc_lus` and `visc_sus` lie above the largest viscosity (otherwise run_tides stops with an error); `module_solid` and `module_mushy` are then not used. The fluid layers are the contiguous layers from the surface down whose viscosity is below `visc_fluid`, the same at every forcing frequency; a buried melt layer under a solid or mush lid is not fluid. Fluid layers keep their own complex shear modulus and take the undrained (Gassmann) bulk modulus: the interior's profile `bulk_und` where it is given, else built from their frame, grain and melt moduli (the melt modulus at porosity 1), and carry a uniform Rayleigh drag `sigma_R` on the horizontal motion; free slip at every solid/mush to fluid face and at a liquid core, closed pores at solid to mush faces, open pores at mush to fluid faces. The Love number is read at the surface and the heating (shear, bulk, Darcy, drag) is computed from the same solution (source: `src/fluid1d_relax.jl`).
 
 ---
 
@@ -171,6 +173,7 @@ See [Liquid-Phase](@ref) for the underlying model.
 | `inertial_terms` | bool | Include inertial terms in the solid tidal response equations. |
 | `bulk_l` | float | Liquid bulk modulus [Pa]. |
 | `dbulk_power` | float | Drained bulk modulus power-law scaling exponent. |
+| `dbulk_phi_crit` | float | Optional, default `0.7715`. Melt fraction above which the drained bulk modulus is zero (no coherent skeleton; Biot coefficient 1; Hay et al. 2025, Eq. 48). The default is the Rumpf-Gupte to Stokes permeability crossover. Hay et al. use the disaggregation limit (~0.3); with that value the porous solver loses passivity and energy closure for melt fractions between 0.3 and ~0.7, because the radial stiffness of the mush becomes very small. Must lie in (0.0769, 1]. |
 | `porosity_thresh` | float | Percolation threshold, at which there is a first-order transition from fully connected to fully isolated pore space [dimensionless]. |
 
 ```@raw html
@@ -191,11 +194,14 @@ See [Liquid-Phase](@ref) for the underlying model.
 
 | NAME | TYPE | DESCRIPTION |
 | :--- | :--- | :--- |
-| `sigma_R` | float | Rayleigh drag coefficient at the interface [dimensionless]. |
-| `sigma_R_inf` | float | Rayleigh drag coefficient in the bulk (pure) fluid [dimensionless]. |
+| `sigma_R` | float | Rayleigh drag rate at the interface [s^-1]. |
+| `sigma_R_inf` | float | Rayleigh drag rate in the bulk (pure) fluid [s^-1]. |
 | `sigma_R_prf` | str | Vertical drag profile: `"uniform"`, `"exp"`, `"linear"`, `"quadratic"`, `"dynamic"`, or `"dynamic_interp"` (default). See [Liquid-Phase](@ref) for the physical meaning of each. |
 | `H_R` | float | Rayleigh drag scale height [m]. |
 | `efficiency` | float | Rayleigh drag efficiency at the core interface [dimensionless]. |
+| `omega_sw` | float | Optional, default `1e-5`. `fluid1d_relax`: a `"liquid"` core is replaced by `"inertial-liquid"` above this forcing frequency [rad s^-1]. |
+| `visc_fluid` | float | Optional, default `1e8`. `fluid1d_relax`: the contiguous layers from the surface down with a viscosity below this value [Pa s] are fluid, at every forcing frequency; layers above about 1e10 Pa s as fluid break the energy closure of the heating. |
+| `n_sub` | int | Optional, default `1`. `fluid1d_relax`: split every interior layer into this many sub-layers, with the layer values interpolated between the layer centres, so that the fluid interface moves continuously instead of by whole layers. |
 
 ```@raw html
 </div>

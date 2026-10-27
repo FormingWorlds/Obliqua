@@ -20,6 +20,7 @@ module Obliqua
     
     # Include local jl files
     include("constants.jl")
+    include("common.jl")
     include("solid0d.jl")
     include("solid1d.jl")
     include("solid1d_mush.jl")
@@ -27,6 +28,7 @@ module Obliqua
     include("solid1d_mush_relax.jl")
     include("solid1d_equil_relax.jl")
     include("fluid0d.jl")
+    include("fluid1d_relax.jl")
     include("Hansen.jl")
     include("load.jl")
     include("interior.jl")
@@ -34,6 +36,7 @@ module Obliqua
 
     # Import submodules
     using  .constants
+    import .common: cell_average, cell_average_map
     import .solid0d
     import .solid1d
     import .solid1d_mush
@@ -41,6 +44,7 @@ module Obliqua
     import .solid1d_mush_relax
     import .solid1d_equil_relax
     import .fluid0d
+    import .fluid1d_relax
     import .Hansen
     import .load
     import .interior
@@ -54,6 +58,7 @@ module Obliqua
     export solid1d_mush_relax
     export solid1d_equil_relax
     export fluid0d
+    export fluid1d_relax
     export Hansen
     export load
     export interior
@@ -208,24 +213,29 @@ module Obliqua
 
 
     """
-        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg)
+        run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, bulk_visc, shear, bulk, bulkd, bulk_liq, bulk_und, phi, perm, cfg)
 
     Compute the tidal heating profile of a planetary interior considering solid and fluid layers.
 
+    All profiles are per interior layer (length N, from the core outwards) except `radius` (N + 1 layer boundaries).
+
     # Arguments
-    - `omega::prec`                 : Orbital frequency of the body.
-    - `axial::prec`                 : Axial (spin) frequency of the body.
+    - `omega::prec`                 : Orbital frequency of the body [rad s^-1].
+    - `axial::prec`                 : Axial (spin) frequency of the body [rad s^-1].
     - `ecc::Float64`                : Orbital eccentricity.
-    - `sma::Float64`                : Semi-major axis of the orbit.
-    - `S_mass::Float64`             : Mass of the central body (e.g., star) inducing tides.
-    - `rho::Array{prec,1}`          : Radial density profile of the planet, from core to surface.
-    - `radius::Array{prec,1}`       : Radial positions of layers, from core to surface.
-    - `visc::Array{prec,1}`         : Viscosity profile of the planet.
-    - `shear::Array{prec,1}`        : Shear modulus profile of the solid layers.
-    - `bulk::Array{prec,1}`         : Bulk modulus profile of the solid layers.
-    - `bulkd::Array{prec,1}`        : Drained bulk modulus profile of the fluid layers.
-    - `phi::Array{prec,1}`          : Porosity profile of the fluid layers.
-    - `perm::Array{prec,1}`         : Permeability profile of the fluid layers.
+    - `sma::Float64`                : Semi-major axis of the orbit [m].
+    - `S_mass::Float64`             : Mass of the central body (e.g., star) inducing tides [kg].
+    - `rho::Array{prec,1}`          : Radial density profile of the planet, from core to surface [kg m^-3].
+    - `radius::Array{prec,1}`       : Radial positions of layers, from core to surface [m].
+    - `visc::Array{prec,1}`         : Shear viscosity profile [Pa s]; sets the complex shear modulus.
+    - `bulk_visc::Array{prec,1}`    : Bulk viscosity profile [Pa s]; sets the complex grain and drained bulk moduli.
+    - `shear::Array{prec,1}`        : Shear modulus profile [Pa].
+    - `bulk::Array{prec,1}`         : Grain (solid) bulk modulus profile [Pa].
+    - `bulkd::Array{prec,1}`        : Drained bulk modulus profile [Pa].
+    - `bulk_liq::Array{prec,1}`     : Melt bulk modulus profile [Pa], used in the two-phase (mush) solvers and in fluid1d_relax.
+    - `bulk_und::Array{prec,1}`     : Undrained (Gassmann) bulk modulus profile [Pa].
+    - `phi::Array{prec,1}`          : Porosity (melt fraction) profile [-].
+    - `perm::Array{prec,1}`         : Permeability profile [m^2].
     - `cfg::Dict`                   : Configuration parameters from dictionary.
 
     # Returns
@@ -244,14 +254,17 @@ module Obliqua
                         rho::Array{prec,1},
                         radius::Array{prec,1},
                         visc::Array{prec,1},
+                        bulk_visc::Array{prec,1},
                         shear::Array{prec,1},
                         bulk::Array{prec,1},
                         bulkd::Array{prec,1},
+                        bulk_liq::Array{prec,1},
+                        bulk_und::Array{prec,1},
                         phi::Array{prec,1},
                         perm::Array{prec,1},
                         cfg::Dict
                         )::Tuple{Vector{Float64}, Float64, Vector{Tuple{Int,Int,Int}}, Vector{Float64}, Vector{ComplexF64}}
-      
+
         # Read configuration options from dict
         @info "Using configuration '$(cfg["title"])'"
         
@@ -315,6 +328,7 @@ module Obliqua
         optimize_scales = cfg["orbit"]["obliqua"]["optimize_scales"]
         solid_shell  = cfg["orbit"]["obliqua"]["solid_shell"]
         cap_LN       = get(cfg["orbit"]["obliqua"], "cap_LN", false)
+        smooth_moduli = get(cfg["orbit"]["obliqua"], "smooth_moduli", false)
 
         min_frac     = cfg["orbit"]["obliqua"]["min_frac"]
 
@@ -363,6 +377,13 @@ module Obliqua
         H_R          = cfg["orbit"]["obliqua"]["fluid"]["H_R"]
         efficiency   = cfg["orbit"]["obliqua"]["fluid"]["efficiency"]
 
+        # fluid1d_relax options (optional keys). The column drag is the uniform rate sigma_R in every fluid layer;
+        # sigma_R_inf, sigma_R_prf, H_R and efficiency are fluid1d options only.
+        fluid_cfg    = cfg["orbit"]["obliqua"]["fluid"]
+        omega_sw     = Float64(get(fluid_cfg, "omega_sw", 1e-5))    # liquid -> inertial-liquid core switch [rad s^-1]
+        visc_fluid   = Float64(get(fluid_cfg, "visc_fluid", 1e8))   # viscosity below which surface layers are fluid [Pa s]
+        n_sub        = Int(get(fluid_cfg, "n_sub", 1))              # interpolated sub-layers per input layer
+
         module_mushy = cfg["orbit"]["obliqua"]["module_mushy"]
         if module_mushy == "interp"
             b_width  = cfg["orbit"]["obliqua"]["mushy"]["b_width"]
@@ -375,6 +396,7 @@ module Obliqua
         optimize_scales = true_if_true(optimize_scales)
         solid_shell = true_if_true(solid_shell)
         cap_LN     = true_if_true(cap_LN)
+        smooth_moduli = true_if_true(smooth_moduli)
 
         # convert "none" to nothing
         module_solid = nothing_if_none(module_solid)
@@ -390,7 +412,31 @@ module Obliqua
         κd = convert(Vector{precc},bulkd)
         ϕ = convert(Vector{prec}, phi)
         K = convert(Vector{prec}, perm)
-        
+        ζ = copy(convert(Vector{prec}, bulk_visc))
+        κl_prf = convert(Vector{prec}, bulk_liq)
+
+        # Check that the bulk_liq profile is usable; if not, use the configured bulk_l in every layer
+        if length(κl_prf) != length(ρ) || !all(x -> isfinite(x) && x > 0, κl_prf)
+            @warn "bulk_liq profile unusable (length $(length(κl_prf)) for $(length(ρ)) layers, or a non-positive entry); using the configured bulk_l = $bulk_l Pa in every layer"
+            κl_prf = fill(prec(bulk_l), length(ρ))
+        end
+        if length(ζ) != length(ρ)
+            throw(ArgumentError("bulk_visc has length $(length(ζ)) for $(length(ρ)) layers"))
+        end
+        # undrained bulk modulus [Pa] per layer from the interior rheology; entries <= 0: fluid1d_relax's own Gassmann law
+        κu_prf = convert(Vector{prec}, bulk_und)
+        if length(κu_prf) != length(ρ)
+            throw(ArgumentError("bulk_und has length $(length(κu_prf)) for $(length(ρ)) layers"))
+        end
+        κu_prf[.!isfinite.(κu_prf)] .= 0
+        # layers without a usable bulk viscosity (e.g. PROTEUS without an elastic rheology profile passes zeros)
+        # keep the former law eta / phi
+        no_ζ = .!(isfinite.(ζ) .& (ζ .> 0))
+        if any(no_ζ)
+            @warn "bulk_visc not positive in $(count(no_ζ)) of $(length(ζ)) layers; using visc / phi there" maxlog=1
+            ζ[no_ζ] .= η[no_ζ] ./ (ϕ[no_ζ] .+ 1e-15)
+        end
+
         # 1d tidal models have singularity at r=0, so we add a small offset to avoid this
         # 0d models only consider r[end] and remain unaffected.
         if iszero(r[1])
@@ -536,22 +582,28 @@ module Obliqua
         # get frequency dependent complex shear modulus per mode
         μc = complex_modulus(σ_range, μ, η; material=material_μ, α=alpha)
 
-        # get frequency dependent complex bulk modulus per mode
-        if module_solid === "solid1d-mush" || module_solid === "solid1d-mush-relax"
-            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-15); material="elastic", α=alpha)
-            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-15); material=material_κ, α=alpha)
-            
+        # get frequency dependent complex bulk modulus per mode; the viscous part of the bulk moduli is the
+        # bulk viscosity profile ζ (bulk_visc)
+        if module_solid === "solid1d-mush" || module_solid === "solid1d-mush-relax" || module_fluid == "fluid1d_relax"
+            # two-phase moduli: elastic grain bulk modulus, (visco)elastic drained frame, Biot coefficient
+            κc = complex_modulus(σ_range, κ, ζ; material="elastic", α=alpha)
+            κdc = complex_modulus(σ_range, κd, ζ; material=material_κ, α=alpha)
+
             # calculate Biot's modulus
             α  = precc(1.0) .- (κdc ./ κc)
         else
-            κc = complex_modulus(σ_range, κ, η./(ϕ.+1e-15); material=material_κ, α=alpha)
-            κdc = complex_modulus(σ_range, κd, η./(ϕ.+1e-15); material="elastic", α=alpha)
+            κc = complex_modulus(σ_range, κ, ζ; material=material_κ, α=alpha)
+            κdc = complex_modulus(σ_range, κd, ζ; material="elastic", α=alpha)
 
             α = fill!(similar(κc, precc), 1)
         end
 
-        # smooth complex moduli for mushy layers
-        μc, κc = smooth_complex_modulus!(μc, κc, r, η)
+        # optional log-linear blending of the complex moduli across sharp viscosity drops (off by default; see
+        # smooth_complex_modulus!). Nolonger needed for energy consistency once the heating profile is volume-averaged
+        # and integrated on a fine angular grid.
+        if smooth_moduli
+            μc, κc = smooth_complex_modulus!(μc, κc, r, η)
+        end
 
         μ_core = zeros(precc, N_σ)
         κ_core = zeros(precc, N_σ)
@@ -578,8 +630,6 @@ module Obliqua
         map_total_f = zeros(Float64, N_σ, length(0:res:180), length(0:res:360-0.001), N_layers)     # friction
         map_total_d = zeros(Float64, N_σ, length(0:res:180), length(0:res:360-0.001), N_layers)     # drag
 
-        # core density for bottom boundary
-        ρ_mean_lower = ρ_core
         # Rayleigh drag efficiency at fluid core
         efficiency_seg = efficiency
 
@@ -619,7 +669,7 @@ module Obliqua
             end
 
             # density ratio
-            ρ_ratio = ρ_mean / ρ_mean_lower
+            ρ_ratio = ρ_mean / fluid0d.enclosed_mean_rho(M_enc[i_end], r[i_end+1])
 
             # add patch if solid_shell=true and segment is fluid-mush modeled by solid1d_relax or solid1d_mush_relax
             patch = false
@@ -698,6 +748,7 @@ module Obliqua
                             ncalc=ncalc, n=n_i, m=m_i, core=core, 
                             inertial_terms=inertial_terms,
                             visc_l=visc_l, bulk_l=bulk_l, 
+                            bulk_liq=κl_prf[i_start:i_end],
                             porosity_thresh=porosity_thresh, 
                             optimize_scales=optimize_scales
                         )
@@ -717,6 +768,7 @@ module Obliqua
                             n=n_i, m=m_i, core=core, 
                             inertial_terms=inertial_terms, 
                             visc_l=visc_l, bulk_l=bulk_l,
+                            bulk_liq=κl_prf[i_start:i_end],
                             porosity_thresh=porosity_thresh, 
                             optimize_scales=optimize_scales, patch=patch
                         )
@@ -750,7 +802,8 @@ module Obliqua
                             σ, ρ_seg, 
                             r_seg, ρ_ratio;
                             n=n_i, 
-                            sigma_R=sigma_R
+                            sigma_R=sigma_R,
+                            g_top=Float64(g_seg[end])
                         ) 
                     # elseif 1D interior and heating profile from density-contrast/Rayleigh-drag
                     elseif module_fluid=="fluid1d"
@@ -780,7 +833,45 @@ module Obliqua
                             sigma_inf=sigma_R_inf,
                             sigma_R_prf=sigma_R_prf,
                             H_R=H_R, efficiency=efficiency_seg,
-                            visc_l=visc_l
+                            visc_l=visc_l,
+                            g_top=Float64(g_seg[end])
+                        )
+                    # elseif 1D column model, core to surface, with solid, mush and fluid layers and heating profile from
+                    # the strain and the drag; needs the whole interior in one fluid segment (visc_lus, visc_sus above
+                    # the largest viscosity), and classifies the layers itself (visc_fluid)
+                    elseif module_fluid=="fluid1d_relax"
+                        if length(segments) != 1
+                            throw("module_fluid = fluid1d_relax solves the whole column: set visc_lus and visc_sus above the largest viscosity so that get_layers returns one fluid segment (got $(segments)).")
+                        end
+
+                        # moduli of the zero-frequency mode at the relaxed limit (complex_modulus returns 0 at σ = 0)
+                        μc_i, κc_i, κdc_i, α_i, μ_core_i, κ_core_i = μc_seg[:, iss], κc_seg[:, iss], κdc_seg[:, iss], α_seg[:, iss], μ_core[iss], κ_core[iss]
+                        if abs(σ) < 1e-18
+                            μc_i = complex_modulus([1e-14], μ, η; material=material_μ, α=alpha)[:, 1]
+                            κc_i = complex_modulus([1e-14], κ, ζ; material="elastic", α=alpha)[:, 1]
+                            κdc_i = complex_modulus([1e-14], κd, ζ; material=material_κ, α=alpha)[:, 1]
+                            α_i = precc(1.0) .- κdc_i ./ κc_i
+                            core_props == "mantle" && ((μ_core_i, κ_core_i) = (μc_i[1], κc_i[1]))
+                        end
+
+                        prf_total[iss, i_start:i_end], 
+                        map_total_μ[iss, :, :, i_start:i_end], 
+                        map_total_κ[iss, :, :, i_start:i_end], 
+                        map_total_l[iss, :, :, i_start:i_end], 
+                        map_total_d[iss, :, :, i_start:i_end], 
+                        knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d_relax(
+                            σ, ρ_seg, r_seg, η_seg,
+                            μc_i, κc_i, κdc_i, α_i,
+                            ϕ_seg, K_seg, κl_prf[i_start:i_end], κu_prf[i_start:i_end], R,
+                            m_core, ρ_core,
+                            μ_core_i, κ_core_i;
+                            dr_min=dr_min, dr_max=dr_max,
+                            n=n_i, m=m_i, core=core,
+                            inertial_terms=true_if_true(inertial_terms),
+                            visc_l=Float64(visc_l),
+                            porosity_thresh=Float64(porosity_thresh),
+                            sigma_R=Float64(sigma_R), omega_sw=omega_sw,
+                            visc_fluid=visc_fluid, n_sub=n_sub
                         )
                     else
                         throw("No compatible fluid tides module: $module_fluid.")
@@ -872,8 +963,6 @@ module Obliqua
                 )
             end
 
-            # update previous segment mean density before moving to next segment
-            ρ_mean_lower = ρ_mean
             # update Rayleigh drag efficiency away from core
             efficiency_seg = 1.
 
@@ -884,10 +973,10 @@ module Obliqua
         end  
 
         # initialize total k2 with the contribution from the top layer
-        knms_total = copy(knms_T[:, end])  
+        knms_total = copy(knms_T[:, end])
 
         # loop from top (surface) to just above CMB
-        # This implementation is currently only valid for CMB -> Solid -> Fluid -> Surface layering, 
+        # This implementation is currently only valid for CMB -> Solid -> Fluid -> Surface layering,
         # and would need to be adapted for more complex layering (e.g., fluid under solid).
         for iseg in reverse(1:length(segments)-1)
 
@@ -899,19 +988,31 @@ module Obliqua
 
             load = segments[iseg] == "solid" && segments[iseg+1] == "fluid" ? true : false
 
+            # never reached with fluid1d_relax (one segment). In the mush phase the factor is negative for most modes of
+            # a solid-fluid layering, so the fallback below is in regular use; the passivity backstops rarely if ever fire
             if load
                 for i in 1:N_σ
                     # calculate the load distribution factor
-                    factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
+                    knms_L_seg = knms_L[i, iseg]
+                    factor = 1 + (imag(knms_L_seg * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) # add small number to avoid divide by zero
 
                     if factor < 0. || factor > 1.1
-                        @warn "Load distribution factor is negative for frequency index $i and segment $iseg. Setting $factor to 1."                        
-                        # A known issue where for particularly low forcing frequencies (< 1e-10 Hz) with fluid layers, the load distribution factor can 
-                        # become negative. This is a known issue and is not physically meaningful. The code will set the load Love number to its analytical
-                        # limit in this case, and recalculate the load distribution factor. This is a temporary fix until a more robust solution is implemented.
-
-                        knms_L[i, iseg] = -2/3 * (2-1) * knms_T[i, iseg]        # analytical limit (incompressible homogeneous sphere; n = 2)
-                        factor = 1 + (imag(knms_L[i, iseg] * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40) 
+                        # The load Love number of this segment is numerically
+                        # unstable near singular surface systems, which drives
+                        # the factor out of range. Replace it, at this frequency
+                        # only, by the incompressible homogeneous sphere limit
+                        # knms_L = -2/3*(n-1)*knms_T and recompute the factor
+                        # from it. The recomputed factor is used unclamped, and
+                        # the same knms_L enters the Love number combination
+                        # below, so heating profile and Im(k2) stay consistent.
+                        # Clamping the factor instead can zero the heating
+                        # profile of the loaded and overlying segments while
+                        # Im(k2) remains finite.
+                        n_i = nmk[i][1]
+                        knms_L_seg = -2.0/3.0 * (n_i - 1) * knms_T[i, iseg]
+                        factor_raw = factor
+                        factor = 1 + (imag(knms_L_seg * knms_total[i])) / (imag(knms_T[i, iseg]) + imag(knms_total[i]) + 1e-40)
+                        @warn "Load distribution factor out of range for frequency index $i and segment $iseg (factor=$factor_raw). Using the incompressible-homogeneous-sphere knms_L; recomputed factor=$factor."
                     end
 
                     # rescale heating profile with the load distribution factor
@@ -925,13 +1026,40 @@ module Obliqua
                     map_total_d[i, :, :, i_start:i_end_ini] .*= factor
 
                     # update the total Lovenumber
-                    knms_total[i] = knms_T[i, iseg] + (1.0 + knms_L[i, iseg]) * knms_total[i]
+                    knms_total_candidate = knms_T[i, iseg] + (1.0 + knms_L_seg) * knms_total[i]
+
+                    # Passivity backstop: for any passive, causal, dissipative
+                    # viscoelastic response (Andrade/Maxwell moduli are passive
+                    # by construction), dissipation -sign(sigma)*Im(k2) must be
+                    # >= 0: a body cannot absorb net energy from the tide.
+                    if sign(σ_range[i]) * imag(knms_total_candidate) > 0
+                        n_i = nmk[i][1]
+                        knms_L_approx = -2.0/3.0 * (n_i - 1) * knms_T[i, iseg]
+                        knms_total_candidate = knms_T[i, iseg] + (1.0 + knms_L_approx) * knms_total[i]
+                        @warn "Passivity violated at frequency index $i, segment $iseg (sigma=$(σ_range[i])). Using the incompressible-homogeneous-sphere knms_L estimate for this frequency only."
+                    end
+
+                    knms_total[i] = knms_total_candidate
                 end
             else
                 for i in 1:N_σ
                     # update the total Lovenumber
                     knms_total[i] = knms_T[i, iseg] + knms_total[i]
                 end
+            end
+        end
+
+        # Final passivity backstop, in case any other combination pathway
+        # (e.g. a chain of multiple load segments) still leaves a violation
+        # after the local, algebraic per-segment fix above -- expected to
+        # rarely if ever fire in practice, kept as defensive insurance only.
+        # A hard clamp (rather than the local algebraic estimate above) is
+        # acceptable as a true last resort, since reaching this point means
+        # the per-segment fix was somehow insufficient.
+        for i in 1:N_σ
+            if sign(σ_range[i]) * imag(knms_total[i]) > 0
+                @warn "Passivity violated at frequency index $i after all segment combinations (Im(k2)=$(imag(knms_total[i])), sigma=$(σ_range[i])). Clamping to zero."
+                knms_total[i] = precc(real(knms_total[i]), 0.0)
             end
         end
 
@@ -1035,7 +1163,7 @@ module Obliqua
             @info("Obtained bulk heating: $P_T_prf_blk")
 
             # convert to mass heating rate (W/kg)
-            P_T_prf ./ ρ
+            P_T_prf ./= ρ
 
             # return full Imk2 spectrum for plotting
             return Float64.(P_T_prf), Float64.(P_T_blk), nmk, Float64.(σ_range), ComplexF64.(knms_total)
@@ -1185,21 +1313,6 @@ module Obliqua
 
 
     """
-        cap_lovenumber(k_val::precc, n::Int)
-
-    Clamp a single mode's Love number to a fixed multiple of the classical
-    fluid (zero-rigidity) Love number limit for degree `n`.
-    """
-    function cap_lovenumber(k_val::precc, n::Int)::precc
-        n = max(2, n)
-        fluid_limit = 3.0 / (2.0 * (n - 1))
-        re_max = 3.0 * fluid_limit
-        im_max = 2.0 * fluid_limit
-        return precc(clamp(real(k_val), -re_max, re_max), clamp(imag(k_val), -im_max, im_max))
-    end
-
-
-    """
         get_layers(r, η, η_l, η_s; min_frac=0.02)
 
     Determine the phase profile of a planetary interior considering solid, fluid, and mush layers.
@@ -1238,6 +1351,10 @@ module Obliqua
     longer negligible. If the neighbour is also thin (e.g. early in
     crystallisation, before the solid/mush layer has grown past threshold),
     no merge happens yet — pass 1 handles that regime instead.
+    Exception: a *liquid* layer touching the surface is never merged, however
+    thin. The residual magma ocean stays a fluid segment (fluid model with drag)
+    instead of being solved as a skeleton-free porous solid, which gives
+    non-passive Love numbers. A thin solid or mush surface layer is still merged.
     """
     function get_layers(r::Array{prec,1},
                         η::Array{prec,1},
@@ -1342,7 +1459,10 @@ module Obliqua
                     p_nb = phase_prf[i_start2]
                     dr = r[i_end+1] - r[i_start]
                     dr_nb = r[i_end2+1] - r[i_start2]
-                    if p != p_nb && dr / H < min_frac && dr_nb / H >= min_frac
+                    # A liquid layer at the surface is never folded into the solid/mush below, however thin: the
+                    # poroelastic solid solver has no valid representation of a near-inviscid liquid without a skeleton
+                    # (phi > phi_crit, K_d = 0) and returns non-passive Love numbers for it. It stays a fluid segment.
+                    if p != p_nb && p != 2 && dr / H < min_frac && dr_nb / H >= min_frac
                         phase_prf[i_start:i_end] .= p_nb
                         changed = true
                     end
@@ -1495,9 +1615,48 @@ module Obliqua
 
 
     """
+        cap_lovenumber(k_val::precc, n::Int)
+
+    Clamp a single mode's Love number to a fixed multiple of the classical
+    fluid (zero-rigidity) Love number limit for degree `n`.
+    """
+    function cap_lovenumber(k_val::precc, n::Int)::precc
+        n = max(2, n)
+        fluid_limit = 3.0 / (2.0 * (n - 1))
+        re_max = 3.0 * fluid_limit
+        im_max = 2.0 * fluid_limit
+        return precc(clamp(real(k_val), -re_max, re_max), clamp(imag(k_val), -im_max, im_max))
+    end
+
+
+    """
+        nonnegative_heating(E, r_fine)
+
+    Return the total heating density `E` on the solver grid with negative values set to zero.
+
+    Every dissipation channel (shear, compaction, Darcy) is non-negative for passive moduli, so negative values can only come
+    from non-passive input moduli or round-off. They are reported (once the negative part exceeds 1e-6 of the integrated
+    magnitude) instead of being flipped in sign, which would add heat that the Love number does not dissipate.
+    """
+    function nonnegative_heating(E::AbstractVector, r_fine::AbstractVector)::Vector{Float64}
+        Ef = Float64.(E)
+        dv = Float64.(r_fine[2:end]).^3 .- Float64.(r_fine[1:end-1]).^3
+        neg = -sum(min.(Ef, 0.0) .* dv)
+        tot = sum(abs.(Ef) .* dv)
+        if tot > 0 && neg > 1e-6 * tot
+            @warn "Negative tidal heating density on the solver grid ($(round(100 * neg / tot, sigdigits=3)) % of the integrated magnitude); set to zero." maxlog=10
+        end
+        return max.(Ef, 0.0)
+    end
+
+
+    """
         smooth_complex_modulus!(μc, κc, r, η)
 
     Return the smoothed complex shear modulus μ̃(σ) and complex bulk modulus κ̃(σ).
+
+    Applied only when `orbit.obliqua.smooth_moduli = true` (default false). It replaces the complex moduli across every
+    > 3-decade outward viscosity drop by a log-linear blend over a window of cells. 
 
     # Arguments
     - `μc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
@@ -1595,8 +1754,8 @@ module Obliqua
         # compute the sum of the heating profile slice weighted by the volume elements
         slice_sum = sum(prf_slice .* dv_slice'; dims=2)
         
-        # calculate ratio vector for all frequencies
-        ratio = norm_blk ./ slice_sum
+        # calculate ratio vector for all frequencies; a frequency without heating (e.g. a zero-frequency mode) stays zero
+        ratio = ifelse.(slice_sum .> 0, norm_blk ./ slice_sum, 1.0)
         ratio_4d = reshape(ratio, :, 1, 1, 1)
 
         # apply updates directly to the views
@@ -1865,40 +2024,15 @@ module Obliqua
             y_t, r_grid, ρ, g_grid, μc, κc, n, ω, SphericalGrid
         )
 
-        power_prf = abs.(Eμ_tot .+ Eκ_tot) 
+        power_prf = nonnegative_heating(Eμ_tot .+ Eκ_tot, r_grid)
 
-        # interpolate from grid back to original radius points 
-        itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
-        
-        # original centers
-        r_orig_centers = 0.5 .* (r[1:end-1] .+ r[2:end])
+        # volume-average from the solver grid back onto the original layers (conserves the integrated heating)
         scale_factor = R / maximum(r)
+        power_prf = cell_average(r_grid, power_prf, r) .* scale_factor
 
-        power_prf = Float64.(itp.(r_orig_centers) .* scale_factor)
-
-        # radial interpolation for global maps
-        nlats = length(Eμ_glb[:, 1, 1])
-        nlons = length(Eμ_glb[1, :, 1])
-        Nr_orig = length(r_orig_centers)
-        
-        # pre-allocate separate 3D grids for each source on the original spacing
-        Eμ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
-        Eκ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
-
-        # loop over geographic coordinates, treating each lat/lon as a 1D radial column
-        for lon_idx in 1:nlons
-            for lat_idx in 1:nlats
-                # shear component interpolation
-                shear_col = @view Eμ_glb[lat_idx, lon_idx, :]
-                itp_shear = linear_interpolation(r_centers, shear_col, extrapolation_bc=Line())
-                Eμ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_shear.(r_orig_centers) .* scale_factor)
-
-                # compaction component interpolation
-                comp_col = @view Eκ_glb[lat_idx, lon_idx, :]
-                itp_comp = linear_interpolation(r_centers, comp_col, extrapolation_bc=Line())
-                Eκ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_comp.(r_orig_centers) .* scale_factor)
-            end
-        end
+        # same for the global maps, column by column
+        Eμ_glb_itp = cell_average_map(r_grid, Eμ_glb, r) .* scale_factor
+        Eκ_glb_itp = cell_average_map(r_grid, Eκ_glb, r) .* scale_factor
 
         return power_prf, Eμ_glb_itp, Eκ_glb_itp, kn_T, kn_L
     end
@@ -1934,6 +2068,7 @@ module Obliqua
     - `inertial_terms::Bool=false`      : Whether to include inertial terms in the motion matrix. This is not recommended for the shooting method, as it can break numerical stability.
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
+    - `bulk_liq=nothing`                : Liquid bulk modulus per layer [Pa]; replaces `bulk_l` when given.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
     - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
 
@@ -1963,6 +2098,7 @@ module Obliqua
                         core::String="liquid",
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
+                        bulk_liq::Union{Nothing,AbstractVector}=nothing,
                         porosity_thresh::Float64=1e-5,
                         inertial_terms::Bool=false,
                         optimize_scales::Bool=false
@@ -1989,8 +2125,8 @@ module Obliqua
         # the mush layer index is therefore
         ii = length(ϕ)
 
-        # update the liquid arrays
-        κl[ii] = prec(bulk_l)   # liquid bulk modulus
+        # update the liquid arrays: melt bulk modulus of the mush layer from the profile, else the scalar bulk_l
+        κl[ii] = bulk_liq === nothing ? prec(bulk_l) : prec(bulk_liq[ii])   # liquid bulk modulus
         ηl[ii] = prec(visc_l)   # liquid viscosity
 
         # set porosity to zero outside mush region (otherwise code cannot solve system)
@@ -2088,6 +2224,7 @@ module Obliqua
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `visc_l::Float64=1e2`             : Liquid viscosity.
     - `bulk_l::Float64=1e9`             : Liquid bulk modulus.
+    - `bulk_liq=nothing`                : Liquid bulk modulus per layer [Pa]; replaces `bulk_l` when given.
     - `porosity_thresh::Float64=1e-5`   : Porosity threshold, below this value no mush.
     - `optimize_scales::Bool=false`     : Whether to optimize non-dimensionalization scales.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
@@ -2124,6 +2261,7 @@ module Obliqua
                         inertial_terms::Bool=true,
                         visc_l::Float64=1e2,
                         bulk_l::Float64=1e9,
+                        bulk_liq::Union{Nothing,AbstractVector}=nothing,
                         porosity_thresh::Float64=1e-5,
                         optimize_scales::Bool=false,
                         patch::Bool=false
@@ -2143,11 +2281,16 @@ module Obliqua
         α  = copy(convert(Vector{precc}, alpha))
         k  = copy(convert(Vector{prec}, perm))
         
-        # apply thresholding to porosity array
-        ϕ[ϕ .< porosity_thresh] .= 0.0
-        
-        # allocate and fill arrays 
-        κl = fill(prec(bulk_l), length(r))
+        # allocate and fill arrays: melt bulk modulus per layer from the profile, else the scalar bulk_l
+        κl = bulk_liq === nothing ? fill(prec(bulk_l), length(r)) : prec.(vcat(bulk_liq, bulk_liq[end]))
+
+        # porosity threshold: a layer below it is solved as non-porous, with the undrained (Gassmann) modulus 
+        nopore = ϕ .< porosity_thresh
+        for i in findall(nopore)
+            Ku = solid1d_mush_relax.common.gassmann(κd[i], κs[i], κl[i], ϕ[i])
+            κs[i] = Ku; κd[i] = Ku; α[i] = 0.0
+        end
+        ϕ[nopore] .= 0.0
         ηl = fill(prec(visc_l), length(r))
         
         # resample profiles onto new grid
@@ -2190,46 +2333,16 @@ module Obliqua
             y_t, r_grid, ρ, g_grid, μc, κs, ω, ρl, κl, κd, α, ηl, ϕ, k, n, SphericalGrid
         )
 
-        power_prf = abs.(Eμ_tot .+ Eκ_tot .+ El_tot) 
+        power_prf = nonnegative_heating(Eμ_tot .+ Eκ_tot .+ El_tot, r_grid)
 
-        # interpolate from grid back to original radius points 
-        itp = linear_interpolation(r_centers, power_prf, extrapolation_bc=Line())
-
-        # original centers
-        r_orig_centers = 0.5 .* (radius[1:end-1] .+ radius[2:end])
+        # volume-average from the solver grid back onto the original layers (conserves the integrated heating)
         scale_factor = Float64(R) / maximum(radius)
-        
-        power_prf = Float64.(itp.(r_orig_centers) .* scale_factor)
-        
-        # radial interpolation for global maps
-        nlats = length(Eμ_glb[:, 1, 1])
-        nlons = length(Eμ_glb[1, :, 1])
-        Nr_orig = length(r_orig_centers)
-        
-        # pre-allocate separate 3D grids for each source on the original spacing
-        Eμ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
-        Eκ_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
-        El_glb_itp = zeros(Float64, nlats, nlons, Nr_orig)
+        power_prf = cell_average(r_grid, power_prf, radius) .* scale_factor
 
-        # loop over geographic coordinates, treating each lat/lon as a 1D radial column
-        for lon_idx in 1:nlons
-            for lat_idx in 1:nlats
-                # shear component interpolation
-                shear_col = @view Eμ_glb[lat_idx, lon_idx, :]
-                itp_shear = linear_interpolation(r_centers, shear_col, extrapolation_bc=Line())
-                Eμ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_shear.(r_orig_centers) .* scale_factor)
-
-                # compaction component interpolation
-                comp_col = @view Eκ_glb[lat_idx, lon_idx, :]
-                itp_comp = linear_interpolation(r_centers, comp_col, extrapolation_bc=Line())
-                Eκ_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_comp.(r_orig_centers) .* scale_factor)
-
-                # darcy / liquid component interpolation
-                darcy_col = @view El_glb[lat_idx, lon_idx, :]
-                itp_darcy = linear_interpolation(r_centers, darcy_col, extrapolation_bc=Line())
-                El_glb_itp[lat_idx, lon_idx, :] .= Float64.(itp_darcy.(r_orig_centers) .* scale_factor)
-            end
-        end
+        # same for the global maps, column by column
+        Eμ_glb_itp = cell_average_map(r_grid, Eμ_glb, radius) .* scale_factor
+        Eκ_glb_itp = cell_average_map(r_grid, Eκ_glb, radius) .* scale_factor
+        El_glb_itp = cell_average_map(r_grid, El_glb, radius) .* scale_factor
 
         return power_prf, Eμ_glb_itp, Eκ_glb_itp, El_glb_itp, kn_T, kn_L
     end
@@ -2328,7 +2441,7 @@ module Obliqua
 
 
     """
-        run_fluid0d(omega, rho, radius, ρ_ratio; n=2, sigma_R=1e-3)
+        run_fluid0d(omega, rho, radius, ρ_ratio; n=2, sigma_R=1e-3, g_top=nothing)
 
     Calculate kn Lovenumbers in the 0D fluid.
 
@@ -2341,6 +2454,7 @@ module Obliqua
     # Keyword Arguments
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient.
+    - `g_top::Union{Nothing,Float64}=nothing` : Gravitational acceleration at the top of the fluid segment (m/s^2), 
 
     # Returns
     - `kn_T::ComplexF64`                : Complex Tidal kn Lovenumber.
@@ -2351,7 +2465,8 @@ module Obliqua
                         radius::Array{prec,1},
                         ρ_ratio::prec;
                         n::Int64=2,
-                        sigma_R::Float64=1e-3
+                        sigma_R::Float64=1e-3,
+                        g_top::Union{Nothing,Float64}=nothing
                         )::Tuple{ComplexF64,ComplexF64}
 
         # internal structure arrays
@@ -2360,7 +2475,10 @@ module Obliqua
 
         # surface properties
         R = maximum(r)  # Segment outer radius (m)
-        g = G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end]) / R^2  # Surface gravity (m/s^2)
+        # Surface gravity (m/s^2): the shallow-water wave speed sqrt(g H) needs the
+        # gravity at the ocean surface, set by all mass below it, not only the
+        # segment's own shells (legacy fallback when g_top is not supplied).
+        g = g_top === nothing ? G * sum(4/3 * π * (r[2:end].^3 .- r[1:end-1].^3) .* ρ[1:end]) / R^2 : prec(g_top)
 
         # fluid magma ocean bottom and height
         r_b = r[1]
@@ -2375,7 +2493,7 @@ module Obliqua
 
 
     """
-        run_fluid1d(omega, rho, radius, visc, ρ_ratio, P_b, R; n=2, sigma_R=1e-3, sigma_inf=1e-7, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3, visc_l=1e2)
+        run_fluid1d(omega, rho, radius, visc, ρ_ratio, P_b, R; n=2, sigma_R=1e-3, sigma_inf=1e-7, sigma_R_prf="uniform", H_R=1e3, efficiency=0.3, visc_l=1e2, g_top=nothing)
 
     Compute tidal heating profile and Love numbers for a 1D fluid model. The radial structure is defined by the density and 
     viscosity profiles, and the heating at the lower interface. The model includes Rayleigh drag at the interface and in the
@@ -2399,6 +2517,7 @@ module Obliqua
     - `H_R::Float64=1e3`                : Drag scale height
     - `efficiency::Float64=0.3`         : Interface efficiency factor
     - `visc_l::Float64=1e2`             : Liquid viscosity
+    - `g_top::Union{Nothing,Float64}=nothing` : Gravity at the top of the fluid segment, forwarded to `run_fluid0d`.
 
     # Returns
     - `power_prf::Vector{Float64}`      : Heating profile
@@ -2423,7 +2542,8 @@ module Obliqua
                             sigma_R_prf::String = "uniform",
                             H_R::Float64 = 1e3,
                             efficiency::Float64 = 0.3,
-                            visc_l::Float64 = 1e2
+                            visc_l::Float64 = 1e2,
+                            g_top::Union{Nothing,Float64} = nothing
                         )::Tuple{Vector{Float64},Array{Float64,3},Array{Float64,3},Array{Float64,3},Array{Float64,3},Array{Float64,3}, ComplexF64, ComplexF64}
 
         r = convert(Vector{prec}, radius)
@@ -2457,8 +2577,8 @@ module Obliqua
         dVs = Float64.((4/3) * π .* (r[2:end].^3 .- r[1:end-1].^3))
 
         # compute kn Lovenumbers for the fluid layer with Rayleigh drag at the interface and in the interior
-        kn_T, kn_L  = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R)    # total
-        kn_T_inf, _ = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=sigma_inf)               # fluid baseline (no friction)
+        kn_T, kn_L  = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=efficiency * sigma_R, g_top=g_top)    # total
+        kn_T_inf, _ = run_fluid0d(omega, rho, r, ρ_ratio; n=n, sigma_R=sigma_inf, g_top=g_top)               # fluid baseline (no friction)
 
         # compute dimensionless volumetric heating from the imaginary part of the tidal Love number
         prefactor = Float64((2n + 1) * R * omega / (8π * G))
@@ -2623,6 +2743,152 @@ module Obliqua
         map_l = propagate_map(l_ini, decay_factor)
 
         return Vector{Float64}(power_prf), map_μ, map_κ, map_l, map_f, map_d, ComplexF64(kn_T), ComplexF64(kn_L)
+    end
+
+
+    """
+        run_fluid1d_relax(omega, rho, radius, visc, shear, bulk, bulkd, alpha, phi, perm, bulk_liq, bulk_und, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, porosity_thresh=1e-5, sigma_R=1e-4, omega_sw=1e-5, visc_fluid=1e8, n_sub=1, closure_tol=1e-2)
+
+    Use the 1D column model (`fluid1d_relax.jl`) to calculate kn Lovenumbers and the heating profile of the whole interior:
+    one Henyey recursion from the CMB to the surface through solid, mush and fluid layers, the tidal Love number read at
+    R, and the heating of the same solution (shear, bulk, Darcy and Rayleigh drag). The layers from the surface down with
+    a viscosity below `visc_fluid` are fluid at every frequency (`fluid1d_relax.fluid_mask`); they keep their own shear
+    modulus and get the undrained bulk modulus and the drag sigma_R.
+
+    The moduli are those at `omega`, of either sign (at -omega they are the conjugates, and so are k and the solution;
+    the heating is the same). A zero-frequency mode (|omega| < 1e-18) has no heating; its k is the real part of the
+    response at 1e-14 rad/s, the relaxed limit, with the moduli evaluated there by the caller.
+
+    # Arguments
+    - `omega::Float64`                  : Forcing frequency [rad s^-1].
+    - `rho::Array{prec,1}`              : Density profile of the planet [kg m^-3].
+    - `radius::Array{prec,1}`           : Radial positions of layers, from core to surface [m].
+    - `visc::Array{prec,1}`             : Viscosity profile of the planet [Pa s].
+    - `shear::Array{precc,1}`           : Complex shear modulus profile of the planet [Pa].
+    - `bulk::Array{precc,1}`            : Complex (grain) bulk modulus profile of the planet [Pa].
+    - `bulkd::Array{precc,1}`           : Complex drained bulk modulus profile of the planet [Pa].
+    - `alpha::Array{precc,1}`           : Biot coefficient 1 - K_d/K_s.
+    - `phi::Array{prec,1}`              : Porosity profile of the planet.
+    - `perm::Array{prec,1}`             : Permeability profile of the planet [m^2].
+    - `bulk_liq::Array{prec,1}`         : Melt bulk modulus profile of the planet [Pa].
+    - `bulk_und::Array{prec,1}`         : Undrained bulk modulus profile [Pa] for the layers solved without melt variables;
+                                          where it is not positive, the Gassmann modulus of `bulkd`, `bulk`, `bulk_liq`, `phi`.
+    - `R::prec`                         : Planet radius [m].
+    - `m_core::prec`                    : Core mass [kg].
+    - `ρ_core::prec`                    : Core density [kg m^-3].
+    - `μ_core::precc`                   : Core shear modulus [Pa].
+    - `κ_core::precc`                   : Core bulk modulus [Pa].
+
+    # Keyword Arguments
+    - `dr_min::Int=300`                 : Minimum layer thickness in m.
+    - `dr_max::Int=3000`                : Maximum layer thickness in m.
+    - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
+    - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
+    - `core::String="liquid"`           : Core state; "liquid" switches to "inertial-liquid" for |omega| >= omega_sw.
+    - `inertial_terms::Bool=true`       : Inertia in the motion matrices.
+    - `visc_l::Float64=1e2`             : Melt viscosity in the Darcy terms of the mush [Pa s].
+    - `porosity_thresh::Float64=1e-5`   : Porosity below which a layer is non-porous.
+    - `sigma_R::Float64=1e-4`           : Rayleigh drag rate in the fluid layers [s^-1].
+    - `omega_sw::Float64=1e-5`          : Core switch frequency [rad s^-1].
+    - `visc_fluid::Float64=1e8`         : Viscosity below which the layers connected to the surface are fluid [Pa s].
+    - `n_sub::Int=1`                    : Interpolated sub-layers per input layer (`fluid1d_relax.refine_layers`).
+    - `closure_tol::Float64=1e-2`       : |P_heating / P_tide - 1| above which a warning is logged.
+
+    # Returns
+    - `power_prf::Array{Float64,1}`     : Heating profile on the input layers (W m^-3 per unit forcing), volume-averaged from the solver cells.
+    - `Eμ_glb::Array{Float64,3}`        : Shear heating map (colatitude, longitude, layer).
+    - `Eκ_glb::Array{Float64,3}`        : Bulk heating map.
+    - `El_glb::Array{Float64,3}`        : Darcy heating map.
+    - `Ed_glb::Array{Float64,3}`        : Rayleigh drag heating map.
+    - `kn_T::ComplexF64`                : Complex Tidal kn Lovenumber.
+    - `kn_L::ComplexF64`                : Load Lovenumber; the column model needs none (0).
+    """
+    function run_fluid1d_relax(omega::Float64,
+                               rho::AbstractVector,
+                               radius::AbstractVector,
+                               visc::AbstractVector,
+                               shear::AbstractVector,
+                               bulk::AbstractVector,
+                               bulkd::AbstractVector,
+                               alpha::AbstractVector,
+                               phi::AbstractVector,
+                               perm::AbstractVector,
+                               bulk_liq::AbstractVector,
+                               bulk_und::AbstractVector,
+                               R::Real,
+                               m_core::Real,
+                               ρ_core::Real,
+                               μ_core::Number,
+                               κ_core::Number;
+                               dr_min::Integer=300,
+                               dr_max::Integer=3000,
+                               n::Int=2,
+                               m::Int=2,
+                               core::String="liquid",
+                               inertial_terms::Bool=true,
+                               visc_l::Float64=1e2,
+                               porosity_thresh::Float64=1e-5,
+                               sigma_R::Float64=1e-4,
+                               omega_sw::Float64=1e-5,
+                               visc_fluid::Float64=1e8,
+                               n_sub::Int=1,
+                               closure_tol::Float64=1e-2)
+
+        # a zero-frequency mode is solved at the relaxed limit 1e-14 rad/s
+        static = abs(omega) < 1e-18
+        ω = static ? 1e-14 : omega
+
+        # column on Obliqua's grid (fluid1d_relax.column_spec)
+        cs = fluid1d_relax.column_spec(ω, radius, rho, visc, shear, bulk, bulkd, alpha, bulk_liq, visc_l, phi, perm,
+                                       m_core, ρ_core, μ_core, κ_core;
+                                       σ_R=sigma_R, dr_min=dr_min, dr_max=dr_max, core=core, ω_sw=omega_sw,
+                                       inertial_terms=inertial_terms, porosity_thresh=porosity_thresh,
+                                       slip=:freeslip, pores=:open, visc_fluid=visc_fluid,
+                                       n_sub=n_sub, κu=bulk_und)
+
+        # one recursion, Love number at R, heating with the strain recovery chosen by the energy closure
+        sol = fluid1d_relax.solve_column(cs; n=n)
+        k = ComplexF64(sol.k)
+        sol.sol.finite || @warn "fluid1d_relax: non-finite solution at ω = $ω rad/s (core $(cs.core))"
+
+        N_layers = length(rho)
+        if static
+            # zero frequency: real relaxed response, no dissipation
+            zero_map = zeros(Float64, nlats, nlons, N_layers)
+            return zeros(Float64, N_layers), zero_map, copy(zero_map), copy(zero_map), copy(zero_map), ComplexF64(real(k), 0.0), ComplexF64(0.0)
+        end
+
+        # acceptance checks of the solution: passivity and the energy theorem
+        sol.passive || @warn "fluid1d_relax: -sign(ω) Im k = $(-sign(ω) * imag(k)) < 0 at ω = $ω rad/s (not passive)"
+        if !(abs(sol.closure - 1) <= closure_tol)
+            @warn "fluid1d_relax: energy closure $(sol.closure) at ω = $ω rad/s (heating / tidal work, expected 1)"
+        end
+        # poroelastic boundary layers thinner than the cells are not resolved (energy closure drifts with dr)
+        bl = fluid1d_relax.boundary_layer_resolution(cs)
+        if bl.n_under > 0
+            @warn @sprintf("fluid1d_relax ω=%.3e: poroelastic boundary layer under-resolved in %d mush cells (min delta/dr = %.2g); refine dr_min/dr_max", ω, bl.n_under, bl.min_ratio) maxlog=5
+        end
+
+        # heating profile on the solver cells, volume-averaged back onto the original layers (conserves the integrated heating)
+        h = sol.heating
+        power_prf = nonnegative_heating(h.shear .+ h.bulk .+ h.darcy .+ h.drag, cs.r_grid)
+        power_prf = cell_average(cs.r_grid, power_prf, radius)
+
+        # global maps of the same strain recovery; each cell is rescaled to the analytic angular integral of its channel,
+        # which the angular grid (res) under-integrates by a few per cent
+        SphericalGrid = fluid1d_relax.define_spherical_grid(res, n, m)
+        maps = fluid1d_relax.column_heating_map(cs, sol.sol.y, n, ω, SphericalGrid; solid=h.solid_method)
+        weight = sin.(SphericalGrid.clats) .* deg2rad(res)^2
+        for (E_map, E_prf) in zip(maps, (h.shear, h.bulk, h.darcy, h.drag))
+            E_int = dropdims(sum(E_map .* weight, dims=(1, 2)), dims=(1, 2))
+            E_map .*= reshape(ifelse.(E_int .> 0, E_prf ./ E_int, 0.0), 1, 1, :)
+        end
+        Eμ_glb, Eκ_glb, El_glb, Ed_glb = (cell_average_map(cs.r_grid, E_map, radius) for E_map in maps)
+
+        @debug @sprintf("fluid1d_relax ω=%.3e: k=%.6f%+.3ei, closure %.5f, %d nodes, core %s", ω, real(k), imag(k),
+                        sol.closure, length(cs.r_c), cs.core)
+
+        return power_prf, Eμ_glb, Eκ_glb, El_glb, Ed_glb, k, ComplexF64(0.0)
     end
 
 
@@ -2793,8 +3059,15 @@ module Obliqua
 
             defVar(ds, "radius", radius, ("r",))
             defVar(ds, "P_T_s_prf", P_T_s_prf, ("nmk", "z"))
-            defVar(ds, "lon", P_T_s_glb_μ[1, 1, :, 1], ("lon",))
-            defVar(ds, "lat", P_T_s_glb_μ[1, :, 1, 1], ("lat",))
+            # angular coordinates [deg] of the heating maps (colatitude 0:res:180,
+            # longitude 0:res:<360); a single 0.0 when the maps were angle-integrated
+            # (store_3D = false)
+            nlat = size(P_T_s_glb_μ, 2)
+            nlon = size(P_T_s_glb_μ, 3)
+            lat_coord = nlat == 1 ? [0.0] : Float64.(collect(0:res:180))[1:nlat]
+            lon_coord = nlon == 1 ? [0.0] : Float64.(collect(0:res:360-0.001))[1:nlon]
+            defVar(ds, "lon", lon_coord, ("lon",), attrib = ["units" => "degree"])
+            defVar(ds, "lat", lat_coord, ("lat",), attrib = ["units" => "degree", "long_name" => "colatitude"])
             defVar(ds, "P_T_s_glb_μ", P_T_s_glb_μ, ("nmk", "lat", "lon", "z"))
             defVar(ds, "P_T_s_glb_κ", P_T_s_glb_κ, ("nmk", "lat", "lon", "z"))
             defVar(ds, "P_T_s_glb_l", P_T_s_glb_l, ("nmk", "lat", "lon", "z"))
