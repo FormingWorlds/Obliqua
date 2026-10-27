@@ -15,7 +15,7 @@ module common
     using LinearAlgebra
     using Optim
 
-    export expand_layers, resample_profiles, get_g, optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
+    export expand_layers, resample_profiles, gassmann, get_g, optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map, shear_integral, strain_on_grid!, darcy_y9, strain_parts, get_heating_profile_nodal, get_heating_map_nodal, cell_average, cell_average_map
 
     
     """
@@ -219,6 +219,23 @@ module common
         g_new, M_tot = get_g(r_new_b, ρ_new, m_core) 
 
         return r_new_b, ρ_new, η_new, μ_new, κs_new, κl_new, κd_new, α_new, ηl_new, φ_new, k_new, g_new, M_tot
+    end
+
+
+    """
+        gassmann(Kd, Ks, Kl, ϕ)
+
+    Undrained (Gassmann) bulk modulus of a porous frame with drained modulus `Kd`, grain modulus `Ks`, melt modulus
+    `Kl` and porosity `ϕ` [Pa]: K_u = K_d + alpha^2 / S with alpha = 1 - K_d/K_s and storativity
+    S = ϕ/K_l + (alpha - ϕ)/K_s, the same S as the two-phase motion matrix. K_u = K_s for ϕ = 0 (returned exactly),
+    and K_u = K_d when alpha = 0. Complex moduli are allowed (viscoelastic frame).
+    """
+    function gassmann(Kd::Number, Ks::Number, Kl::Real, ϕ::Real)
+        ϕ <= 0 && return Ks
+        α = 1 - Kd / Ks
+        iszero(α) && return Kd
+        S = ϕ / Kl + (α - ϕ) / Ks
+        return Kd + α^2 / S
     end
 
 
@@ -1497,7 +1514,7 @@ module common
         y5 = y[5]
         y7 = y[7]
         y8 = y[8]
-        y9 = 1im * k / (ω*ϕ*ηl*r) * (ρl*g*y1 - ρl * y5 + ρl*g*y8 + y7)
+        y9 = darcy_y9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8)
         
         dis_rel[:,:,1] = Y * y8 
         dis_rel[:,:,2] = dYdθ * y9
@@ -1611,6 +1628,45 @@ module common
 
 
     """
+        biot_bulk_dissipation(e, p, ω, Kd, α, ϕ, Kl, Ks)
+
+    Cycle-averaged volumetric (bulk) dissipation density of the poroviscoelastic medium, consistent with the constitutive
+    law integrated by the two-phase solver (`get_A!`, Hay et al. 2025, Eq. S4.6):
+
+        total stress      σ_ij = 2μ ε_ij + (K_d - 2μ/3) e δ_ij - α p δ_ij,     e = tr ε
+        fluid content     ζ    = α e + S p,     S = ϕ/K_l + (α - ϕ)/K_s   (storativity, 1/M)
+
+    The work rate per unit volume is σ_ij ∂ε_ij/∂t + p ∂ζ/∂t (Darcy dissipation is separate). For fields ∝ exp(iωt) its cycle
+    average is (ω/2) Im(σ_ij ε_ij* + p ζ*), whose volumetric part is
+
+        D = (ω/2) [ Im(K_d) |e|^2 - Im(S) |p|^2 - 2 Im(α) Re(p e*) ].
+
+    With α = 1 - K_d/K_s and real K_s, K_l this equals (ω/2) Im(K_d) |e + p/K_s|^2: frame dissipation acting on the effective
+    (Terzaghi) volumetric strain. The previous expression (ω/2) Im(K_d) (|e|^2 + |p/K_s|^2) missed the cross term
+    2 Re(p e*)/K_s, which is negative when compression raises the pore pressure, and over-estimated the heating (by ~9 % for a
+    porous layer with a lossy drained bulk modulus). For non-porous cells (ϕ = 0, p = 0) D reduces to (ω/2) Im(K_d) |e|^2.
+
+    # Arguments
+    - `e::AbstractArray`                : Volumetric strain tr(ε) on the angular grid.
+    - `p::AbstractArray`                : Pore pressure on the angular grid (zeros for non-porous cells).
+    - `ω::Real`                         : Forcing frequency.
+    - `Kd, α`                           : Drained bulk modulus and Biot coefficient (complex).
+    - `ϕ, Kl, Ks`                       : Porosity, liquid bulk modulus and solid-grain bulk modulus.
+
+    # Returns
+    - `D::Array{Float64}`               : Dissipation density on the angular grid (W m^-3 per unit forcing).
+    """
+    function biot_bulk_dissipation(e::AbstractArray, p::AbstractArray, ω::Real, Kd::Number, α::Number, ϕ::Real, Kl::Real, Ks::Number)
+        D = (ω/2) .* imag(Kd) .* abs2.(e)
+        if ϕ > 0
+            S = ϕ/Kl + (α - ϕ)/Ks
+            D = D .- (ω/2) .* (imag(S) .* abs2.(p) .+ 2imag(α) .* real.(p .* conj.(e)))
+        end
+        return Float64.(D)
+    end
+
+
+    """
         get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n, SphericalGrid; lay=nothing)
 
     Get the radial volumetric heating for two-phase tides and eccentricity forcing,
@@ -1686,7 +1742,10 @@ module common
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields
-            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kd[i], α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
+            # bulk modulus of the node's own motion matrix: the drained K_d for a porous node, the grain K_s for a
+            # non-porous node (solved with the 6x6 matrix and K_s); see biot_bulk_dissipation
+            Kb = k[i] > 0 ? Kd[i] : Ks[i]
+            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kb, α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
             
             if ϕ[i] > 0
                 compute_darcy_displacement!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
@@ -1701,11 +1760,8 @@ module common
                      1/3 .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             Eμ_loc .*= ω * imag(μ[i])
 
-            # 3. Compaction Heating (Bulk)
-            Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-            if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.(p ./ Ks[i]).^2)       # <-- Fixed typo present in Love.jl :)
-            end
+            # 3. Compaction Heating (Bulk): drained-frame / Biot dissipation, see biot_bulk_dissipation
+            Eκ_loc = biot_bulk_dissipation(sum(ϵ[:,:,1:3], dims=3)[:,:,1], p, ω, Kb, α[i], ϕ[i], Kl[i], Ks[i])
 
             # 4. Darcy Dissipation (Liquid)
             El_loc = zeros(nlats, nlons)
@@ -1876,7 +1932,10 @@ module common
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields for the current shell
-            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kd[i], α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
+            # bulk modulus of the node's own motion matrix: the drained K_d for a porous node, the grain K_s for a
+            # non-porous node (solved with the 6x6 matrix and K_s); see biot_bulk_dissipation
+            Kb = k[i] > 0 ? Kd[i] : Ks[i]
+            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kb, α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
             
             if ϕ[i] > 0
                 compute_darcy_displacement!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
@@ -1891,11 +1950,8 @@ module common
                      1/3 .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             Eμ_loc .*= ω * imag(μ[i])
 
-            # 3. Local Volumetric Compaction Heating (Bulk)
-            Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-            if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.((p) ./ Ks[i]).^2)
-            end
+            # 3. Local Volumetric Compaction Heating (Bulk): drained-frame / Biot dissipation, see biot_bulk_dissipation
+            Eκ_loc = biot_bulk_dissipation(sum(ϵ[:,:,1:3], dims=3)[:,:,1], p, ω, Kb, α[i], ϕ[i], Kl[i], Ks[i])
 
             # 4. Local Volumetric Darcy Dissipation (Liquid)
             El_loc = zeros(nlats, nlons)
@@ -1911,6 +1967,324 @@ module common
         end
 
         return Eμ_3d, Eκ_3d, El_3d
+    end
+
+
+    """
+        shear_integral(e, s, a, b, L)
+
+    Angular integral of |ε_dev|^2 for a strain field of a single degree n with orthonormal harmonics (integral |Y|^2 dΩ = 1,
+    as in `define_spherical_grid`), L = n(n+1):
+
+        ε = e Y r̂r̂ + s (r̂ ∇₁Y + ∇₁Y r̂) + a Y I_h + b D(Y),     D = traceless part of ∇₁∇₁Y,
+        integral |ε|^2 dΩ = |e|^2 + 2L|s|^2 + 2|a|^2 + L(L-2)|b|^2 / 2,     tr ε = (e + 2a) Y.
+
+    The deviatoric part subtracts |tr ε|^2 / 3. On the grid of `define_spherical_grid` the same strain is
+    `strain_on_grid!`, whose angular quadrature converges to this value.
+    """
+    function shear_integral(e::Number, s::Number, a::Number, b::Number, L::Int)
+        tot = abs2(e) + 2L * abs2(s) + 2abs2(a) + 0.5L * (L - 2) * abs2(b)
+        return tot - abs2(e + 2a) / 3
+    end
+
+
+    """
+        strain_on_grid!(ϵ, e, s, a, b, SphericalGrid)
+
+    Strain tensor components on the angular grid from the strain amplitudes (e, s, a, b) of `shear_integral`, in the order
+    of `compute_strain_ten!` (rr, θθ, ϕϕ, rθ, rϕ, θϕ). `compute_strain_ten!` obtains the same amplitudes from the stresses
+    y3, y4 of the solution; here they are given, e.g. from finite differences of the displacements (`strain_parts`).
+    """
+    function strain_on_grid!(ϵ::Array{ComplexF64,3}, e::Number, s::Number, a::Number, b::Number, SphericalGrid::NamedTuple)
+        @views clats = SphericalGrid.clats
+        @views Y    = SphericalGrid.Y[1,:,:]
+        @views dYdθ = SphericalGrid.dYdθ[1,:,:]
+        @views dYdϕ = SphericalGrid.dYdϕ[1,:,:]
+        @views Z    = SphericalGrid.Z[1,:,:]
+        @views X    = SphericalGrid.X[1,:,:]
+
+        ϵ[:,:,1] = e * Y                                                        # e_rr
+        ϵ[:,:,2] = a * Y + 0.5b * X                                             # e_θθ
+        ϵ[:,:,3] = a * Y - 0.5b * X                                             # e_ϕϕ
+        ϵ[:,:,4] = s * dYdθ                                                     # e_rθ
+        ϵ[:,:,5] = s * dYdϕ .* 1.0 ./ sin.(clats)                               # e_rϕ
+        ϵ[:,:,6] = 0.5b * Z                                                     # e_θϕ
+    end
+
+
+    """
+        darcy_y9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8)
+
+    Tangential displacement of the melt relative to the matrix, y9, from the tangential component of Darcy's law (as in
+    `compute_darcy_displacement!`): y9 = i k / (ω ϕ ηl r) (ρl g y1 - ρl y5 + ρl g y8 + y7).
+    """
+    darcy_y9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8) = 1im * k / (ω * ϕ * ηl * r) * (ρl * g * y1 - ρl * y5 + ρl * g * y8 + y7)
+
+
+    """
+        strain_parts(y, r_c, r_grid, n, μ, Kb, α, disp, jump)
+
+    Strain amplitudes (e, s, a, b of `shear_integral`) of a nodal solution `y` (columns at the cell centres `r_c`, cells
+    [r_grid[q], r_grid[q+1]]), split into the parts over which each cell's dissipation is integrated.
+
+    - Nodes with `disp[q]` use the displacement-based strain: on each interval between nodes j and j+1,
+      e = dU/dr, s = (dV/dr - V/r + U/r)/2, a = (U - L V/2)/r, b = V/r from the node values at the midpoint. Each interval
+      is split at the cell face and each half belongs to its own node's cell (the end cells also get the half-cells
+      [r_grid[1], r_c[1]] and [r_c[end], r_grid[end]] with the first/last interval's strain). Where `jump[j]` marks a
+      material change between nodes j and j+1, each half takes the strain of the neighbouring interval on its own side,
+      so no difference is taken across a jump of V (free slip), U (open pores) or R (porosity jump).
+    - Other nodes use the stress-based node strain of `compute_strain_ten!` (from y3, y4 and the pore pressure y7, with
+      the bulk modulus `Kb` of the node's motion matrix), at r_grid[q] with the weight r^2 dr.
+
+    # Returns
+    NamedTuple of vectors over the parts: `q` (cell), `e, s, a, b`, `y` (the state vector the part uses), `r` (its
+    radius) and `w` (integral of r^2 dr over the part).
+    """
+    function strain_parts(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, n::Int, μ::AbstractVector,
+                          Kb::AbstractVector, α::AbstractVector, disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        L = n * (n + 1)
+        rc = Float64.(r_c); rg = Float64.(r_grid)
+        q_ = Int[]; e_ = ComplexF64[]; s_ = ComplexF64[]; a_ = ComplexF64[]; b_ = ComplexF64[]
+        y_ = Vector{ComplexF64}[]; r_ = Float64[]; w_ = Float64[]
+        function add!(q, e, s, a, b, yv, r, w)
+            push!(q_, q); push!(e_, e); push!(s_, s); push!(a_, a); push!(b_, b); push!(y_, yv); push!(r_, r); push!(w_, w)
+        end
+
+        # displacement-based strain on the interval between nodes j and j+1 (midpoint values)
+        function interval_strain(j)
+            h = rc[j+1] - rc[j]; rm = 0.5 * (rc[j] + rc[j+1])
+            U, V = 0.5 * (y[1, j] + y[1, j+1]), 0.5 * (y[2, j] + y[2, j+1])
+            dU, dV = (y[1, j+1] - y[1, j]) / h, (y[2, j+1] - y[2, j]) / h
+            return dU, 0.5 * (dV - V / rm + U / rm), (U - 0.5L * V) / rm, V / rm, ComplexF64.(0.5 .* (y[:, j] .+ y[:, j+1])), rm
+        end
+        for j in 1:Nc-1
+            parts = [(j, rc[j], rg[j+1]), (j + 1, rg[j+1], rc[j+1])]
+            j == 1 && push!(parts, (1, rg[1], rc[1]))
+            j == Nc - 1 && push!(parts, (Nc, rc[Nc], rg[Nc+1]))
+            for (q, lo, hi) in parts
+                disp[q] || continue
+                jj = clamp(jump[j] ? (q == j ? j - 1 : j + 1) : j, 1, Nc - 1)   # one-sided across a material face
+                e, s, a, b, ym, rm = interval_strain(jj)
+                add!(q, e, s, a, b, ym, rm, (hi^3 - lo^3) / 3)
+            end
+        end
+
+        # stress-based node strain (compute_strain_ten! in closed form)
+        for q in 1:Nc
+            disp[q] && continue
+            rr = rg[q]
+            μq, Kq, αq = ComplexF64(μ[q]), ComplexF64(Kb[q]), ComplexF64(α[q])
+            λ = Kq - 2μq / 3; β = λ + 2μq
+            yq = ComplexF64.(y[:, q])
+            e = (-2λ * yq[1] + L * λ * yq[2] + rr * yq[3] + rr * αq * yq[7]) / (β * rr)
+            add!(q, e, 0.5 / μq * yq[4], (yq[1] - 0.5L * yq[2]) / rr, yq[2] / rr, yq, rr, rr^2 * (rg[q+1] - rg[q]))
+        end
+
+        return (q = q_, e = e_, s = s_, a = a_, b = b_, y = y_, r = r_, w = w_)
+    end
+
+
+    """
+        get_heating_profile_nodal(y, r_c, r_grid, ρ, g, μ, Ks, Kd, α, ϕ, Kl, ηl, k, ρl, σR, porous, n, ω; disp, jump)
+
+    Radial volumetric heating of a nodal solution `y` (8 x N_c, standard order U, V, y3, y4, y5, y6, P, R; zeros in the
+    slots a node does not carry) with the solution at the cell centres `r_c` and cells [r_grid[q], r_grid[q+1]]. This is
+    the counterpart of `get_heating_profile` for solvers whose nodes sit at the cell centres (fluid1d_relax): the strain
+    comes from `strain_parts` (displacement-based where `disp`, stress-based elsewhere), the angular integrals are analytic
+    (`shear_integral`, single degree n), and a Rayleigh drag channel is added.
+
+    Channels, per unit forcing, as the shell mean (angular integral over 4π, the convention of `get_heating_profile`):
+    - shear     ω Im(μ) |ε_dev|^2
+    - bulk      `biot_bulk_dissipation`, with the bulk modulus of the node's motion matrix (K_d where `porous`, else K_s)
+    - Darcy     ϕ^2 ω^2 (ηl / k) |u_rel|^2 / 2, u_rel = (y8 Y, y9 ∇₁Y) the relative melt displacement (`porous` nodes only)
+    - drag      ρ σR ω^2 |u_h|^2 / 2, u_h = V ∇₁Y, at the node's cell (σR > 0 only)
+
+    # Arguments
+    - `y::AbstractMatrix`                : Solution at the nodes (8 x N_c).
+    - `r_c, r_grid`                      : Node radii (N_c) and cell faces (N_c + 1) [m].
+    - `ρ, g, μ, Ks, Kd, α`               : Density, gravity, complex shear, grain bulk and drained bulk moduli, Biot coefficient.
+    - `ϕ, Kl, ηl, k, ρl`                 : Porosity, melt bulk modulus, melt viscosity, permeability, melt density.
+    - `σR`                               : Rayleigh drag rate [s^-1] per node.
+    - `porous::AbstractVector{Bool}`     : Nodes solved with the two-phase (8-state) matrix.
+    - `n::Int`                           : Tidal degree.
+    - `ω::Real`                          : Forcing frequency [rad s^-1].
+
+    # Keyword Arguments
+    - `disp::AbstractVector{Bool}`       : Nodes with the displacement-based strain (`strain_parts`).
+    - `jump::AbstractVector{Bool}`       : Material change between nodes j and j+1 (length N_c - 1).
+
+    # Returns
+    - `Eμ_tot, Eκ_tot, El_tot, Ed_tot`   : Shear, bulk, Darcy and drag heating per cell (W/m³ per unit forcing).
+    """
+    function get_heating_profile_nodal(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, Kd::AbstractVector, α::AbstractVector, ϕ::AbstractVector, Kl::AbstractVector, ηl::AbstractVector, k::AbstractVector, ρl::AbstractVector, σR::AbstractVector, porous::AbstractVector{Bool}, n::Int, ω::Real; disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        L = n * (n + 1)
+        ω = Float64(ω)
+        rg = Float64.(r_grid)
+        Kb = [porous[q] ? ComplexF64(Kd[q]) : ComplexF64(Ks[q]) for q in 1:Nc]
+        pt = strain_parts(y, r_c, rg, n, μ, Kb, α, disp, jump)
+
+        Eμ_tot = zeros(Float64, Nc)
+        Eκ_tot = zeros(Float64, Nc)
+        El_tot = zeros(Float64, Nc)
+        Ed_tot = zeros(Float64, Nc)
+
+        for i in eachindex(pt.q)
+            q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
+            e, s, a, b = pt.e[i], pt.s[i], pt.a[i], pt.b[i]
+            p = porous[q] ? yp[7] : 0.0im
+            Eμ_tot[q] += ω * imag(μ[q]) * shear_integral(e, s, a, b, L) * w
+            Eκ_tot[q] += biot_bulk_dissipation([e + 2a], [p], ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q]))[1] * w
+            if porous[q]
+                y9 = darcy_y9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
+                El_tot[q] += 0.5 * ϕ[q]^2 * ω^2 * (ηl[q] / k[q]) * (abs2(yp[8]) + L * abs2(y9)) * w
+            end
+        end
+
+        # drag: angular integral of |∇₁Y|^2 is L
+        for q in 1:Nc
+            σR[q] > 0 || continue
+            Ed_tot[q] = 0.5 * ρ[q] * σR[q] * ω^2 * L * abs2(y[2, q]) * (rg[q+1]^3 - rg[q]^3) / 3
+        end
+
+        # power per cell over 4π times the cell volume: shell mean
+        dvol = 4π / 3 .* (rg[2:end].^3 .- rg[1:end-1].^3)
+        return Eμ_tot ./ dvol, Eκ_tot ./ dvol, El_tot ./ dvol, Ed_tot ./ dvol
+    end
+
+
+    """
+        get_heating_map_nodal(y, r_c, r_grid, ρ, g, μ, Ks, Kd, α, ϕ, Kl, ηl, k, ρl, σR, porous, n, ω, SphericalGrid; disp, jump)
+
+    Heating maps of a nodal solution on the angular grid of `define_spherical_grid`, the counterpart of `get_heating_map`
+    for `get_heating_profile_nodal` (same strain parts and channels, evaluated on the grid instead of integrated
+    analytically). The angular integral of each map (weights sin θ dres^2) converges to the profile.
+
+    # Returns
+    - `Eμ_3d, Eκ_3d, El_3d, Ed_3d`       : Shear, bulk, Darcy and drag maps (lat x lon x cell), in the convention of
+                                           `get_heating_map`.
+    """
+    function get_heating_map_nodal(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, Kd::AbstractVector, α::AbstractVector, ϕ::AbstractVector, Kl::AbstractVector, ηl::AbstractVector, k::AbstractVector, ρl::AbstractVector, σR::AbstractVector, porous::AbstractVector{Bool}, n::Int, ω::Real, SphericalGrid::NamedTuple; disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        ω = Float64(ω)
+        rg = Float64.(r_grid)
+        Kb = [porous[q] ? ComplexF64(Kd[q]) : ComplexF64(Ks[q]) for q in 1:Nc]
+        pt = strain_parts(y, r_c, rg, n, μ, Kb, α, disp, jump)
+
+        clats = SphericalGrid.clats
+        Y     = SphericalGrid.Y[1, :, :]
+        dYdθ  = SphericalGrid.dYdθ[1, :, :]
+        dYdϕ  = SphericalGrid.dYdϕ[1, :, :] ./ sin.(clats)
+        nlats, nlons = size(Y)
+
+        ϵ = zeros(ComplexF64, nlats, nlons, 6)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nc)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nc)
+        El_3d = zeros(Float64, nlats, nlons, Nc)
+        Ed_3d = zeros(Float64, nlats, nlons, Nc)
+
+        for i in eachindex(pt.q)
+            q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
+            strain_on_grid!(ϵ, pt.e[i], pt.s[i], pt.a[i], pt.b[i], SphericalGrid)
+            tr = sum(ϵ[:,:,1:3], dims=3)[:,:,1]
+
+            Eμ_loc = sum(abs.(ϵ[:,:,1:3]).^2, dims=3)[:,:,1] .+ 2sum(abs.(ϵ[:,:,4:6]).^2, dims=3)[:,:,1] .- 1/3 .* abs.(tr).^2
+            Eμ_3d[:, :, q] .+= ω * imag(μ[q]) .* Eμ_loc .* w
+
+            p = porous[q] ? yp[7] .* Y : zeros(ComplexF64, nlats, nlons)
+            Eκ_3d[:, :, q] .+= biot_bulk_dissipation(tr, p, ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q])) .* w
+
+            if porous[q]
+                y9 = darcy_y9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
+                El_3d[:, :, q] .+= 0.5 * ϕ[q]^2 * ω^2 * (ηl[q] / k[q]) .* (abs2.(yp[8] .* Y) .+ abs2.(y9 .* dYdθ) .+ abs2.(y9 .* dYdϕ)) .* w
+            end
+        end
+
+        for q in 1:Nc
+            σR[q] > 0 || continue
+            Ed_3d[:, :, q] .= 0.5 * ρ[q] * σR[q] * ω^2 * abs2(y[2, q]) .* (abs2.(dYdθ) .+ abs2.(dYdϕ)) .* (rg[q+1]^3 - rg[q]^3) / 3
+        end
+
+        # same normalisation as get_heating_map: local density times (integral of r^2 dr) / cell volume
+        dvol = reshape(4π / 3 .* (rg[2:end].^3 .- rg[1:end-1].^3), 1, 1, Nc)
+        return Eμ_3d ./ dvol, Eκ_3d ./ dvol, El_3d ./ dvol, Ed_3d ./ dvol
+    end
+
+
+    """
+        cell_average(r_fine, f_fine, r_coarse)
+
+    Volume-weighted average of a radial field, piecewise constant on fine shells, onto coarser shells.
+
+    `f_fine[i]` is the value on the fine shell `[r_fine[i], r_fine[i+1]]`. The result `f[j]` is the average over the coarse
+    shell `[r_coarse[j], r_coarse[j+1]]`, weighted by the exact overlap volume, so that the volume integral is conserved:
+    `sum(f .* dV_coarse) == sum(f_fine .* dV_fine)` over the common radial range. The shell boundaries need not coincide.
+    Parts of fine shells outside `[r_coarse[1], r_coarse[end]]` are ignored.
+
+    Used to hand the heating density computed on the solver grid back on the interior-model grid. Sampling the fine profile
+    at the coarse cell centres instead misses dissipation that is concentrated inside a cell (e.g. a poroelastic boundary
+    layer or a standing shear wave next to a sharp interior jump), which breaks the heating vs Love-number energy balance.
+
+    # Arguments
+    - `r_fine::AbstractVector`          : Increasing fine shell boundaries (length N_f + 1).
+    - `f_fine::AbstractVector`          : Values on the fine shells (length N_f).
+    - `r_coarse::AbstractVector`        : Increasing coarse shell boundaries (length N_c + 1).
+
+    # Returns
+    - `f::Vector{Float64}`              : Volume-averaged values on the coarse shells (length N_c).
+    """
+    function cell_average(r_fine::AbstractVector, f_fine::AbstractVector, r_coarse::AbstractVector)::Vector{Float64}
+        N_f = length(f_fine)
+        N_c = length(r_coarse) - 1
+        if length(r_fine) != N_f + 1
+            throw(ArgumentError("cell_average: length(r_fine) = $(length(r_fine)) must equal length(f_fine) + 1 = $(N_f + 1)"))
+        end
+        if N_c < 1
+            throw(ArgumentError("cell_average: r_coarse needs at least two boundaries"))
+        end
+        if any(diff(r_fine) .<= 0) || any(diff(r_coarse) .<= 0)
+            throw(ArgumentError("cell_average: shell boundaries must be strictly increasing"))
+        end
+
+        rf = Float64.(r_fine)
+        rc = Float64.(r_coarse)
+        acc = zeros(Float64, N_c)
+        j = 1
+        for i in 1:N_f
+            a, b = rf[i], rf[i+1]
+            # first coarse shell whose top lies above the bottom of this fine shell
+            while j <= N_c && rc[j+1] <= a
+                j += 1
+            end
+            jj = j
+            while jj <= N_c && rc[jj] < b
+                lo = max(a, rc[jj])
+                hi = min(b, rc[jj+1])
+                if hi > lo
+                    acc[jj] += Float64(f_fine[i]) * (hi^3 - lo^3)
+                end
+                jj += 1
+            end
+        end
+
+        # the common factor 4π/3 cancels between overlap and shell volumes
+        return acc ./ (rc[2:end].^3 .- rc[1:end-1].^3)
+    end
+
+
+    """
+        cell_average_map(r_fine, map_fine, r_coarse)
+
+    Apply `cell_average` along the radial (third) dimension of a (lat, lon, r) heating map.
+    """
+    function cell_average_map(r_fine::AbstractVector, map_fine::AbstractArray{<:Real,3}, r_coarse::AbstractVector)::Array{Float64,3}
+        nlat, nlon, _ = size(map_fine)
+        out = zeros(Float64, nlat, nlon, length(r_coarse) - 1)
+        for lon_idx in 1:nlon, lat_idx in 1:nlat
+            out[lat_idx, lon_idx, :] .= cell_average(r_fine, view(map_fine, lat_idx, lon_idx, :), r_coarse)
+        end
+        return out
     end
 
 end
