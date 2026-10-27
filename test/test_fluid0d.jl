@@ -63,4 +63,62 @@ using Obliqua.fluid0d
         
         @test_throws DimensionMismatch mean_rho(ρ_mismatch, r_mismatch)
     end
+
+    @testset "enclosed_mean_rho (self-attraction density)" begin
+        # Earth-like: core of 12274 kg/m^3 to 3355 km under a fully molten
+        # mantle of 3247 kg/m^3 to 6338 km (values from a saved PROTEUS run).
+        rc, R = 3.355e6, 6.338e6
+        ρc, ρm = 12274.0, 3247.0
+        M = 4/3 * π * (rc^3 * ρc + (R^3 - rc^3) * ρm)
+        ρ_bar = enclosed_mean_rho(M, R)
+        @test ρ_bar ≈ M / (4/3 * π * R^3)
+        # Consistent with surface gravity: rho_bar = 3 g / (4 pi G R)
+        G = 6.6743e-11
+        @test ρ_bar ≈ 3 * (G * M / R^2) / (4 * π * G * R)
+        # Discriminating: the fluid/enclosed ratio (~0.71) differs from the
+        # fluid/core ratio (~0.26) by far more than rounding
+        @test isapprox(ρm / ρ_bar, 0.708; atol=0.005)
+        @test abs(ρm / ρ_bar - ρm / ρc) > 0.3
+        # Bounded by the densest and lightest enclosed material
+        @test ρm < ρ_bar < ρc
+        # Uniform body: enclosed mean equals the material density
+        @test enclosed_mean_rho(4/3 * π * R^3 * 3300.0, R) ≈ 3300.0
+        # Error contract: a non-positive radius is rejected
+        @test_throws DomainError enclosed_mean_rho(1.0e24, 0.0)
+        @test_throws DomainError enclosed_mean_rho(1.0e24, -1.0)
+    end
+end
+
+@testset "run_fluid0d surface gravity" begin
+    # Thin (87 km) magma ocean on an Earth-sized solid interior. The shallow-water
+    # mode sigma_n = sqrt(n(n+1) g H)/R must use the gravity at the ocean surface
+    # from the full enclosed mass (g_top), not only the ocean shells' own mass.
+    G_si  = Float64(Obliqua.constants.G)
+    r     = Obliqua.prec.(collect(range(6.25e6, 6.337e6, length=4)))
+    ρ     = Obliqua.prec.(fill(3000.0, 3))
+    R     = Float64(maximum(r))
+    H     = Float64(r[end] - r[1])
+    ω     = 4.5e-4
+    σ_R   = 1.0e-4
+    ρ_rat = Obliqua.prec(0.7)
+    g_top = 10.28
+
+    kT, kL = Obliqua.run_fluid0d(ω, ρ, r, ρ_rat; n=2, sigma_R=σ_R, g_top=g_top)
+    kT_ref, kL_ref = compute_fluid_lovenumbers(ω, R, H, g_top, Float64(ρ_rat), 2, σ_R)
+    @test kT ≈ kT_ref rtol=1e-12
+    @test kL ≈ kL_ref rtol=1e-12
+
+    # Legacy fallback (g from the ocean shells only) is ~0.4 m/s^2 here, ~25x too
+    # small; it must stay available but give a clearly different response.
+    g_shell = G_si * sum(4/3 * π * (Float64.(r[2:end]).^3 .- Float64.(r[1:end-1]).^3) .* 3000.0) / R^2
+    @test g_shell < g_top / 10
+    kT_legacy, _ = Obliqua.run_fluid0d(ω, ρ, r, ρ_rat; n=2, sigma_R=σ_R)
+    kT_legacy_ref, _ = compute_fluid_lovenumbers(ω, R, H, g_shell, Float64(ρ_rat), 2, σ_R)
+    @test kT_legacy ≈ kT_legacy_ref rtol=1e-10
+    @test abs(kT_legacy - kT) > 0.5 * abs(kT)
+
+    # Passivity for forcing of either sign: sign(ω) * Im(k_T) <= 0.
+    kT_neg, _ = Obliqua.run_fluid0d(-ω, ρ, r, ρ_rat; n=2, sigma_R=σ_R, g_top=g_top)
+    @test imag(kT) <= 0
+    @test imag(kT_neg) >= 0
 end
