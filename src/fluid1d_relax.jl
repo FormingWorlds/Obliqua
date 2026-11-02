@@ -16,8 +16,10 @@
 #   fluid  : the 6x6 matrix with the layer's own complex shear modulus (for a melt, mu_c ~ i w eta), the undrained
 #            (Gassmann) bulk modulus of its frame, grain and melt moduli (kappa_l for phi = 1), no porosity, and an
 #            absolute Rayleigh drag sigma_R on the horizontal motion only (eq:A_drag): rho w^2 -> rho w (w - i sigma_R)
-#            in the tangential momentum row. The fluid layers are those from the surface down below a viscosity
-#            cutoff (fluid_mask), the same at every forcing frequency.
+#            in the tangential momentum row. The fluid layers are the surface-connected layers selected by
+#            fluid_criterion (fluid_measure): below a viscosity cutoff, or where the drained frame modulus is zero
+#            (skeleton failure). With the skeleton criterion the drag also acts on the solid and mush layers below,
+#            down to where the loss modulus stops exceeding the storage modulus at the forcing frequency.
 #
 # Interfaces (sec:general_interface): every face is a list of linear conditions L y- = G y+ on the face values
 # y- = C_n y_n and y+ = -D_{n+1} y_{n+1} (eq:face_values, eq:interface_LG), which turns the cell equation into
@@ -64,6 +66,7 @@ module fluid1d_relax
 
     export column_spec, column_solve, column_heating, column_heating_map, solve_column, face_residuals, tidal_work
     export interface_conditions, interface_step, liquid_core_rows, A_drag, node_slots, refine_layers, fluid_mask
+    export fluid_measure, fluid_mask_x, skeleton_measure
     export boundary_layer_resolution
 
     # storage slots: U 1, V 2, Phi 3, P 4, X 5, Y 6, Psi 7, R 8
@@ -103,7 +106,7 @@ module fluid1d_relax
     # Arguments
     - `ω, r, ρ, g, μ, K`  : Non-dimensional frequency, radius, density, gravity and complex moduli of the node.
     - `n::Int`            : Spherical-harmonic degree.
-    - `σd`                : Non-dimensional drag rate sigma_R / omega_0 (0 for solid nodes).
+    - `σd`                : Non-dimensional drag rate sigma_R / omega_0 (0 for undragged nodes).
     """
     function A_drag(ω, r, ρ, g, μ, K, n, σd; G0, inertial_terms, Y)
         A = get_A(ω, r, ρ, g, μ, K, n; G0 = G0, inertial_terms = inertial_terms, Y = Y)
@@ -119,7 +122,7 @@ module fluid1d_relax
         refine_layers(n_sub, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu=nothing) -> NamedTuple
 
     Split every input layer into `n_sub` equal radial sub-layers and interpolate the layer values linearly in radius
-    between the layer centres (flat beyond the first and last centre). The fluid mask (`fluid_mask`) is evaluated
+    between the layer centres (flat beyond the first and last centre). The fluid class (`fluid_measure`) is evaluated
     on the sub-layers, so an interface moves with the layer values instead of jumping by a whole layer when one layer
     changes class.
 
@@ -183,9 +186,9 @@ module fluid1d_relax
     Frequency-dependent column of the whole interior (core to surface) on Obliqua's resampled grid, as a NamedTuple
     for `column_solve` and `column_heating`.
 
-    The layers from the surface down below the viscosity `visc_fluid` are fluid (`fluid_mask`): they keep their shear
+    The surface-connected layers selected by `fluid_criterion` are fluid (`fluid_measure`, `fluid_mask_x`): they keep their shear
     modulus, take the undrained (Gassmann) modulus of their frame, grain and melt moduli as their only bulk modulus (the
-    mush limit without Darcy flow; the melt modulus for phi = 1), no porosity, and the drag sigma_R. Porosity below                 ### Check overwritten values
+    mush limit without Darcy flow; the melt modulus for phi = 1), no porosity, and the drag sigma_R. Porosity below
     `porosity_thresh` is set to zero (as in the mush solver), so a layer with phi < porosity_thresh is solid. With `κu`
     (the undrained modulus of the interior rheology, per layer) that modulus replaces the Gassmann modulus built here
     wherever it is positive; the interior computes it with the melt volume fraction.
@@ -212,6 +215,7 @@ module fluid1d_relax
     - `visc_fluid=1e8`       : Viscosity [Pa s] below which the layers connected to the surface are fluid, at every
                                frequency. Layers with η >~ 1e10 Pa s as fluid break the energy closure of the heating.
     - `n_sub=1`              : Interpolated sub-layers per input layer (`refine_layers`).
+    - `fluid_criterion=:viscosity`: `:viscosity` (η < visc_fluid) or `:skeleton` (drained frame modulus zero)
     - `κu=nothing`           : Undrained bulk modulus per input layer [Pa] (entries <= 0: Gassmann of the layer here).
 
     A layer below the porosity threshold is solved as non-porous with the undrained (Gassmann) bulk modulus of its
@@ -225,11 +229,14 @@ module fluid1d_relax
                          κ_core::Number; σ_R::Real = 1e-4, dr_min::Integer = 300, dr_max::Integer = 3000,
                          core::String = "liquid", ω_sw::Real = 1e-5, inertial_terms::Bool = true,
                          porosity_thresh::Real = 0.0, slip::Symbol = :freeslip, pores::Symbol = :open,
-                         visc_fluid::Real = 1e8, n_sub::Integer = 1, κu = nothing)
+                         visc_fluid::Real = 1e8, n_sub::Integer = 1, κu = nothing,
+                         fluid_criterion::Symbol = :viscosity)
         # check arguments
         ω != 0 || throw(ArgumentError("column_spec: ω must be nonzero (evaluate the relaxed limit at a small ω)"))
         visc_fluid > 0 || throw(ArgumentError("column_spec: visc_fluid = $visc_fluid must be > 0"))
         σ_R >= 0 || throw(ArgumentError("column_spec: σ_R = $σ_R must be >= 0 (passivity)"))
+        fluid_criterion in (:viscosity, :skeleton) ||
+            throw(ArgumentError("column_spec: fluid_criterion must be :viscosity or :skeleton"))
         slip in (:freeslip, :noslip) || throw(ArgumentError("column_spec: slip must be :freeslip or :noslip"))
         pores in (:open, :closed) || throw(ArgumentError("column_spec: pores must be :open or :closed"))
         Nl = length(ρ)
@@ -247,8 +254,11 @@ module fluid1d_relax
             Nl = length(ρ)
         end
 
-        # the low-viscosity layers connected to the surface are fluid, the same at every frequency
-        fluid = fluid_mask(η; visc_fluid = visc_fluid)
+        # the surface-connected layers selected by fluid_criterion are fluid (viscosity cutoff or failed frame)
+        fluid = fluid_mask_x(fluid_measure(η, μc; criterion = fluid_criterion, visc_fluid = visc_fluid,
+                                           κdc = κdc, κc = κc, ϕ = ϕ))
+        # with :skeleton the drag also acts below the fluid, in the surface-connected layers where loss > storage
+        dragged = fluid_criterion === :skeleton ? fluid .| fluid_mask_x(fluid_measure(η, μc; criterion = :loss)) : fluid
         any(i -> fluid[i] && iszero(μc[i]), 1:Nl) &&
             throw(ArgumentError("column_spec: a fluid layer has a zero shear modulus (give the melt μ and η)"))
         
@@ -292,8 +302,8 @@ module fluid1d_relax
         lay = [clamp(searchsortedfirst(rr, x) - 1, 1, Nl) for x in r_c]
         fl = [Bool(fluid[L]) for L in lay]
 
-        # Rayleigh drag profile for fluid layers (uniform)
-        σR = [fl[q] ? Float64(σ_R) : 0.0 for q in eachindex(r_c)]
+        # Rayleigh drag on the dragged nodes (the fluid, and with :skeleton the loss-dominated layers below it)
+        σR = [dragged[lay[q]] ? Float64(σ_R) : 0.0 for q in eachindex(r_c)]
 
         # node types: fluid, mush or solid
         types = [fl[q] ? :fluid : (ϕg[q] > 0 && kg[q] > 0) ? :mush : :solid for q in eachindex(r_c)]
@@ -326,6 +336,75 @@ module fluid1d_relax
         out = falses(length(η))
         i = length(η)
         while i >= 1 && η[i] < visc_fluid
+            out[i] = true
+            i -= 1
+        end
+        return collect(Bool, out)
+    end
+
+
+    """
+        fluid_measure(η, μc; criterion=:viscosity, visc_fluid=1e8) -> Vector{Float64}
+
+    Class variable per layer, negative where the layer is fluid-like.
+    
+    `:viscosity`: log(η / visc_fluid), the fixed cutoff.
+    `:skeleton`: negative where the drained frame modulus κdc has vanished.
+    `:loss`: negative where the loss modulus exceeds the storage modulus at the forcing frequency. 
+    """
+    function fluid_measure(η::AbstractVector, μc::AbstractVector; criterion::Symbol = :viscosity,
+                           visc_fluid::Real = 1e8, κdc = nothing, κc = nothing, ϕ = nothing)
+        # check arguments
+        criterion === :viscosity && return log.(Float64.(η)) .- log(visc_fluid)
+        criterion === :loss && return [log(abs(real(m)) / abs(imag(m))) for m in μc]
+        criterion === :skeleton ||
+            throw(ArgumentError("fluid_measure: criterion must be :viscosity, :loss or :skeleton"))
+        (κdc === nothing || κc === nothing || ϕ === nothing) &&
+            throw(ArgumentError("fluid_measure: criterion :skeleton needs κdc, κc and ϕ"))
+        return skeleton_measure(κdc, κc, ϕ)
+    end
+
+    """
+        skeleton_measure(κdc, κc, ϕ) -> Vector{Float64}
+
+    Class variable of the skeleton criterion, negative where the solid frame has failed. A layer with a frame
+    (Re κd > 0) gets x = Re κd / Re κs, which for the Nur critical-porosity frame is 1 - v / v_c (v the melt volume
+    fraction). A layer without a frame (Re κd <= 0, or ϕ >= 1) gets the value extrapolated from the nearest framed layer
+    j below, x = 1 - (1 - x_j) ϕ / ϕ_j (v / ϕ taken as equal in the two layers), capped below zero. The zero crossing
+    between a framed and a failed layer then moves continuously with the framed layer's κd.
+    """
+    function skeleton_measure(κdc::AbstractVector, κc::AbstractVector, ϕ::AbstractVector)
+        # check arguments
+        N = length(κdc)
+        (length(κc) == N && length(ϕ) == N) || throw(ArgumentError("skeleton_measure: inputs need equal length"))
+
+        # find layers with skeleton (Re κd > 0 and ϕ < 1)
+        framed = [real(κdc[i]) > 0 && ϕ[i] < 1 for i in 1:N]
+        # compute the class variable x: Re κd / Re κs for framed layers, -1 for failed layers
+        x = [framed[i] ? Float64(real(κdc[i]) / real(κc[i])) : -1.0 for i in 1:N]
+        # propagate the last framed value downwards to the failed layers, capped below zero
+        for i in 1:N
+            # if the current layer is framed, skip it
+            framed[i] && continue
+            # find the last framed layer j below i
+            j = findlast(view(framed, 1:i-1))
+            # if no framed layer is found, skip this layer
+            j === nothing && continue
+            # propagate the last framed value downwards, capped below zero
+            ϕ[j] > 0 && (x[i] = min(1 - (1 - x[j]) * ϕ[i] / ϕ[j], -1e-6))
+        end
+        return x
+    end
+
+    """
+        fluid_mask_x(x) -> Vector{Bool}
+
+    Fluid layers from a class variable (`fluid_measure`): the layers connected to the surface with x < 0.
+    """
+    function fluid_mask_x(x::AbstractVector)::Vector{Bool}
+        out = falses(length(x))
+        i = length(x)
+        while i >= 1 && x[i] < 0
             out[i] = true
             i -= 1
         end
@@ -542,10 +621,14 @@ module fluid1d_relax
         # motion matrix of node i in its own slot order (6x6 for solid/fluid, 8x8 for mush)
         function Anode(i)
             ti = t[i]
-            ti === :solid && return get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n; kw..., Y = Y6)
-            ti === :fluid && return A_drag(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n, σd[i]; kw..., Y = Y6)
-            ti === :mush && return get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], cs.α[i], ηₗs[i],
-                                         cs.ϕ[i], ks[i], n; kw..., Y = Y8)
+            (ti === :solid || ti === :fluid) && return A_drag(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n, σd[i]; kw..., Y = Y6)
+            if ti === :mush
+                A = get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], cs.α[i], ηₗs[i], cs.ϕ[i], ks[i],
+                          n; kw..., Y = Y8)
+                # drag on the matrix tangential motion, the (Y, V) entry of eq:A_drag (fluid_criterion = :skeleton)
+                iszero(σd[i]) || (A[Y8[4], Y8[2]] += 1im * ωs * ρs[i] * σd[i])
+                return A
+            end
             error("column_solve: unknown node type $ti")
         end
 

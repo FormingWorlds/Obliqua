@@ -383,6 +383,9 @@ module Obliqua
         omega_sw     = Float64(get(fluid_cfg, "omega_sw", 1e-5))    # liquid -> inertial-liquid core switch [rad s^-1]
         visc_fluid   = Float64(get(fluid_cfg, "visc_fluid", 1e8))   # viscosity below which surface layers are fluid [Pa s]
         n_sub        = Int(get(fluid_cfg, "n_sub", 1))              # interpolated sub-layers per input layer
+        fluid_criterion = Symbol(get(fluid_cfg, "fluid_criterion", "viscosity"))  # viscosity or skeleton
+        fluid_slip   = Symbol(get(fluid_cfg, "slip", "freeslip"))   # freeslip or noslip at solid/mush <-> fluid faces
+        fluid_pores  = Symbol(get(fluid_cfg, "pores", "open"))      # open or closed pores at mush <-> fluid faces
 
         module_mushy = cfg["orbit"]["obliqua"]["module_mushy"]
         if module_mushy == "interp"
@@ -871,7 +874,8 @@ module Obliqua
                             visc_l=Float64(visc_l),
                             porosity_thresh=Float64(porosity_thresh),
                             sigma_R=Float64(sigma_R), omega_sw=omega_sw,
-                            visc_fluid=visc_fluid, n_sub=n_sub
+                            visc_fluid=visc_fluid, n_sub=n_sub,
+                            fluid_criterion=fluid_criterion, slip=fluid_slip, pores=fluid_pores
                         )
                     else
                         throw("No compatible fluid tides module: $module_fluid.")
@@ -2747,7 +2751,7 @@ module Obliqua
 
 
     """
-        run_fluid1d_relax(omega, rho, radius, visc, shear, bulk, bulkd, alpha, phi, perm, bulk_liq, bulk_und, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, porosity_thresh=1e-5, sigma_R=1e-4, omega_sw=1e-5, visc_fluid=1e8, n_sub=1, closure_tol=1e-2)
+        run_fluid1d_relax(omega, rho, radius, visc, shear, bulk, bulkd, alpha, phi, perm, bulk_liq, bulk_und, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, porosity_thresh=1e-5, sigma_R=1e-4, omega_sw=1e-5, visc_fluid=1e8, n_sub=1, fluid_criterion=:viscosity, slip=:freeslip, pores=:open, closure_tol=1e-2)
 
     Use the 1D column model (`fluid1d_relax.jl`) to calculate kn Lovenumbers and the heating profile of the whole interior:
     one Henyey recursion from the CMB to the surface through solid, mush and fluid layers, the tidal Love number read at
@@ -2792,6 +2796,9 @@ module Obliqua
     - `omega_sw::Float64=1e-5`          : Core switch frequency [rad s^-1].
     - `visc_fluid::Float64=1e8`         : Viscosity below which the layers connected to the surface are fluid [Pa s].
     - `n_sub::Int=1`                    : Interpolated sub-layers per input layer (`fluid1d_relax.refine_layers`).
+    - `fluid_criterion::Symbol=:viscosity` : `:viscosity` or `:skeleton`.
+    - `slip::Symbol=:freeslip`          : `:freeslip` or `:noslip` at solid/mush <-> fluid faces.
+    - `pores::Symbol=:open`             : `:open` or `:closed` pores at mush <-> fluid faces.
     - `closure_tol::Float64=1e-2`       : |P_heating / P_tide - 1| above which a warning is logged.
 
     # Returns
@@ -2832,6 +2839,9 @@ module Obliqua
                                omega_sw::Float64=1e-5,
                                visc_fluid::Float64=1e8,
                                n_sub::Int=1,
+                               fluid_criterion::Symbol=:viscosity,
+                               slip::Symbol=:freeslip,
+                               pores::Symbol=:open,
                                closure_tol::Float64=1e-2)
 
         # a zero-frequency mode is solved at the relaxed limit 1e-14 rad/s
@@ -2843,8 +2853,9 @@ module Obliqua
                                        m_core, ρ_core, μ_core, κ_core;
                                        σ_R=sigma_R, dr_min=dr_min, dr_max=dr_max, core=core, ω_sw=omega_sw,
                                        inertial_terms=inertial_terms, porosity_thresh=porosity_thresh,
-                                       slip=:freeslip, pores=:open, visc_fluid=visc_fluid,
-                                       n_sub=n_sub, κu=bulk_und)
+                                       slip=slip, pores=pores, visc_fluid=visc_fluid,
+                                       n_sub=n_sub, κu=bulk_und,
+                                       fluid_criterion=fluid_criterion)
 
         # one recursion, Love number at R, heating with the strain recovery chosen by the energy closure
         sol = fluid1d_relax.solve_column(cs; n=n)
