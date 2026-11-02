@@ -28,12 +28,43 @@ using Obliqua.fluid0d
         ξ_n = 3.0 / (2.0 * n + 1.0) * ρ_ratio
         σ_n = sqrt(μ_n * g * H_magma / R^2)
         σ_T = omega - im * σ_R
-        k2_T_expected = -ξ_n * σ_n^2 / (omega * σ_T - σ_n^2)
+        k2_T_expected = -ξ_n * σ_n^2 / (omega * σ_T - (1 - ξ_n) * σ_n^2)
 
         @test k2_T ≈ k2_T_expected
+        # without self-attraction the restoring term is the full sigma_n^2
+        k2_T_noSA, _ = compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, σ_R; self_attraction=false)
+        @test k2_T_noSA ≈ -ξ_n * σ_n^2 / (omega * σ_T - σ_n^2)
         
         # 3. Verify currently hardcoded Load Love number
         @test k2_L == 0.0
+    end
+
+    @testset "self-attraction: static limits and resonance" begin
+        R, H, g, n, σ_R = 1.737e6, 50.0e3, 1.62, 2, 1.0e-6
+        ω_static = 1.0e-12
+        # homogeneous body (rho_ratio = 1): static k2 is the fluid Love number 3/2, not xi_2 = 0.6
+        k_hom, _ = compute_fluid_lovenumbers(ω_static, R, H, g, 1.0, n, σ_R)
+        @test real(k_hom) ≈ 1.5 rtol=1e-6
+        k_hom_noSA, _ = compute_fluid_lovenumbers(ω_static, R, H, g, 1.0, n, σ_R; self_attraction=false)
+        @test real(k_hom_noSA) ≈ 0.6 rtol=1e-6
+        @test abs(real(k_hom) - real(k_hom_noSA)) > 0.5
+        # degree 3: 3 / (2 (n - 1)) = 0.75
+        k3, _ = compute_fluid_lovenumbers(ω_static, R, H, g, 1.0, 3, σ_R)
+        @test real(k3) ≈ 0.75 rtol=1e-6
+        # light ocean (rho_ratio = 0.9, xi = 0.54): static xi / (1 - xi) = 1.174
+        ξ = 0.6 * 0.9
+        k_l, _ = compute_fluid_lovenumbers(ω_static, R, H, g, 0.9, n, σ_R)
+        @test real(k_l) ≈ ξ / (1 - ξ) rtol=1e-6
+        # the -Im peak sits at the self-attracted gravity-wave frequency sqrt(1 - xi) sigma_n (weak drag)
+        σ_n = sqrt(6 * g * H / R^2)
+        ωs = σ_n .* 10 .^ range(-0.6, 0.2, length=4001)
+        ks = [compute_fluid_lovenumbers(w, R, H, g, 0.9, n, σ_R)[1] for w in ωs]
+        @test ωs[argmax(-imag.(ks))] ≈ sqrt(1 - ξ) * σ_n rtol=1e-3
+        @test abs(ωs[argmax(-imag.(ks))] / σ_n - 1) > 0.2
+        @test all(imag.(ks) .< 0)
+        # xi >= 1 (rho_ratio >= 5/3 for n = 2) has no restoring force
+        @test_throws DomainError compute_fluid_lovenumbers(1e-5, R, H, g, 5 / 3, n, σ_R)
+        @test compute_fluid_lovenumbers(1e-5, R, H, g, 5 / 3, n, σ_R; self_attraction=false)[1] isa ComplexF64
     end
 
     @testset "mean_rho (Volume-Weighted Density)" begin

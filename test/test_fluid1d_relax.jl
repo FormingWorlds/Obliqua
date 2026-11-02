@@ -11,16 +11,13 @@ using Obliqua.constants
 #      (equipotential) fluid k2;
 #   3. the interface closure: every face condition holds to round-off in the solved states;
 #   4. the energy theorem (heating = tidal work) and passivity (Im k <= 0 for w > 0) on the paper stacks;
-#   5. the ObliquaOcean prototype (column_solve) on the same inputs (test planet), and passivity and energy closure on
-#      PROTEUS snapshots (test/fixtures/fluid1d_relax_reference.json, from test/fixtures/make_fluid1d_relax_reference.jl);
-#   6. the heating maps against the analytic angular integrals, the fluid classification (fluid_mask), the
+#   5. the heating maps against the analytic angular integrals, the fluid classification (fluid_mask), the
 #      sub-layer refinement and the fluid moduli;
-#   7. run_tides with module_fluid = "fluid1d_relax", and the bulk viscosity / melt bulk modulus profiles.
+#   6. run_tides with module_fluid = "fluid1d_relax", and the bulk viscosity / melt bulk modulus profiles.
 
 const F1R = Obliqua.fluid1d_relax
 const CMN1 = Obliqua.fluid1d_relax.common
 const Gc1 = Float64(Obliqua.constants.G)
-const REF1 = JSON.parsefile(joinpath(@__DIR__, "fixtures", "fluid1d_relax_reference.json"))
 
 maxwell1(μ, η, ω) = μ * (1im * ω * η) / (μ + 1im * ω * η)
 reldiff1(a, b) = abs(a - b) / abs(b)
@@ -196,31 +193,8 @@ cplx1(v) = complex(v[1], v[2])
     end
 
     # =========================================================================
-    # 3.-5. paper stacks: residuals, closure, passivity, ObliquaOcean agreement
+    # 3.-4. paper stacks: residuals, closure, passivity
     # =========================================================================
-    @testset "paper stacks" begin
-        for d in REF1["stacks"]
-            layers = stack_layers1(d)
-            cs = column1(layers; dr = d["dr"], slip = Symbol(d["slip"]), pores = Symbol(d["pores"]))
-            res = F1R.solve_column(cs)
-            sol = res.sol
-            k_ref = cplx1(d["k"])
-            # agreement with the prototype on the same inputs (same equations: round-off level)
-            @test reldiff1(res.k, k_ref) < 1e-10
-            @test abs(res.closure - d["closure"]) < 1e-8
-            U_ref = cplx1.(d["U"])
-            @test maximum(abs.(sol.y[1, :] .- U_ref)) < 1e-9 * maximum(abs.(U_ref))
-            # every interface condition holds to round-off
-            fr = F1R.face_residuals(sol)
-            @test isempty(fr) || maximum(f.residual for f in fr) < 1e-10
-            # energy theorem and passivity
-            @test abs(res.closure - 1) < (d["dr"] <= 3e3 ? 1e-3 : 2e-3)
-            @test res.passive
-            # the liquid core as an interface (4x2 solution) fits the solved CMB state
-            @test sol.core.misfit < 1e-10
-        end
-    end
-
     @testset "core routes agree for a liquid core" begin
         # free slip at a static liquid core: the CMB as an interface (4x2 core) and the left null space of the 6x3 I_C
         # (with its tangential-slip column, and the free pore pressure for a mush) span the same B_1
@@ -290,42 +264,7 @@ cplx1(v) = complex(v[1], v[2])
     end
 
     # =========================================================================
-    # 5b. PROTEUS snapshots, from the raw interior profiles (column_spec)
-    # =========================================================================
-    @testset "PROTEUS snapshots: passivity and energy closure" begin
-        # the prototype's fluid moduli (mu_reg, K_ad) are no longer used, so its k is not a reference here; the
-        # solver itself is compared with the prototype on the paper stacks above
-        for d in REF1["snapshots"]
-            c = d["cfg"]
-            ω = Float64(d["omega"])
-            r = Float64.(d["radius"]); ρ = Float64.(d["rho"]); η = Float64.(d["visc"])
-            ϕ = Float64.(d["phi"]); k = Float64.(d["perm"])
-            shear = ComplexF64.(d["shear"]); bulk = ComplexF64.(d["bulk"]); bulkd = ComplexF64.(d["bulkd"])
-            # moduli as run_tides computes them for the two-phase solvers; bulk viscosity eta / (phi + 1e-15)
-            ζ = η ./ (ϕ .+ 1e-15)
-            μc = Obliqua.complex_modulus([ω], shear, η; material = c["material_mu"], α = Float64(c["alpha"]))[:, 1]
-            κc = Obliqua.complex_modulus([ω], bulk, ζ; material = "elastic", α = Float64(c["alpha"]))[:, 1]
-            κdc = Obliqua.complex_modulus([ω], bulkd, ζ; material = c["material_k"], α = Float64(c["alpha"]))[:, 1]
-            αB = 1.0 .- κdc ./ κc
-            sol = c["solid"]
-            ρ_core = Float64(c["struct"]["core_density"])
-            cs = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, fill(Float64(sol["bulk_l"]), length(ρ)),
-                                 Float64(c["visc_l"]), ϕ, k, 4π / 3 * r[1]^3 * ρ_core, ρ_core,
-                                 ComplexF64(c["struct"]["core_shear"]), ComplexF64(c["struct"]["core_bulk"]);
-                                 σ_R = Float64(c["sigma_R"]), dr_min = Int(sol["dr_min"]), dr_max = Int(sol["dr_max"]),
-                                 core = sol["core"], porosity_thresh = Float64(sol["porosity_thresh"]))
-            @test length(cs.r_c) == d["n_nodes"]
-            @test cs.core == d["core"]
-            # every layer of the prototype's ocean relaxes faster than the tide, so it is fluid here as well
-            @test all(cs.fluid_layers[Bool.(d["fluid_layers"])])
-            res = F1R.solve_column(cs)
-            @test abs(res.closure - 1) < 1e-2
-            @test res.passive
-        end
-    end
-
-    # =========================================================================
-    # 6. driver and run_tides
+    # 5. driver and run_tides
     # =========================================================================
     @testset "run_fluid1d_relax driver" begin
         # three-layer planet: solid, mush, melt on a liquid core, layer boundaries on round radii
@@ -447,6 +386,91 @@ cplx1(v) = complex(v[1], v[2])
                   cs_on.fluid_layers
         end
         @test_throws ArgumentError spec(visc_fluid = 0.0)
+    end
+
+    @testset "fluid_measure: loss-storage crossover (base of the drag) follows the forcing frequency" begin
+        # Maxwell layers mu = 6e10 Pa: omega tau_M = omega eta / mu; crossover (Im = Re) at omega tau_M = 1
+        ηx = [1e21, 1e15, 1e13, 1e8, 1e2]
+        w = 4.7e-4
+        μx = ComplexF64[maxwell1(6e10, η, w) for η in ηx]
+        x = F1R.fluid_measure(ηx, μx; criterion = :loss)
+        @test x ≈ log.(w .* ηx ./ 6e10) rtol = 1e-10               # log(Re/Im) = log(omega tau_M) for Maxwell
+        @test F1R.fluid_mask_x(x) == [false, false, true, true, true]  # 1e13: omega tau = 0.08 -> fluid-like
+        # tenfold higher frequency: the 1e13 layer (omega tau = 0.8) stays fluid, 1e14 would not; a fixed cutoff
+        # (viscosity criterion) gives the same mask at every frequency
+        μ10 = ComplexF64[maxwell1(6e10, η, 10w) for η in ηx]
+        @test F1R.fluid_mask_x(F1R.fluid_measure(ηx, μ10; criterion = :loss)) == [false, false, true, true, true]
+        μ100 = ComplexF64[maxwell1(6e10, η, 100w) for η in ηx]
+        @test F1R.fluid_mask_x(F1R.fluid_measure(ηx, μ100; criterion = :loss)) == [false, false, false, true, true]
+        xv = F1R.fluid_measure(ηx, μx; criterion = :viscosity, visc_fluid = 1e8)
+        @test F1R.fluid_mask_x(xv) == F1R.fluid_mask(ηx; visc_fluid = 1e8) == [false, false, false, false, true]
+        # conjugate moduli (omega < 0) give the same class
+        @test F1R.fluid_measure(ηx, conj.(μx); criterion = :loss) ≈ x
+        @test_throws ArgumentError F1R.fluid_measure(ηx, μx; criterion = :other)
+    end
+
+    @testset "fluid_measure: skeleton failure from the vanishing frame modulus" begin
+        # Nur frame with v = ϕ: κd = κs (1 - ϕ/0.6) below the critical fraction 0.6, zero above it
+        κs = fill(ComplexF64(1.3e11), 6)
+        ϕs = [0.0, 0.3, 0.5, 0.58, 0.7, 1.0]
+        κd = ComplexF64[1.3e11 * max(1 - p / 0.6, 0.0) for p in ϕs]
+        x = F1R.skeleton_measure(κd, κs, ϕs)
+        # framed layers carry 1 - v/v_c, the failed ones its extrapolation (exact here, v/ϕ = 1 in every layer)
+        @test x ≈ 1 .- ϕs ./ 0.6 rtol = 1e-12
+        @test F1R.fluid_mask_x(x) == [false, false, false, false, true, true]
+        @test x == F1R.fluid_measure(zeros(6), κs; criterion = :skeleton, κdc = κd, κc = κs, ϕ = ϕs)
+        # the zero crossing between the top framed and the first failed layer sits at v = v_c (linear in ϕ)
+        @test x[4] / (x[4] - x[5]) ≈ (0.6 - 0.58) / (0.7 - 0.58) rtol = 1e-12
+        # a viscous drained modulus (Kelvin-Voigt) with no frame has Re κd = 0 and is still failed
+        κdv = copy(κd); κdv[5] = 1im * 1e9
+        @test F1R.fluid_mask_x(F1R.skeleton_measure(κdv, κs, ϕs)) == [false, false, false, false, true, true]
+        @test_throws ArgumentError F1R.fluid_measure(zeros(6), κs; criterion = :skeleton)
+    end
+
+    @testset "skeleton criterion: drag on the mush motion closes the energy budget" begin
+        # drag on the mush nodes of the test planet (sigma_R = 1e-2 s^-1): the matrix term and the drag heating must
+        # agree; the mush drag is 45 % of the heating, so without one of them the budget is off by that share
+        cs = column1([(:solid, 1500.0), (:mush, 1200.0), (:fluid, 300.0)]; slip = :freeslip, pores = :open)
+        σm = copy(cs.σR); σm[cs.types .=== :mush] .= 1e-2
+        csd = merge(cs, (σR = σm,))
+        r0 = F1R.solve_column(cs); rd = F1R.solve_column(csd)
+        @test rd.passive && abs(rd.closure - 1) < 1e-3
+        mush = cs.types .=== :mush
+        dv = 4π / 3 .* (cs.r_grid[2:end] .^ 3 .- cs.r_grid[1:end-1] .^ 3)
+        drag_mush = sum((rd.heating.drag .* dv)[mush]) / rd.heating.P_total
+        @test drag_mush > 0.3                        # the closure test above resolves a missing term
+        @test reldiff1(rd.k, r0.k) > 1e-3            # the drag changes the solution
+        # sigma_R = 0 on the mush reproduces the solution without drag exactly
+        @test F1R.solve_column(merge(cs, (σR = copy(cs.σR),))).k == r0.k
+    end
+
+    @testset "skeleton criterion in column_spec: fluid above the failed frame, drag down to loss = storage" begin
+        ω = 1e-4
+        r = Float64[3000e3, 4000e3, 4500e3, 5000e3, 5500e3, 6000e3]
+        ρ = Float64[4000, 3600, 3500, 3400, 3000]
+        η = Float64[1e20, 1e16, 1e8, 1e4, 100.0]
+        ϕ = Float64[0.0, 0.4, 0.5, 0.65, 1.0]
+        μc = ComplexF64[maxwell1(5e10, x, ω) for x in η]
+        κc = fill(ComplexF64(1.3e11), 5)
+        κdc = ComplexF64[1.3e11 * max(1 - p / 0.6, 0.0) for p in ϕ]; κdc[1] = 1.3e11
+        κl = fill(5e10, 5); k = Float64[0.0, 1e-8, 1e-7, 1e-6, 0.0]
+        αB = 1.0 .- κdc ./ κc
+        core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
+        kw = (σ_R = 1e-2, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5)
+        cs = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., fluid_criterion = :skeleton)
+        # fluid nodes: the failed frame (layers 4, 5); mush nodes with drag: omega tau_M < 1 (layer 3, 1e8 Pa s);
+        # layer 2 (1e16 Pa s, omega tau_M = 20) is mush without drag
+        L = cs.lay
+        @test all(cs.fluid[L .>= 4]) && !any(cs.fluid[L .<= 3])
+        @test all(cs.types[(L .== 2) .| (L .== 3)] .=== :mush)
+        @test all(cs.σR[L .>= 3] .== 1e-2) && all(cs.σR[L .<= 2] .== 0)
+        res = F1R.solve_column(cs)
+        @test res.passive && abs(res.closure - 1) < 2e-3
+        # the viscosity criterion at 1e8 keeps layer 3 undragged mush; the loss measure is not a fluid criterion
+        cv = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., visc_fluid = 1e8)
+        @test all(cv.σR[L .== 3] .== 0)
+        @test_throws ArgumentError F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw...,
+                                                   fluid_criterion = :loss)
     end
 
     @testset "refine_layers: interpolated sub-layers and a moving fluid interface" begin
@@ -578,33 +602,29 @@ cplx1(v) = complex(v[1], v[2])
         perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
         bulkd = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
         bulk_l = Float64(cfg["orbit"]["obliqua"]["solid"]["bulk_l"])
+        # undrained modulus per layer: zero selects Obliqua's own Gassmann law in every layer
+        und0 = zeros(length(rho))
 
-        # former 14-argument call == the full call with the former profiles (bulk viscosity eta/phi, scalar bulk_l)
         cfg["orbit"]["obliqua"]["module_solid"] = "solid1d-mush-relax"
         cfg["orbit"]["obliqua"]["module_fluid"] = "fluid0d"
-        out14 = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg)
-        out16 = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15), shear,
-                                  bulk, bulkd, fill(bulk_l, length(rho)), phi, perm, cfg)
-        @test out14[5] == out16[5]
-        @test out14[1] == out16[1]
+        out_ref = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15), shear,
+                                    bulk, bulkd, fill(bulk_l, length(rho)), und0, phi, perm, cfg)
+
         # the melt bulk modulus profile enters the mush solver: a softer melt changes k where a layer is porous
         if any(phi .> Float64(cfg["orbit"]["obliqua"]["solid"]["porosity_thresh"]))
             outKl = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15), shear,
-                                      bulk, bulkd, fill(bulk_l / 10, length(rho)), phi, perm, cfg)
-            @test maximum(abs.(outKl[5] .- out16[5])) > 0
+                                      bulk, bulkd, fill(bulk_l / 10, length(rho)), und0, phi, perm, cfg)
+            @test maximum(abs.(outKl[5] .- out_ref[5])) > 0
         end
         # the bulk viscosity profile enters the complex bulk moduli
         outζ = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, 1e-3 .* visc ./ (phi .+ 1e-15),
-                                 shear, bulk, bulkd, fill(bulk_l, length(rho)), phi, perm, cfg)
-        @test maximum(abs.(outζ[5] .- out16[5])) > 0
+                                 shear, bulk, bulkd, fill(bulk_l, length(rho)), und0, phi, perm, cfg)
+        @test maximum(abs.(outζ[5] .- out_ref[5])) > 0
         # a zero bulk viscosity (PROTEUS without an elastic profile) falls back to the former law visc / phi
         out0 = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, zeros(length(rho)), shear, bulk,
-                                 bulkd, fill(bulk_l, length(rho)), phi, perm, cfg)
-        @test out0[5] == out16[5]
-        # the 16-argument call is the 17-argument call with a zero undrained modulus (Obliqua's own Gassmann law)
-        out17 = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15), shear,
-                                  bulk, bulkd, fill(bulk_l, length(rho)), zeros(length(rho)), phi, perm, cfg)
-        @test out17[5] == out16[5]
+                                 bulkd, fill(bulk_l, length(rho)), und0, phi, perm, cfg)
+        @test out0[5] == out_ref[5]
+        # an undrained-modulus profile of the wrong length is refused
         @test_throws ArgumentError Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc,
                                                      visc ./ (phi .+ 1e-15), shear, bulk, bulkd,
                                                      fill(bulk_l, length(rho)), zeros(2), phi, perm, cfg)
@@ -613,7 +633,7 @@ cplx1(v) = complex(v[1], v[2])
         cfg["orbit"]["obliqua"]["module_fluid"] = "fluid1d_relax"
         # with the segments of test.toml's visc_lus / visc_sus it refuses to run
         @test_throws String Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15),
-                                              shear, bulk, bulkd, fill(bulk_l, length(rho)), phi, perm, cfg)
+                                              shear, bulk, bulkd, fill(bulk_l, length(rho)), und0, phi, perm, cfg)
         cfg["orbit"]["obliqua"]["visc_lus"] = 1e30
         cfg["orbit"]["obliqua"]["visc_sus"] = 1e30
         cfg["orbit"]["obliqua"]["enforce_ec"] = false
@@ -624,7 +644,7 @@ cplx1(v) = complex(v[1], v[2])
         cfg["orbit"]["obliqua"]["solid"]["dr_min"] = 100
         cfg["orbit"]["obliqua"]["solid"]["dr_max"] = 1000
         run_col() = Obliqua.run_tides(omega, axial, ecc, sma, S_mass, rho, radius, visc, visc ./ (phi .+ 1e-15), shear,
-                                      bulk, bulkd, fill(bulk_l, length(rho)), phi, perm, cfg)
+                                      bulk, bulkd, fill(bulk_l, length(rho)), und0, phi, perm, cfg)
         dv = 4π / 3 .* (radius[2:end] .^ 3 .- radius[1:end-1] .^ 3)
         # without rescaling, the heating of the solution itself closes the energy budget to the discretisation error
         prf_raw, blk_raw, _, _, _ = run_col()

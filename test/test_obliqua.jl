@@ -8,6 +8,10 @@ using Obliqua.constants
 using Obliqua.solid1d_relax
 using Obliqua.solid1d_relax.common
 
+# Profile slots of run_tides that these tests leave to Obliqua's defaults: a zero bulk viscosity (visc / phi), a zero
+# melt bulk modulus profile (the configured bulk_l in every layer) and a zero undrained modulus (Gassmann).
+nul(x) = zeros(length(x))
+
 
 @testset "Obliqua Tidal Simulation Tests" begin
 
@@ -96,7 +100,8 @@ using Obliqua.solid1d_relax.common
         imag_k2_expt   = 0.0010975674744855479
 
         power_prf, power_blk, nmk, sigma_range, LNk = Obliqua.run_tides(
-            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+            nul(rho), nul(rho), phi, perm, cfg
         )
         imag_k2 = -imag.(LNk)
 
@@ -135,7 +140,8 @@ using Obliqua.solid1d_relax.common
         bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 
         @test_throws String Obliqua.run_tides(
-            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+            nul(rho), nul(rho), phi, perm, cfg
         )
 
         # Restore spectrum for subsequent testsets.
@@ -168,7 +174,8 @@ using Obliqua.solid1d_relax.common
         imag_k2_expt   = 0.0015880279776708645
 
         _, power_blk, _, _, LNk = Obliqua.run_tides(
-            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+            nul(rho), nul(rho), phi, perm, cfg
         )
         imag_k2 = -imag.(LNk)
 
@@ -203,11 +210,12 @@ using Obliqua.solid1d_relax.common
         bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 
         # Same config as "Complete model" (cap_LN=false there).
-        power_blk_expt = 6.191476504474057e8
-        imag_k2_expt   = [0.0023483255451422886, 0.002285812174864539, 0.002222475409171229, 0.0021583473367432215, 0.002093470459633021, 0.0020279001489672084, 0.001961707850789305, 0.0018949853440882103, 0.001827850506121588]
+        power_blk_expt = 8.108443242101153e8
+        imag_k2_expt   = [0.003142770720683283, 0.003044131897194287, 0.002944671675195542, 0.002844422048201076, 0.0027434254231076946, 0.002641737075896859, 0.0025394283574769923, 0.0024365909517113605, 0.0023333426407409034]
 
         _, power_blk, _, _, LNk = Obliqua.run_tides(
-            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+            nul(rho), nul(rho), phi, perm, cfg
         )
         imag_k2 = -imag.(LNk)
 
@@ -248,7 +256,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0015880279776708645]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -276,7 +285,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0013682745857252405]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -313,7 +323,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0014603515101440801]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -341,7 +352,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.001212599139876233]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -379,7 +391,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0015465160611466133]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -407,7 +420,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0012502849855623444]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -448,7 +462,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0013533632462432374]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -476,7 +491,8 @@ using Obliqua.solid1d_relax.common
             imag_k2_expt    = [0.0011079107272955312]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -496,6 +512,7 @@ using Obliqua.solid1d_relax.common
     # =========================================================================
     # 5. Fluid Module Tests (fluid0d & fluid1d)
     # =========================================================================
+    # Reference values of the fluid-module tests below include the self-attraction of the fluid0d ocean.
     @testset "Fluid module models" begin
         cfg["orbit"]["obliqua"]["module_mushy"] = "none"
         cfg["orbit"]["obliqua"]["material_mu"] = "andrade"
@@ -511,11 +528,12 @@ using Obliqua.solid1d_relax.common
             perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
             bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 
-            power_blk_expt = 288817.1601289502
-            imag_k2_expt    = [0.0003957332496036539]
+            power_blk_expt = 703755.2235020346
+            imag_k2_expt    = [0.0009642756039761013]
 
             _, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -537,12 +555,13 @@ using Obliqua.solid1d_relax.common
             perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
             bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 
-            power_prf_expt = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5284804061097509e-18, 1.5517739264667466e-18, 1.578086507560905e-18, 1.6081325356797763e-18, 1.3335961567122854e-18, 1.045246240775732e-18, 8.235756116658285e-19, 6.543766781350802e-19]
-            power_blk_expt = 288817.1601289502
-            imag_k2_expt    = [0.0003957332496036539]
+            power_prf_expt = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.724418825661434e-18, 3.781177698975571e-18, 3.8452930595566404e-18, 3.9185056387398386e-18, 3.2495481247217733e-18, 2.5469314309338202e-18, 2.006790873024323e-18, 1.5945070867308744e-18]
+            power_blk_expt = 703755.2235020346
+            imag_k2_expt    = [0.0009642756039761013]
 
             power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-                omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+                omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+                nul(rho), nul(rho), phi, perm, cfg
             )
             imag_k2 = -imag.(LNk)
 
@@ -575,12 +594,13 @@ using Obliqua.solid1d_relax.common
         perm, phi = Obliqua.interior.limit_porosity(perm, phi, cfg)
         bulkd     = Obliqua.interior.get_drained_bulk(bulk, phi, cfg)
 
-        power_prf_expt = [2.807380901847586e-14, 1.6625591278974696e-15, 1.6367238256716559e-15, 1.5585771327055287e-15, 1.5100768957302145e-15, 1.4706192404488703e-15, 1.4354063733848886e-15, 1.4041737183913223e-15, 1.4485187591660389e-15, 4.982192627340357e-16, 1.7064257362404406e-16, 5.820345753537023e-17, 1.9770983710385396e-17, 6.688804941687805e-18, 2.2538857660667605e-18, 7.564839052565844e-19, 2.529138886539909e-19, 8.4230815616803e-20, 2.7945665339198135e-20, 9.236806474324574e-21, 3.041667417513335e-21, 9.97935759900796e-22, 3.2622084934472473e-22, 1.0625659789819664e-22, 3.4486705171140184e-23, 1.1153600701451622e-23, 3.594691710013135e-24, 1.1545340200621888e-24, 3.695434551396372e-25, 1.1788317806490004e-25, 3.747827409135519e-26, 1.1875778159847635e-26, 3.750699428551841e-27, 1.1807095998085861e-27, 3.704818022492138e-28, 1.1587671195431382e-28, 3.6127858162901483e-29, 1.1228355695939897e-29, 3.478795437270058e-30, 1.0744627470998481e-30, 3.308368774483916e-31, 1.0155625421352863e-31, 3.10799301673613e-32, 9.482941630402976e-33, 2.884728083853341e-33, 8.749325321810225e-34, 2.645825455508165e-34, 7.977703766591376e-35, 2.3987413769314712e-35, 7.201998416890351e-36, 2.190873682716311e-36, 7.819935969588235e-37, 6.699559103369782e-37, 1.6870278574120774e-36, 5.577122289630727e-36, 1.9021997671992408e-35, 6.523153165809442e-35, 2.2439787359133524e-34, 7.74192585667256e-34, 2.6787821689410175e-33, 9.295649716929996e-33, 3.234988642548915e-32, 1.1290510632987489e-31, 3.951841119629788e-31, 1.3871681177008412e-30, 4.883132088973449e-30, 1.7238799155246933e-29, 6.103133017377502e-29, 2.166880462151407e-28, 7.715297956336489e-28, 2.754900270882748e-27, 9.864940252994297e-27, 3.542576988393181e-26, 1.2757971442120463e-25, 4.607676863550642e-25, 1.6688695064155635e-24, 6.061851916766561e-24, 2.2081805527062296e-23, 8.067061976708758e-23, 2.955659579996275e-22, 1.0860729358420973e-21, 4.002565564422271e-21, 1.4794624028685632e-20, 5.484903642643844e-20, 2.0397495240307037e-19, 7.609012896158725e-19, 2.8473847722217573e-18, 1.0689543600979445e-17, 4.0262999513592707e-17, 1.521734257652441e-16, 5.771940244817454e-16, 5.851757587761389e-16, 5.940936378637519e-16, 6.041673584986944e-16, 6.156704220855017e-16, 5.1056470185571235e-16, 4.001704957876109e-16, 3.1530432535520087e-16, 2.505268418040781e-16]
-        power_blk_expt = 6.191476504474057e8
-        imag_k2_expt    = [0.0023483255451422886, 0.002285812174864539, 0.002222475409171229, 0.0021583473367432215, 0.002093470459633021, 0.0020279001489672084, 0.001961707850789305, 0.0018949853440882103, 0.001827850506121588]
+        power_prf_expt = [2.807380901847586e-14, 1.6625591278974698e-15, 1.6367238256716559e-15, 1.5585771327055287e-15, 1.5100768957302145e-15, 1.4706192404488707e-15, 1.4354063733848888e-15, 1.4041737183913223e-15, 1.4485187591660389e-15, 4.982192627340357e-16, 1.7064257362404406e-16, 5.820345753537023e-17, 1.9770983710385396e-17, 6.688804941687805e-18, 2.2538857660667605e-18, 7.564839052565844e-19, 2.529138886539909e-19, 8.4230815616803e-20, 2.7945665339198135e-20, 9.236806474324574e-21, 3.041667417513335e-21, 9.97935759900796e-22, 3.2622084934472473e-22, 1.0625659789819664e-22, 3.4486705171140184e-23, 1.1153600701451622e-23, 3.594691710013135e-24, 1.1545340200621888e-24, 3.695434551396372e-25, 1.1788317806490004e-25, 3.747827409135519e-26, 1.1875778159847635e-26, 3.750699428551841e-27, 1.1807095998085861e-27, 3.704818022492138e-28, 1.1587671195431382e-28, 3.6127858162901494e-29, 1.122835569593991e-29, 3.478795437270092e-30, 1.0744627470999602e-30, 3.308368774487566e-31, 1.0155625421472543e-31, 3.107993017129718e-32, 9.482941643386788e-33, 2.8847281268174197e-33, 8.749326747891648e-34, 2.645830203513286e-34, 7.977862328548881e-35, 2.3992725069374926e-35, 7.219843188243221e-36, 2.2510080269680772e-36, 9.852430311317912e-37, 1.3589663242453685e-36, 4.0296728247982094e-36, 1.3565643212714464e-35, 4.634324126800047e-35, 1.5894553805657244e-34, 5.4678260282581e-34, 1.8864504426603356e-33, 6.52730384910822e-33, 2.2650416044271706e-32, 7.882594646765912e-32, 2.7511230645075038e-31, 9.629326436099097e-31, 3.380068738276226e-30, 1.1898573725994958e-29, 4.2005237408895557e-29, 1.4871311454138165e-28, 5.279969180548373e-28, 1.879962284018144e-27, 6.712778475700204e-27, 2.403758832734424e-26, 8.632085454250087e-26, 3.1086946048621274e-25, 1.1227380678543992e-24, 4.066481614533777e-24, 1.4770723100155545e-23, 5.380603806727435e-23, 1.965675511804938e-22, 7.20196234317353e-22, 2.6463996188236808e-21, 9.752925088581623e-21, 3.604959307801557e-20, 1.3364891463686782e-19, 4.970193239098856e-19, 1.854064139109212e-18, 6.9381325389619715e-18, 2.604687326003305e-17, 9.810757919573206e-17, 3.7079618011840904e-16, 1.4064304486065166e-15, 1.4258792884561692e-15, 1.4476092027550427e-15, 1.4721555196446882e-15, 1.500184671358913e-15, 1.2440768838841127e-15, 9.750828100883141e-16, 7.682920941956606e-16, 6.104508469803093e-16]
+        power_blk_expt = 8.108443242101153e8
+        imag_k2_expt    = [0.003142770720683283, 0.003044131897194287, 0.002944671675195542, 0.002844422048201076, 0.0027434254231076946, 0.002641737075896859, 0.0025394283574769923, 0.0024365909517113605, 0.0023333426407409034]
 
         power_prf, power_blk, _, _, LNk = Obliqua.run_tides(
-            omega, axial, ecc, sma, S_mass, rho, radius, visc, shear, bulk, bulkd, phi, perm, cfg
+            omega, axial, ecc, sma, S_mass, rho, radius, visc, nul(rho), shear, bulk, bulkd,
+            nul(rho), nul(rho), phi, perm, cfg
         )
         imag_k2 = -imag.(LNk)
 
@@ -659,8 +679,8 @@ using Obliqua.solid1d_relax.common
                 # Fetch spectral frequency axis (sigma) and reference Love Numbers
                 _, power_blk_ref, _, sigma, LNk_ref = Obliqua.run_tides(
                     omega, axial, ecc, sma, S_mass,
-                    rho_homo, radius_homo, visc_homo, shear_homo, bulk_homo, bulkd_homo,
-                    phi_homo, perm_homo, cfg
+                    rho_homo, radius_homo, visc_homo, nul(rho_homo), shear_homo, bulk_homo, bulkd_homo,
+                    nul(rho_homo), nul(rho_homo), phi_homo, perm_homo, cfg
                 )
 
                 # Load reference data from NetCDF (extracting both Tidal & Load Love numbers)
@@ -714,8 +734,8 @@ using Obliqua.solid1d_relax.common
 
                         _, power_blk, _, sigma, LNk = Obliqua.run_tides(
                             omega, axial, ecc, sma, S_mass,
-                            rho_homo, radius_homo, visc_homo, shear_homo, bulk_homo, bulkd_homo,
-                            phi_homo, perm_homo, cfg
+                            rho_homo, radius_homo, visc_homo, nul(rho_homo), shear_homo, bulk_homo, bulkd_homo,
+                            nul(rho_homo), nul(rho_homo), phi_homo, perm_homo, cfg
                         )
 
                         # Load netCDF data for current model
@@ -870,8 +890,8 @@ using Obliqua.solid1d_relax.common
                 # Fetch spectral frequency axis (sigma) and reference Love Numbers
                 power_prf_ref, power_blk_ref, _, sigma, LNk_ref = Obliqua.run_tides(
                     omega, axial, ecc, sma, S_mass,
-                    rho_homo, radius_homo, visc_homo, shear_homo, bulk_homo, bulkd_homo,
-                    phi_homo, perm_homo, cfg
+                    rho_homo, radius_homo, visc_homo, nul(rho_homo), shear_homo, bulk_homo, bulkd_homo,
+                    nul(rho_homo), nul(rho_homo), phi_homo, perm_homo, cfg
                 )
 
                 # Cache heating data for reference model
@@ -925,8 +945,8 @@ using Obliqua.solid1d_relax.common
 
                         power_prf, power_blk, _, sigma, LNk = Obliqua.run_tides(
                             omega, axial, ecc, sma, S_mass,
-                            rho_homo, radius_homo, visc_homo, shear_homo, bulk_homo, bulkd_homo,
-                            phi_homo, perm_homo, cfg
+                            rho_homo, radius_homo, visc_homo, nul(rho_homo), shear_homo, bulk_homo, bulkd_homo,
+                            nul(rho_homo), nul(rho_homo), phi_homo, perm_homo, cfg
                         )
 
                         # Cache heating data for current model
