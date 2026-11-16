@@ -2134,15 +2134,20 @@ module common
             q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
             e, s, a, b = pt.e[i], pt.s[i], pt.a[i], pt.b[i]
             p = porous[q] ? yp[7] : 0.0im
+
+            # 1. Shear Heating
             Eμ_tot[q] += ω * imag(μ[q]) * shear_integral(e, s, a, b, L) * w
+            # 2. Bulk Heating
             Eκ_tot[q] += biot_bulk_dissipation([e + 2a], [p], ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q]))[1] * w
+            # 3. Darcy Heating
             if porous[q]
                 y9 = darcy_y9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
                 El_tot[q] += 0.5 * ϕ[q]^2 * ω^2 * (ηl[q] / k[q]) * (abs2(yp[8]) + L * abs2(y9)) * w
             end
         end
 
-        # drag: angular integral of |∇₁Y|^2 is L
+        # 4. Rayleigh Drag Heating
+        # angular integral of |∇₁Y|^2 is L
         for q in 1:Nc
             σR[q] > 0 || continue
             Ed_tot[q] = 0.5 * ρ[q] * σR[q] * ω^2 * L * abs2(y[2, q]) * (rg[q+1]^3 - rg[q]^3) / 3
@@ -2184,23 +2189,28 @@ module common
         El_3d = zeros(Float64, nlats, nlons, Nc)
         Ed_3d = zeros(Float64, nlats, nlons, Nc)
 
+        # Compute the heating maps for each part of each cell
         for i in eachindex(pt.q)
             q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
             strain_on_grid!(ϵ, pt.e[i], pt.s[i], pt.a[i], pt.b[i], SphericalGrid)
             tr = sum(ϵ[:,:,1:3], dims=3)[:,:,1]
 
+            # 1. Local Volumetric Shear Heating
             Eμ_loc = sum(abs.(ϵ[:,:,1:3]).^2, dims=3)[:,:,1] .+ 2sum(abs.(ϵ[:,:,4:6]).^2, dims=3)[:,:,1] .- 1/3 .* abs.(tr).^2
             Eμ_3d[:, :, q] .+= ω * imag(μ[q]) .* Eμ_loc .* w
 
+            # 2. Local Volumetric Bulk Heating
             p = porous[q] ? yp[7] .* Y : zeros(ComplexF64, nlats, nlons)
             Eκ_3d[:, :, q] .+= biot_bulk_dissipation(tr, p, ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q])) .* w
 
+            # 3. Local Volumetric Darcy Dissipation
             if porous[q]
                 y9 = darcy_y9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
                 El_3d[:, :, q] .+= 0.5 * ϕ[q]^2 * ω^2 * (ηl[q] / k[q]) .* (abs2.(yp[8] .* Y) .+ abs2.(y9 .* dYdθ) .+ abs2.(y9 .* dYdϕ)) .* w
             end
         end
 
+        # 4. Local Volumetric Rayleigh Drag Dissipation
         for q in 1:Nc
             σR[q] > 0 || continue
             Ed_3d[:, :, q] .= 0.5 * ρ[q] * σR[q] * ω^2 * abs2(y[2, q]) .* (abs2.(dYdθ) .+ abs2.(dYdϕ)) .* (rg[q+1]^3 - rg[q]^3) / 3
@@ -2258,9 +2268,12 @@ module common
                 j += 1
             end
             jj = j
+
+            # accumulate the overlap of this fine shell with all coarse shells whose bottom lies below the top of this fine shell
             while jj <= N_c && rc[jj] < b
                 lo = max(a, rc[jj])
                 hi = min(b, rc[jj+1])
+                # only add if there is an overlap
                 if hi > lo
                     acc[jj] += Float64(f_fine[i]) * (hi^3 - lo^3)
                 end
@@ -2281,6 +2294,7 @@ module common
     function cell_average_map(r_fine::AbstractVector, map_fine::AbstractArray{<:Real,3}, r_coarse::AbstractVector)::Array{Float64,3}
         nlat, nlon, _ = size(map_fine)
         out = zeros(Float64, nlat, nlon, length(r_coarse) - 1)
+        # loop over lat/lon and average the radial profile for each cell
         for lon_idx in 1:nlon, lat_idx in 1:nlat
             out[lat_idx, lon_idx, :] .= cell_average(r_fine, view(map_fine, lat_idx, lon_idx, :), r_coarse)
         end

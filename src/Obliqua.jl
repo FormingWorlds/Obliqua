@@ -1355,7 +1355,7 @@ module Obliqua
     longer negligible. If the neighbour is also thin (e.g. early in
     crystallisation, before the solid/mush layer has grown past threshold),
     no merge happens yet — pass 1 handles that regime instead.
-    Exception: a *liquid* layer touching the surface is never merged, however
+    Exception: a liquid layer touching the surface is never merged, however
     thin. The residual magma ocean stays a fluid segment (fluid model with drag)
     instead of being solved as a skeleton-free porous solid, which gives
     non-passive Love numbers. A thin solid or mush surface layer is still merged.

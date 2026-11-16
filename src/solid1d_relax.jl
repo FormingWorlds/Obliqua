@@ -297,7 +297,7 @@ module solid1d_relax
         XN_t = PN * R[start_id] + SN_t
         XN_l = PN * R[start_id] + SN_l
 
-        # solve outer (tides), regularized -- see regularized_solve docstring.
+        # solve outer (tides), regularized, see regularized_solve docstring.
         # XN_t and XN_l are numerically identical (same boundary-condition
         # matrix structure, only the forcing vector differs), so both are
         # solved the same way for consistency, even though XN_t alone rarely
