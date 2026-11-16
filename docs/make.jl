@@ -74,6 +74,7 @@ makedocs(
                 "Solid1d-relax" => "reference/solid/solid1d_relax.md",
                 "Solid1d-mush-relax" => "reference/solid/solid1d_mush_relax.md",
                 "Solid1d-equil-relax" => "reference/solid/solid1d_equil_relax.md",
+                "Fluid1d-relax" => "reference/solid/fluid1d_relax.md",
             ],
             "4 - Mush layer" => "reference/mush-layer.md",
             "5 - Liquid-phase" => "reference/liquid-phase.md",
