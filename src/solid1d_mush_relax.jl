@@ -46,6 +46,7 @@ module solid1d_mush_relax
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
+    - `svd_floor::Float64=1e-8`         : Singular-value floor of the surface solve.
 
     # Returns
     - `y_t::Vector{precc}`              : Vector of length 8 representing the tidal solution at the top of the mantle. This includes the displacements, stresses, and potential at the surface.
@@ -55,7 +56,7 @@ module solid1d_mush_relax
     - `transitions::Vector{Int}`        : Indices of the interface layers (the ones closer to the core and surface).
     """
     function solve_radial_system(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int,
-                                ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false)
+                                ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false, svd_floor::Float64=1e-8)
 
         # Define ordering
         Y6 = [1,2,4,5,3,6]
@@ -106,6 +107,9 @@ module solid1d_mush_relax
         @debug("\n--- Adaptive Solver (Direct Interfaces) ---")
 
         curr_idx = 1
+        # porous part of the stored lower half after a mush -> solid interface, consumed by the next block row
+        Pn_extra = nothing
+
         # Step 1: Core Boundary
         if !is_mush[1]
             @debug("STEP 1: [Core Boundary] Solid")
@@ -127,8 +131,9 @@ module solid1d_mush_relax
             if segment_end > curr_idx
                 if !is_mush[curr_idx]
                     @debug("STEP: [Propagate Solid] | Range: ($curr_idx, $segment_end)")
-                    C1l, D2l = propagate_solid(R6_view, C1l, D2l, (curr_idx, segment_end-1), 
-                                            rs, ρs, gs, μs, Ks, ωs, n; G0=G0, inertial_terms=inertial_terms, Y=Y6)
+                    C1l, D2l = propagate_solid(R6_view, C1l, D2l, (curr_idx, segment_end-1),
+                                            rs, ρs, gs, μs, Ks, ωs, n; G0=G0, inertial_terms=inertial_terms, Y=Y6, Pn_extra=Pn_extra)
+                    Pn_extra = nothing
                 else
                     @debug("STEP: [Propagate Mushy] | Range: ($curr_idx, $segment_end)")
                     C1l, D2l = propagate_mush(R8_view, C1l, D2l, (curr_idx, segment_end-1), 
@@ -143,11 +148,12 @@ module solid1d_mush_relax
                 
                 if !is_mush[segment_end] && is_mush[next_change]
                     @debug("STEP: [Interface] Solid -> Mushy | Indices: $trans_range")
-                    C1l, D2l = interface_solid_mush(R8_view, C1l, D2l, trans_range, 
-                                            rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, α, ηₗs, ϕ, ks, n; G0=G0, inertial_terms=inertial_terms, Y=Y8)
+                    C1l, D2l = interface_solid_mush(R8_view, C1l, D2l, trans_range,
+                                            rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, α, ηₗs, ϕ, ks, n; G0=G0, inertial_terms=inertial_terms, Y=Y8, Pn_extra=Pn_extra)
+                    Pn_extra = nothing
                 else
                     @debug("STEP: [Interface] Mushy -> Solid | Indices: $trans_range")
-                    C1l, D2l = interface_mush_solid(R8_view, C1l, D2l, trans_range, 
+                    C1l, D2l, Pn_extra = interface_mush_solid(R8_view, C1l, D2l, trans_range,
                                             rs, ρs, gs, μs, Ks, ωs, ρₗs, Kls, Kds, α, ηₗs, ϕ, ks, n; G0=G0, inertial_terms=inertial_terms, Y=Y8)
                 end
                 curr_idx = next_change
@@ -159,10 +165,10 @@ module solid1d_mush_relax
         # Step 3: Surface Boundary
         if !is_mush[Nr]
             @debug("STEP: [Surface Boundary] Solid")
-            y_t, y_l = surface_boundary(R6_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y6)
+            y_t, y_l = surface_boundary(R6_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y6, svd_floor=svd_floor, Pn_extra=Pn_extra)
         else
             @debug("STEP: [Surface Boundary] Mushy")
-            y_t, y_l = surface_boundary_mush(R8_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y8)
+            y_t, y_l = surface_boundary_mush(R8_view, C1l, D2l, (Nr-1, Nr), rs, ρs, gs, μs, Ks, ωs, n; G0=G0, Y=Y8, svd_floor=svd_floor)
         end
         
         @debug("--- Solver Complete ---\n")
@@ -175,13 +181,20 @@ module solid1d_mush_relax
     """
         interface_mush_solid(R, Cn_l, Dnp_l, ids, r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6,7,8])
 
-    Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This 
+    Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 8x8 system to the 6x6 system.
+
+    The boundary condition at the top of the porous layer is zero radial Darcy displacement at the interface, with the
+    pore pressure left free. The pore pressure jumps to zero across the interface; integrated over the interface cell,
+    this self-referencing jump cancels the pore-pressure row of the difference equation exactly, so that row carries no
+    condition. Its slot takes the Darcy-displacement row of the same difference equation, C_n[R,:] y_n = 0, i.e. R = 0
+    at the cell face (the R row cannot be carried into the 6x6 solid block row). The X, Y, Psi rows of the interface
+    cell keep their coupling to the porous components of y_n through `Pn_extra`, added by the next block row.
 
     # Arguments
     - `R::Vector`                       : Vector of 8x8 matrices representing the coefficients of the ODE system at each radial layer.
-    - `Cn_l::Matrix{precc}`             : 3x6 matrix representing the "stored" lower half of the Cn matrix from the previous step.
-    - `Dnp_l::Matrix{precc}`            : 3x6 matrix representing the "stored" lower half of the Dnp matrix from the previous step.
+    - `Cn_l::Matrix{precc}`             : 4x8 matrix representing the "stored" lower half of the Cn matrix from the previous (porous) step.
+    - `Dnp_l::Matrix{precc}`            : 4x8 matrix representing the "stored" lower half of the Dnp matrix from the previous (porous) step.
     - `ids::Tuple{Int, Int}`            : Tuple containing the start and end indices of the current segment in the radial grid.
     - `r::Vector{prec}`                 : Vector of radial grid points (layer centers).
     - `ρ::Vector{prec}`                 : Vector of densities at the layer centers.
@@ -205,6 +218,8 @@ module solid1d_mush_relax
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
+    - `Pn_extra::Matrix{precc}`         : 3x6 matrix, the part of C^l_n y_n carried by the porous components (P, R) of y_n,
+                                           expressed in y_{n+1}. It must be added to the upper half of X_{n+1} by the next block row.
     """
     function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6,7,8])
 
@@ -216,9 +231,9 @@ module solid1d_mush_relax
 
         I8 = Matrix{precc}(I, 8, 8)
 
-        Cn  = I8
+        Cn  = copy(I8)
         Dnp = -I8
-        Dnp[Y[7], Y[7]] = 0.0 
+        Dnp[Y[7], Y[7]] = 0.0
         Dnp[Y[8], Y[8]] = 0.0
 
         # forward recursion
@@ -244,35 +259,44 @@ module solid1d_mush_relax
         Cn_u  = Cn[1:4, :]
         Dnp_u = Dnp[1:4, :]
 
-        # 3. Build the 6x6 blocks
+        # 3. Build the 8x8 blocks
         Pn = [Pn_u; zeros(precc, 4, 8)]
         Sn = [Sn_u; Cn_u]
         Qn = [Qn_u; Dnp_u]
-        Kn = zeros(precc, 8, 8)
-        Kn[Y[8], Y[8]] = 1.0
 
-        # 4. Perform recursion
-        Xn = Pn * R[i-1] + Sn + Kn
+        # 4. Impermeable top of the porous layer. 
+        rowP = 4 + Y[7]   # P must sit in the upper (bounded-from-below) half of the reordered vector
+        @assert Y[7] <= 4 "pore pressure must be in the upper half of the state vector ordering"
+        Xn = Pn * R[i-1] + Sn
+        Xn[rowP, :] .= Cn[Y[8], :]
+        Qn[rowP, :] .= Dnp[Y[8], :]
 
-        R_ifc = -pinv(Xn) * Qn
+        # direct solve (well conditioned for physical interfaces); minimum-norm fallback for degenerate input
+        F = lu(Xn; check=false)
+        R_ifc = issuccess(F) ? -(F \ Qn) : -pinv(Xn) * Qn
 
-        # create a mask or list of all column indices EXCEPT Y[7] and Y[8]
+        # y_{n+1} is solid: its P and R components do not exist, so y_n must not depend on them
+        # (the corresponding columns of Qn vanish identically; zero them explicitly)
         active_cols = [idx for idx in 1:8 if idx != Y[7] && idx != Y[8]]
-
-        # update R only for the rows that are not the Darcy flux constraint
-        # this ensures y8 remains zero at the interface
         R[i][:, active_cols] .= R_ifc[:, active_cols]
-        R[i][:, Y[8]]        .= 0.0  # explicitly enforce the impermeable boundary
+        R[i][:, Y[7]]        .= 0.0
+        R[i][:, Y[8]]        .= 0.0
 
         # 5. Update the "stored" lower halves for the next iteration
         Cn_l  = Cn[5:8, :]
         Dnp_l = Dnp[5:8, :]
 
+        # The X, Y, Psi rows of the interface cell act on all of y_n, but the next (6x6) block row only sees
+        # the six shared components through R[i][target_cols, target_cols]. The part carried by y_n[P] and
+        # y_n[R], expressed in y_{n+1}, is returned separately and added to the upper half of X_{n+1}.
+        porous_cols = [Y[7], Y[8]]
+        Pn_extra = Cn_l[1:3, porous_cols] * R[i][porous_cols, target_cols]
+
         # return as 3x6 for the next step
         Cn_l = Cn_l[1:3, target_cols]
         Dnp_l = Dnp_l[1:3, target_cols]
 
-        return Cn_l, Dnp_l
+        return Cn_l, Dnp_l, Pn_extra
     end
 
 
@@ -305,13 +329,14 @@ module solid1d_mush_relax
     # keyword arguments
     - `G0::prec=1`                      : Gravitational constant scale for non-dimensionalization.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
+    - `Pn_extra=nothing`                : 3x6 term returned by `interface_mush_solid`, added to the upper half of X at the first step (porous part of the stored lower half).
     - `Y::Vector{Int}=1:8`              : Vector of column indices corresponding to the 6x6 system variables in the 8x8 system. This allows for
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.    
     """
-    function interface_solid_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6,7,8])
+    function interface_solid_mush(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6,7,8], Pn_extra=nothing)
 
         start_id, end_id = ids
         i = start_id
@@ -321,8 +346,8 @@ module solid1d_mush_relax
 
         I8 = Matrix{precc}(I, 8, 8)
 
-        Cn  = I8
-        Cn[Y[7], Y[7]] = 0.0 
+        Cn  = copy(I8)
+        Cn[Y[7], Y[7]] = 0.0
         Dnp = -I8
         
         # forward recursion
@@ -362,6 +387,9 @@ module solid1d_mush_relax
         # perform recursion
         R_prev = R[i-1]
         Xn = Pn * R_prev + Sn + Kn
+        if Pn_extra !== nothing      # one-node solid segment directly above a mush -> solid interface
+            Xn[1:3, target_cols] .+= Pn_extra
+        end
 
         R_ifc = -pinv(Xn) * Qn
 
@@ -508,6 +536,8 @@ module solid1d_mush_relax
         # split matrices
         C1u, C1l = C1[1:4, :], C1[5:8, :]
         D2u, D2l = D2[1:4, :], D2[5:8, :]
+        # melt flux continuity if the porosity changes between the first two nodes
+        flux_continuity!(C1l, D2l, ϕ[start_id], ϕ[end_id]; Y=Y)
 
         # build S1 and Q1
         S1 = [B1; C1u]              # 8×8
@@ -543,13 +573,14 @@ module solid1d_mush_relax
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
+    - `Pn_extra=nothing`                : 3x6 term returned by `interface_mush_solid`, added to the upper half of X at the first step (porous part of the stored lower half).
     - `Y::Vector{Int}=[1,2,3,4,5,6]`    : Ordering of the solution vector components.
 
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
     """
-    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6])
+    function propagate_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6], Pn_extra=nothing)
 
         start_id, end_id = ids
 
@@ -587,7 +618,10 @@ module solid1d_mush_relax
 
             # 4. Perform recursion
             Xn = Pn * R[i-1] + Sn
-            
+            if i == start_id && Pn_extra !== nothing      # first solid step above a mush -> solid interface
+                Xn[1:3, :] .+= Pn_extra
+            end
+
             if i == start_id
                 # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
                 R[i] .= - pinv(Xn) * Qn
@@ -690,12 +724,54 @@ module solid1d_mush_relax
                 R[i] .= -Xn \ Qn
             end
 
-            # 5. Update the "stored" lower halves for the next iteration
+            # 5. Update the "stored" lower halves for the next iteration; melt flux continuity at a porosity jump
             Cn_l  = Cn[5:8, :]
             Dnp_l = Dnp[5:8, :]
+            flux_continuity!(Cn_l, Dnp_l, ϕ[i], ϕ[i+1]; Y=Y)
         end
 
         return Cn_l, Dnp_l
+    end
+
+
+    """
+        flux_continuity!(C_l, D_l, ϕn, ϕnp; Y=[1,2,3,4,5,6,7,8])
+
+    Melt flux continuity in a cell between two mush nodes of different porosity (in place).
+
+    `C_l` and `D_l` are the lower halves of the cell matrices C_n = I + (dr/2) A_n and D_{n+1} = -I + (dr/2) A_{n+1};
+    their R row reads (C_n y_n)_R + (D_{n+1} y_{n+1})_R = R- - R+ = 0, i.e. continuity of the relative melt
+    displacement R at the cell face. The fluid-content equation conserves the volume flux phi R, so at a porosity jump
+    the condition is phi_n R- = phi_{n+1} R+: the R row of `C_l` is multiplied by `ϕn` and that of `D_l` by `ϕnp`. All
+    other rows (U, V, Phi, P continuity in the upper half; X, Y, Psi in the lower half) are unchanged: the matrix is
+    welded, the pores are connected, and Psi contains the full mass flux. Without it, every porosity jump creates or
+    absorbs melt and the energy closure fails in proportion to the Darcy flux, independently of dr.
+    Nothing changes when `ϕn == ϕnp`.
+    """
+    function flux_continuity!(C_l::AbstractMatrix, D_l::AbstractMatrix, ϕn::Real, ϕnp::Real; Y=[1,2,3,4,5,6,7,8])
+        if ϕn != ϕnp
+            row = Y[8] - 4                        # R row within the lower half
+            @assert row >= 1 "the Darcy displacement R must be in the lower half of the state vector ordering"
+            C_l[row, :] .*= ϕn
+            D_l[row, :] .*= ϕnp
+        end
+        return C_l, D_l
+    end
+
+
+    """
+        regularized_solve(X, b, svd_floor)
+
+    Solve `X * y = b` with a truncated-SVD pseudo-inverse whose singular values are
+    floored at `svd_floor * σ_max`. 
+    """
+    function regularized_solve(X::AbstractMatrix, b::AbstractVector, svd_floor::Float64)
+        if svd_floor <= 0.0
+            return X \ b
+        end
+        F = svd(ComplexF64.(X))
+        s_floored = max.(F.S, svd_floor * F.S[1])
+        return precc.(F.V * ((F.U' * ComplexF64.(b)) ./ s_floored))
     end
 
 
@@ -722,12 +798,13 @@ module solid1d_mush_relax
     Keyword Arguments
     - `G0::prec=1`                      : Gravitational constant used for non-dimensional scaling.
     - `Y::Vector{Int}=[1,2,3,4,5,6,7,8]`: Ordering of the solution vector components.
+    - `Pn_extra=nothing`                : 3x6 term returned by `interface_mush_solid` when the surface node lies directly above it, added to the upper half of X_N.
 
     # Returns
     - `y_t::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 6x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function surface_boundary(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8], svd_floor::Float64=1e-8, Pn_extra=nothing)
 
         start_id, end_id = ids
 
@@ -737,16 +814,20 @@ module solid1d_mush_relax
         BN_l, b_l = get_surface_bc!(r[end], g[end], n, 0, 1, 0, 0; G0=G0, Y=Y)
 
         PN = [CNm_l; zeros(3,6)]
+        if Pn_extra !== nothing      # surface node directly above a mush -> solid interface
+            PN_R = PN * R[start_id] + [Pn_extra; zeros(3,6)]
+        else
+            PN_R = PN * R[start_id]
+        end
         SN_t = [DN_l; BN_t]
         SN_l = [DN_l; BN_l]
 
-        XN_t = PN * R[start_id] + SN_t
-        XN_l = PN * R[start_id] + SN_l
+        XN_t = PN_R + SN_t
+        XN_l = PN_R + SN_l
 
-        # solve outer  (tides)
-        y_t = XN_t \ b_t
-        # solve outer (load)
-        y_l = XN_l \ b_l
+        # solve outer (tides and load), regularized -- see regularized_solve
+        y_t = regularized_solve(XN_t, b_t, svd_floor)
+        y_l = regularized_solve(XN_l, b_l, svd_floor)
 
         return y_t, y_l
 
@@ -782,7 +863,7 @@ module solid1d_mush_relax
     - `y_t::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the tidal problem.
     - `y_l::Matrix{precc}`              : 8x1 matrix representing the solution at the surface for the load problem.
     """
-    function surface_boundary_mush(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8])
+    function surface_boundary_mush(R::Vector, CNm_l::Matrix{precc}, DN_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, n::Int; G0=1, Y=[1,2,3,4,5,6,7,8], svd_floor::Float64=1e-8)
 
         start_id, end_id = ids
 
@@ -798,10 +879,9 @@ module solid1d_mush_relax
         XN_t = PN * R[start_id] + SN_t
         XN_l = PN * R[start_id] + SN_l
 
-        # solve outer  (tides)
-        y_t = pinv(XN_t) * b_t
-        # solve outer (load)
-        y_l = pinv(XN_l) * b_l
+        # solve outer (tides and load), regularized
+        y_t = regularized_solve(XN_t, b_t, svd_floor)
+        y_l = regularized_solve(XN_l, b_l, svd_floor)
 
         return y_t, y_l
 
@@ -878,28 +958,30 @@ module solid1d_mush_relax
     - `core::String="liquid"            : Type of core boundary condition to apply. Options are "liquid" for a fluid core, "solid" for a solid core, and "inertial" for a core with inertial response.
     - `inertial_terms::Bool=true`       : Whether to include inertial terms in the motion matrix.
     - `patch::Bool=false`               : Whether to insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers.
+    - `svd_floor::Float64=1e-8`         : Singular-value floor of the surface solve.
 
     # Returns
     - `y_t::Matrix{ComplexF64}`         : 8xN matrix of the solution at all radial grid points, where N is the number of radial layers. Each column corresponds to a radial grid point, and each row corresponds to a state variable (displacements, stresses, potential).
     - `y_l::Matrix{ComplexF64}`         : 8x1 matrix of the solution at the surface for the load problem.
     """    
-    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false)
+    function compute_y(r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int, ρ_core::prec, μ_core::precc, κ_core::precc, scales::Vector{prec}; core="liquid", inertial_terms=true, patch=false, svd_floor::Float64=1e-8)
 
         # solve radial system to get surface solution and recursion matrices
-        yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch)
+        yN_t, yN_l, R, S, Y8, transitions = solve_radial_system(r, ρ, g, μ, K, ω, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n, ρ_core, μ_core, κ_core, scales; core=core, inertial_terms=inertial_terms, patch=patch, svd_floor=svd_floor)
 
         Nr = length(r)
         T = eltype(yN_t)
         M = length(yN_t)
 
-        # allocate as 8 x N matrix 
+        # allocate as 8 x N matrix
         y_t = zeros(T, 8, Nr)
         y_l = zeros(T, 8, 1)
 
-        # solve outer  (tides)
-        y_t[1:M, Nr] = yN_t
-        # solve outer (load)
-        y_l[1:M, 1] = yN_l
+        # embed the surface solution; a solid surface returns the 6-vector (U, V, Phi, X, Y, Psi),
+        # which occupies slots 1, 2, 3, 5, 6, 7 of the 8-vector (P and R in slots 4 and 8 are zero)
+        slots = M == 8 ? (1:8) : [1, 2, 3, 5, 6, 7]
+        y_t[slots, Nr] = yN_t
+        y_l[slots, 1]  = yN_l
 
         # back-substitution
         for i in Nr-1:-1:1

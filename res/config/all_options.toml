@@ -42,6 +42,7 @@ version = "1.0"                 # Version of this configuration file
         optimize_scales = false # Optimize non-dimensionalization scales for the relaxation method. This can improve convergence and stability, especially for low forcing frequencies (< 1e-7 Hz). However, do not use with Bigfloat precision.
         solid_shell = true      # Insert an infinitesimal solid shell around the core. This patches an issue where y2 and y4 become decoupled and cause the solution to diverge in fluid layers. Only use with solid1d_relax or solid1d_mush_relax.
         cap_LN      = false     # Clamp each mode's Re(k2)/Im(k2) to 3x/2x the fluid Love-number limit for its degree n (3/(2(n-1)); for n=2, Re<=4.5, Im<=3.0). Heating is rescaled to match via enforce_ec.
+        smooth_moduli = false   # Log-linear blending of complex moduli across >3-decade viscosity drops (legacy; not needed for energy consistency).
 
         min_frac    = 0.02      # Minimal segment radius fraction before smoothing [dimensionless]
         visc_l      = 1e2       # Pure liquid viscosity [Pa s]
@@ -98,6 +99,9 @@ version = "1.0"                 # Version of this configuration file
         #                     effective layer with averaged mechanical properties. Fast but cannot
         #                     resolve radial structure in deformation or dissipation.
         # - "fluid1d"       : Same as fluid0d but allows for user specified heating distribution.
+        # - "fluid1d_relax" : Radially resolved column through every layer (solid, mush, fluid) in one
+        #                     relaxation recursion; needs visc_lus and visc_sus above the largest viscosity
+        #                     (one fluid segment), module_solid and module_mushy are then unused.
         module_fluid = "fluid1d"
 
         [orbit.obliqua.solid]
@@ -109,6 +113,7 @@ version = "1.0"                 # Version of this configuration file
             inertial_terms = true   # Include inertial terms in the solid tidal response equations
             bulk_l      = 1e9       # Liquid bulk modulus [Pa]
             dbulk_power = 0.5       # Drained bulk modulus powerlaw scaling exponent
+            dbulk_phi_crit = 0.7715 # Melt fraction above which the drained bulk modulus is zero (Biot coefficient 1)
             porosity_thresh = 3e-2  # Percolation threshold, at which there is a first‐order transition from fully connected to fully isolated pore space [dimensionless]
 
         [orbit.obliqua.fluid]
@@ -117,6 +122,9 @@ version = "1.0"                 # Version of this configuration file
             sigma_R_prf = "dynamic_interp" # Rayleigh drag profile ("uniform", "exp", "linear", "quadratic", "dynamic", "dynamic_interp")
             H_R         = 1e5       # Rayleigh drag scale height [m]
             efficiency  = 1e-2      # Rayleigh drag efficiency at core interface [dimensionless]
+            omega_sw    = 1e-5      # fluid1d_relax: liquid -> inertial-liquid core above this frequency [rad/s]
+            visc_fluid  = 1e8       # fluid1d_relax: layers connected to the surface below this viscosity are fluid [Pa s]
+            n_sub       = 1         # fluid1d_relax: interpolated sub-layers per interior layer
 
         [orbit.obliqua.mushy]
             b_width     = 1.5e-1    # Fraction of segment height as standard deviation for lower dissipation peak
