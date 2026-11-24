@@ -21,6 +21,10 @@ const Gc1 = Float64(Obliqua.constants.G)
 
 maxwell1(μ, η, ω) = μ * (1im * ω * η) / (μ + 1im * ω * η)
 reldiff1(a, b) = abs(a - b) / abs(b)
+# fluid class by the viscosity cutoff (fluid_measure ignores μ for this criterion)
+vmask(η; visc_fluid = 1e8) = F1R.fluid_mask(F1R.fluid_measure(η, zeros(ComplexF64, length(η)); visc_fluid = visc_fluid))
+# fluid class of every input layer of a layered column (its nodes are all fluid or all not)
+layer_fluid(cs) = [any(cs.fluid[cs.lay .== L]) for L in 1:maximum(cs.lay)]
 
 """Test planet of the paper appendix (R = 6000 km, core 3000 km, uniform dr): layers [(type, km), ...] from the core."""
 function column1(layers; ω = 1e-5, dr = 3e3, R = 6000e3, rc = 3000e3, core = "liquid", slip = :noslip, pores = :closed,
@@ -105,7 +109,7 @@ cplx1(v) = complex(v[1], v[2])
         for lo in (:solid, :mush, :fluid), hi in (:solid, :mush, :fluid)
             lo === hi && continue
             lo === :fluid && hi === :fluid && continue
-            up, low = F1R.interface_conditions(lo, hi; slip = :freeslip, pores = :open, ϕlo = 0.2, ϕhi = 0.2)
+            up, low = F1R.interface_conditions(lo, hi; slip = :freeslip, pores = :open)
             Mlo, Mhi = length(F1R.node_slots(lo)), length(F1R.node_slots(hi))
             @test length(up) == Mlo ÷ 2
             @test length(low) == Mhi ÷ 2
@@ -126,18 +130,21 @@ cplx1(v) = complex(v[1], v[2])
         # with no slip the same face is plain continuity
         up_ns, low_ns = F1R.interface_conditions(:solid, :fluid; slip = :noslip)
         @test up_ns[2] == (e(2), e(2)) && low_ns[2] == (e(6), e(6))
-        # mush -> fluid, open pores: U- + phi R- = U+ and P- + X+ = 0
-        up, low = F1R.interface_conditions(:mush, :fluid; slip = :freeslip, pores = :open, ϕlo = 0.25)
-        @test up[1] == (e(1) + 0.25 * e(8), e(1))
+        # mush -> fluid, open pores: U- + W- = U+ (slot 8 holds the melt flux W = phi R) and P- + X+ = 0
+        up, low = F1R.interface_conditions(:mush, :fluid; slip = :freeslip, pores = :open)
+        @test up[1] == (e(1) + e(8), e(1))
         @test up[4] == (e(4), -e(5))
-        # fluid -> mush, open pores (mirror): U- = U+ + phi R+ and P+ + X- = 0 in slot 8 of block row n+1
-        up, low = F1R.interface_conditions(:fluid, :mush; slip = :freeslip, pores = :open, ϕhi = 0.25)
-        @test up[1] == (e(1), e(1) + 0.25 * e(8))
+        # fluid -> mush, open pores (mirror): U- = U+ + W+ and P+ + X- = 0 in slot 8 of block row n+1
+        up, low = F1R.interface_conditions(:fluid, :mush; slip = :freeslip, pores = :open)
+        @test up[1] == (e(1), e(1) + e(8))
         @test low[4] == (-e(5), e(4))
         # solid -> mush is always closed (open pores apply to mush <-> fluid only)
         up, low = F1R.interface_conditions(:solid, :mush; pores = :open)
         @test low[4] == (z8, e(8))
         @test up[1] == (e(1), e(1))
+        # a porosity change is not a face in the W state: equal node types never meet at a face
+        @test_throws ArgumentError F1R.interface_conditions(:mush, :mush)
+        @test_throws ArgumentError F1R.interface_conditions(:fluid, :fluid)
     end
 
     # =========================================================================
@@ -195,20 +202,64 @@ cplx1(v) = complex(v[1], v[2])
     # =========================================================================
     # 3.-4. paper stacks: residuals, closure, passivity
     # =========================================================================
-    @testset "core routes agree for a liquid core" begin
-        # free slip at a static liquid core: the CMB as an interface (4x2 core) and the left null space of the 6x3 I_C
-        # (with its tangential-slip column, and the free pore pressure for a mush) span the same B_1
+    @testset "liquid core: inertial where finite, static below" begin
+        # a liquid core is solved as inertial-liquid; far below the tidal band (|ω| ~ 1e-13 rad/s) its solution is not
+        # finite and the static core is used. Both cover the free slip of the mantle with their tangential-slip column.
         for layers in ([(:solid, 3000.0)], [(:mush, 3000.0)], [(:fluid, 3000.0)])
-            cs = column1(layers)
-            a = F1R.column_solve(cs; core_route = :ic)
-            b = F1R.column_solve(cs; core_route = :interface)
-            @test reldiff1(a.k, b.k) < 1e-10
+            a = F1R.column_solve(column1(layers; ω = 1e-5))
+            b = F1R.column_solve(column1(layers; ω = 1e-13))
+            @test a.core == "inertial-liquid" && b.core == "liquid"
+            @test a.finite && b.finite
         end
+        # the inertial core tends to the static one as ω -> 0: at 1e-8 rad/s it reproduces k of the static core of
+        # the previous implementation (interface route, 4x2 core solution), measured 1e-9 to 1.2e-7 (largest with the
+        # ocean); at 1e-5 the core inertia already
+        # moves k by 4e-6 to 5e-4 (guard: the static k at 1e-8 is far from the 1e-5 value)
+        k_static = Dict([(:solid, 3000.0)] => 5.3478416526363226e-01 - 1.2372578305919413e-02im,
+                        [(:mush, 3000.0)] => 9.9114224558404040e-01 - 3.1807257232273387e-02im,
+                        [(:solid, 2400.0), (:fluid, 600.0)] => 8.6623350984426462e-01 - 2.4269973416313922e-03im)
+        for (layers, ks) in k_static
+            sol = F1R.column_solve(column1(layers; ω = 1e-8))
+            @test sol.core == "inertial-liquid"
+            @test isapprox(sol.k, ks; rtol = 3e-7)
+            @test abs(F1R.column_solve(column1(layers; ω = 1e-5)).k - ks) > 1e-4 * abs(ks)
+        end
+        Bi, used = F1R.core_rows("liquid", :mush, 1e-3, 0.5, 2.0, 0.8, ComplexF64(1e-12), ComplexF64(1.0), 2; G0 = 1.0)
+        @test used == "inertial-liquid" && size(Bi) == (4, 8)           # mush on the core: four rows, W = 0 at the CMB
+        @test_throws ArgumentError F1R.column_solve(merge(column1([(:solid, 3000.0)]), (r_grid = [0.0, 1.0],)))
+    end
+
+    @testset "core rows at high degree" begin
+        # inertial-liquid core: 1 / j_n and j_{n+1} / j_n of the core solution come from exponentially scaled Bessel
+        # functions (common.sbessel_inv_ratio). The unscaled j_n overflowed from degree 6 on at tidal frequencies
+        # (|Im x| > ~700, Amos error); the result is unchanged where it did not overflow.
+        ks = ComplexF64[]
+        for (ω, n) in ((1e-5, 2), (1e-5, 6), (1e-5, 12), (3e-6, 20))
+            sol = F1R.column_solve(column1([(:solid, 3000.0)]; ω = ω, core = "inertial-liquid"), n)
+            @test sol.finite
+            push!(ks, sol.k)
+        end
+        # value of the unscaled formula at degree 2, where it does not overflow (1.4e-16 apart)
+        @test isapprox(ks[1], 0.5345801117503073 - 1.2383605400307716e-5im; rtol = 1e-12)
+        # passivity and the decay of k with degree (k_n ~ (2n + 1)^-1 for a homogeneous mantle)
+        @test all(imag.(ks) .< 0)
+        @test all(diff(abs.(ks)) .< 0) && abs(ks[4]) < abs(ks[1]) / 50
+        # left_null_rows: the left null space of a full-column-rank J whose columns differ in norm by ~ (r_C / R)^n
+        # (a small core at high degree). The unscaled nullspace drops the small column (one row too many); with unit
+        # columns the count is size(J, 1) - size(J, 2).
+        J = ComplexF64[1 2; 3 -1; 0.5 4; 2 1] .* transpose([1.0, 1e-20])
+        @test size(nullspace(transpose(J)), 2) == 3                 # the failure: rank 1 seen, three rows
+        B = F1R.left_null_rows(J)
+        @test size(B) == (2, 4)
+        @test opnorm(B * (J ./ transpose(norm.(eachcol(J))))) < 1e-14
+        @test_throws ErrorException F1R.left_null_rows(ComplexF64[1 2; 2 4; 3 6])   # rank-deficient J is refused
     end
 
     @testset "porosity jump inside a mush: melt flux continuity" begin
-        # two mush layers (1500 km each) of porosity 0.2 and ϕ2, k = 1e-6 m^2: with R continuous (the former
-        # treatment) the budget is off by +0.4, +1.3, +3.3 % for ϕ2 = 0.25, 0.3, 0.4, independently of dr
+        # R-state reference (melt displacement R with the face condition phi- R- = phi+ R+, the formulation this
+        # module used before the flux state W; inertial-liquid core): k and total heating at a 0.2 -> 0.4 jump
+        refR = Dict(3e3 => (9.6364571321320547e-01 - 5.8307114101607573e-05im, 1.0425153467888087e7),
+                    1e3 => (9.6364586539467223e-01 - 5.8307149318177813e-05im, 1.0427205866970772e7))
         for ϕ2 in (0.25, 0.4), dr in (3e3, 1e3)
             cs = column1([(:mush, 3000.0)]; dr = dr)
             cs = merge(cs, (k = fill(1e-6, length(cs.k)),))
@@ -218,15 +269,23 @@ cplx1(v) = complex(v[1], v[2])
             res = F1R.solve_column(cs)
             @test abs(res.closure - 1) < 5e-4
             @test res.passive
-            fr = F1R.face_residuals(res.sol)
-            @test length(fr) == 8                          # one face, x = (8 + 8)/2 conditions
-            @test maximum(f.residual for f in fr) < 1e-10
-            # face values: phi R continuous, R jumps by the porosity ratio
-            f = res.sol.faces[1]
-            ym = f.C * res.sol.z[f.i]; yp = -(f.D * res.sol.z[f.i+1])
-            @test isapprox(0.2 * ym[8], ϕ2 * yp[8]; rtol = 1e-9)
-            @test abs(ym[8] / yp[8] - ϕ2 / 0.2) < 1e-6
-            @test isapprox(ym[4], yp[4]; rtol = 1e-9)    # pore pressure continuous
+            # the porosity change is an ordinary cell (W continuous): no face, no face condition
+            @test isempty(res.sol.faces) && isempty(F1R.face_residuals(res.sol))
+            # across the jump the returned melt flux W = y8 is continuous and R = W / phi jumps by about the porosity
+            # ratio (the node values sit half a cell from the jump, the pressure-diffusion length is ~ 20 km)
+            j = findfirst(up) - 1
+            W1, W2 = res.sol.y[8, j], res.sol.y[8, j+1]
+            @test abs(W1 / W2 - 1) < 0.25
+            @test abs((W1 / 0.2) / (W2 / ϕ2)) > 1 + 0.5 * (ϕ2 / 0.2 - 1)
+            if ϕ2 == 0.4
+                # same solution as the R state with its flux condition (rounding: 4e-14 in k, 4e-13 in heating)
+                kR, PR = refR[dr]
+                @test isapprox(res.k, kR; rtol = 1e-10)
+                @test isapprox(res.heating.P_total, PR; rtol = 1e-9)
+                # guard: without the jump (phi = 0.2 throughout) k differs far beyond that tolerance
+                k0 = F1R.solve_column(merge(cs, (ϕ = fill(0.2, length(ϕ)), ρl = cs.ρ .* 0.2))).k
+                @test abs(k0 - kR) > 1e-6 * abs(kR)
+            end
         end
         # boundary-layer diagnostic: delta / dr per mush node, larger on the finer grid
         b3 = F1R.boundary_layer_resolution(column1([(:mush, 3000.0)]; dr = 3e3))
@@ -238,6 +297,49 @@ cplx1(v) = complex(v[1], v[2])
         MB = 1 / (0.2 / 1e9 + (αm - 0.2) / 1e11 + αm^2 / (5e9 + 4μm / 3))
         @test isapprox(b3.min_ratio, sqrt(2 * 1e-8 * abs(MB) / (1.0 * 1e-5)) / 3e3; rtol = 1e-10)
         @test b3.n_under == count(x -> !isnan(x) && x < 2, b3.ratio)
+    end
+
+    @testset "nodal profile" begin
+        # column_spec: profile = :nodes evaluates the interpolated material at every node of the solver grid
+        ω = 1e-4
+        r = Float64[3000e3, 4000e3, 5000e3, 6000e3]
+        ρ = Float64[4000, 3500, 3000]; η = Float64[1e18, 1e16, 1e16]
+        μc = ComplexF64[maxwell1(5e10, 1e18, ω), maxwell1(1e10, 1e16, ω), maxwell1(1e10, 1e16, ω)]
+        κc = ComplexF64[2e11, 1e11, 1e11]; κdc = ComplexF64[5e10, 5e9, 5e9]
+        κl = Float64[1e11, 5e10, 5e10]; ϕ = Float64[0.05, 0.1, 0.3]; k = fill(1e-8, 3)
+        αB = 1.0 .- κdc ./ κc
+        core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
+        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5, visc_fluid = 1e5)
+        spec(; o...) = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., o...)
+        # default: nodal profile; reference: layered profile
+        cl = spec(profile = :layers); cn = spec()
+        @test cn.profile === :nodes && cl.profile === :layers
+        @test all(==(:mush), cn.types) && all(==(:mush), cl.types)
+        @test cn.r_grid ≈ cl.r_grid rtol = 1e-14
+        @test cn.r_grid ≈ F1R.solver_grid(r[1], r[end], 1000, 3000) rtol = 1e-14
+        rc = 0.5 .* (r[1:end-1] .+ r[2:end])
+        # porosity linear in radius between the layer centres 4500 and 5500 km: 0.1 -> 0.3
+        q = findall(x -> rc[2] < x < rc[3], cn.r_c)
+        @test maximum(abs.(cn.ϕ[q] .- (0.1 .+ 0.2 .* (cn.r_c[q] .- rc[2]) ./ (rc[3] - rc[2])))) < 1e-12
+        @test length(unique(cn.ϕ[q])) == length(q)                 # no steps: every node its own value
+        @test length(unique(cl.ϕ[q])) == 2                          # layered: the two layer values
+        rn = F1R.solve_column(cn); rl = F1R.solve_column(cl)
+        @test rn.passive && rl.passive
+        @test isempty(rn.sol.faces) && isempty(rl.sol.faces)        # porosity steps are ordinary cells in W
+        @test 0 < abs(rn.k - rl.k) < 0.2 * abs(rl.k)
+        # layered profile: equal to the R state with a face condition at each porosity step (rounding: 1e-14 in k)
+        @test isapprox(rl.k, 5.591839720420941e-01 - 9.406836725708570e-04im; rtol = 1e-10)
+        @test isapprox(rl.heating.P_total, 1.682276851919199e9; rtol = 1e-9)
+        # nodal profile: the energy closure converges at second order (1.6e-6 at 1000/3000 m, 1.9e-7 at 300/1000 m)
+        rf = F1R.solve_column(spec(dr_min = 300, dr_max = 1000))
+        @test abs(rn.closure - 1) < 1e-5
+        @test abs(rf.closure - 1) < abs(rn.closure - 1) / 5
+        # n_sub refines only a layered profile: with nodes it is ignored (with a warning, logged once per session)
+        cn2 = spec(n_sub = 2)
+        @test cn2.ϕ == cn.ϕ && cn2.r_grid == cn.r_grid
+        @test length(unique(spec(profile = :layers, n_sub = 2).ϕ)) == 6         # two porosity levels per layer
+        # argument checks
+        @test_throws ArgumentError spec(profile = :cells)
     end
 
     @testset "non-porous node: heating uses the bulk modulus of its motion matrix" begin
@@ -296,8 +398,8 @@ cplx1(v) = complex(v[1], v[2])
         # on the solver cells: the melt layer is fluid, drag only in fluid cells, Darcy only in mush cells (on the
         # input layers a solver cell that straddles a layer boundary is shared by cell_average)
         cs = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; σ_R = 1e-4, dr_min = 1000,
-                             dr_max = 3000, porosity_thresh = 1e-5)
-        @test cs.fluid_layers == [false, false, true]
+                             dr_max = 3000, porosity_thresh = 1e-5, profile = :layers)
+        @test layer_fluid(cs) == [false, false, true]
         hc = F1R.solve_column(cs).heating
         @test all(hc.drag[cs.types .!== :fluid] .== 0) && all(hc.drag[cs.types .=== :fluid] .> 0)
         @test all(hc.darcy[cs.types .!== :mush] .== 0) && sum(hc.darcy) > 0
@@ -310,10 +412,9 @@ cplx1(v) = complex(v[1], v[2])
         outm = Obliqua.run_fluid1d_relax(-ω, ρ, r, η, μm, κm, κdm, 1.0 .- κdm ./ κm, ϕ, k, κl, zeros(3), R, core...; kw...)
         @test outm[6] ≈ conj(kT) rtol = 1e-9
         @test outm[1] ≈ prf rtol = 1e-7
-        # zero frequency: real relaxed response, no heating
-        out0 = Obliqua.run_fluid1d_relax(0.0, ρ, r, η, mods(1e-14)..., αB, ϕ, k, κl, zeros(3), R, core...; kw...)
-        @test imag(out0[6]) == 0
-        @test all(out0[1] .== 0)
+        # zero frequency is not a column solve: run_tides sends it to the equilibrium tide
+        @test_throws ArgumentError Obliqua.run_fluid1d_relax(0.0, ρ, r, η, mods(1e-14)..., αB, ϕ, k, κl, zeros(3), R,
+                                                             core...; kw...)
         # more drag, more drag heating in the fluid layer
         out2 = Obliqua.run_fluid1d_relax(ω, args...; kw..., sigma_R = 2e-4)
         @test ang(out2[5])[3] > ang(Ed)[3]
@@ -352,12 +453,12 @@ cplx1(v) = complex(v[1], v[2])
 
     @testset "fluid_mask: low-viscosity layers connected to the surface, at every frequency" begin
         ηm = [1e9, 1e20, 1e7, 100.0, 100.0]
-        @test F1R.fluid_mask(ηm) == [false, false, true, true, true]           # layer 1 is below the cutoff but buried
-        @test F1R.fluid_mask(ηm; visc_fluid = 1e6) == [false, false, false, true, true]
-        @test F1R.fluid_mask(ηm[1:2]) == [false, false]                       # viscous surface layer: no ocean
-        @test F1R.fluid_mask(fill(100.0, 3)) == trues(3)                      # fully molten
-        @test F1R.fluid_mask(Float64[]) == Bool[]
-        @test F1R.fluid_mask([1e8]) == [false]                                # the cutoff itself is not fluid
+        @test vmask(ηm) == [false, false, true, true, true]           # layer 1 is below the cutoff but buried
+        @test vmask(ηm; visc_fluid = 1e6) == [false, false, false, true, true]
+        @test vmask(ηm[1:2]) == [false, false]                       # viscous surface layer: no ocean
+        @test vmask(fill(100.0, 3)) == trues(3)                      # fully molten
+        @test vmask(Float64[]) == Bool[]
+        @test vmask([1e8]) == [false]                                # the cutoff itself is not fluid
 
         ω = 1e-5
         # planet: solid, viscous mush (omega eta / mu = 1e-8) and melt on a liquid core. A fluid layer with
@@ -369,11 +470,12 @@ cplx1(v) = complex(v[1], v[2])
         κc = ComplexF64[1e11, 1e11, 1e11]; κdc = ComplexF64[1e11, 5e9, 1e11]; αB = 1.0 .- κdc ./ κc
         κl = fill(1e9, 3)
         core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
-        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5)
+        # layered profile: the mask is a property of the input layers
+        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5, profile = :layers)
         spec(; o...) = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., o...)
         cs_on = spec()
         cs_off = spec(visc_fluid = 1e6)                      # eta = 1e7 above the cutoff: the mush stays a mush
-        @test cs_on.fluid_layers == [false, true, true] && cs_off.fluid_layers == [false, false, true]
+        @test layer_fluid(cs_on) == [false, true, true] && layer_fluid(cs_off) == [false, false, true]
         # the fluid mush carries drag; energy theorem and passivity hold, and the Love number changes
         r_on = F1R.solve_column(cs_on); r_off = F1R.solve_column(cs_off)
         @test sum(r_on.heating.drag[cs_on.lay .== 2]) > 0 && sum(r_off.heating.drag[cs_off.lay .== 2]) == 0
@@ -382,8 +484,8 @@ cplx1(v) = complex(v[1], v[2])
         # the layering is the same at every frequency: at 1e-7 rad/s and at 1e-2 rad/s (moduli at that frequency)
         for w in (1e-7, 1e-2)
             μw = ComplexF64[maxwell1(5e10, 1e20, w), maxwell1(1e10, 1e7, w), maxwell1(1e10, 100.0, w)]
-            @test F1R.column_spec(w, r, ρ, η, μw, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw...).fluid_layers ==
-                  cs_on.fluid_layers
+            @test layer_fluid(F1R.column_spec(w, r, ρ, η, μw, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw...)) ==
+                  layer_fluid(cs_on)
         end
         @test_throws ArgumentError spec(visc_fluid = 0.0)
     end
@@ -395,15 +497,15 @@ cplx1(v) = complex(v[1], v[2])
         μx = ComplexF64[maxwell1(6e10, η, w) for η in ηx]
         x = F1R.fluid_measure(ηx, μx; criterion = :loss)
         @test x ≈ log.(w .* ηx ./ 6e10) rtol = 1e-10               # log(Re/Im) = log(omega tau_M) for Maxwell
-        @test F1R.fluid_mask_x(x) == [false, false, true, true, true]  # 1e13: omega tau = 0.08 -> fluid-like
+        @test F1R.fluid_mask(x) == [false, false, true, true, true]  # 1e13: omega tau = 0.08 -> fluid-like
         # tenfold higher frequency: the 1e13 layer (omega tau = 0.8) stays fluid, 1e14 would not; a fixed cutoff
         # (viscosity criterion) gives the same mask at every frequency
         μ10 = ComplexF64[maxwell1(6e10, η, 10w) for η in ηx]
-        @test F1R.fluid_mask_x(F1R.fluid_measure(ηx, μ10; criterion = :loss)) == [false, false, true, true, true]
+        @test F1R.fluid_mask(F1R.fluid_measure(ηx, μ10; criterion = :loss)) == [false, false, true, true, true]
         μ100 = ComplexF64[maxwell1(6e10, η, 100w) for η in ηx]
-        @test F1R.fluid_mask_x(F1R.fluid_measure(ηx, μ100; criterion = :loss)) == [false, false, false, true, true]
+        @test F1R.fluid_mask(F1R.fluid_measure(ηx, μ100; criterion = :loss)) == [false, false, false, true, true]
         xv = F1R.fluid_measure(ηx, μx; criterion = :viscosity, visc_fluid = 1e8)
-        @test F1R.fluid_mask_x(xv) == F1R.fluid_mask(ηx; visc_fluid = 1e8) == [false, false, false, false, true]
+        @test F1R.fluid_mask(xv) == vmask(ηx; visc_fluid = 1e8) == [false, false, false, false, true]
         # conjugate moduli (omega < 0) give the same class
         @test F1R.fluid_measure(ηx, conj.(μx); criterion = :loss) ≈ x
         @test_throws ArgumentError F1R.fluid_measure(ηx, μx; criterion = :other)
@@ -417,13 +519,13 @@ cplx1(v) = complex(v[1], v[2])
         x = F1R.skeleton_measure(κd, κs, ϕs)
         # framed layers carry 1 - v/v_c, the failed ones its extrapolation (exact here, v/ϕ = 1 in every layer)
         @test x ≈ 1 .- ϕs ./ 0.6 rtol = 1e-12
-        @test F1R.fluid_mask_x(x) == [false, false, false, false, true, true]
+        @test F1R.fluid_mask(x) == [false, false, false, false, true, true]
         @test x == F1R.fluid_measure(zeros(6), κs; criterion = :skeleton, κdc = κd, κc = κs, ϕ = ϕs)
         # the zero crossing between the top framed and the first failed layer sits at v = v_c (linear in ϕ)
         @test x[4] / (x[4] - x[5]) ≈ (0.6 - 0.58) / (0.7 - 0.58) rtol = 1e-12
         # a viscous drained modulus (Kelvin-Voigt) with no frame has Re κd = 0 and is still failed
         κdv = copy(κd); κdv[5] = 1im * 1e9
-        @test F1R.fluid_mask_x(F1R.skeleton_measure(κdv, κs, ϕs)) == [false, false, false, false, true, true]
+        @test F1R.fluid_mask(F1R.skeleton_measure(κdv, κs, ϕs)) == [false, false, false, false, true, true]
         @test_throws ArgumentError F1R.fluid_measure(zeros(6), κs; criterion = :skeleton)
     end
 
@@ -456,7 +558,7 @@ cplx1(v) = complex(v[1], v[2])
         κl = fill(5e10, 5); k = Float64[0.0, 1e-8, 1e-7, 1e-6, 0.0]
         αB = 1.0 .- κdc ./ κc
         core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
-        kw = (σ_R = 1e-2, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5)
+        kw = (σ_R = 1e-2, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5, profile = :layers)
         cs = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., fluid_criterion = :skeleton)
         # fluid nodes: the failed frame (layers 4, 5); mush nodes with drag: omega tau_M < 1 (layer 3, 1e8 Pa s);
         # layer 2 (1e16 Pa s, omega tau_M = 20) is mush without drag
@@ -506,7 +608,7 @@ cplx1(v) = complex(v[1], v[2])
 
         # the fluid interface sits where the interpolated viscosity crosses visc_fluid between the two centres
         ηf = 1e5
-        fl20 = F1R.fluid_mask(ref(20).η; visc_fluid = ηf)
+        fl20 = vmask(ref(20).η; visc_fluid = ηf)
         rc = 0.5 .* (r[1:end-1] .+ r[2:end])
         r_exp = rc[2] + (log(ηf) - log(η[2])) / (log(η[3]) - log(η[2])) * (rc[3] - rc[2])
         @test abs(ref(20).r[findfirst(fl20)] - r_exp) <= (r[2] - r[1]) / 20
@@ -517,7 +619,7 @@ cplx1(v) = complex(v[1], v[2])
         function H(ηm)
             ηv = [1e20, ηm, 100.0]; μv = ComplexF64[μc[1], maxwell1(1e10, ηm, ω), μc[3]]
             s = ref(20; ηv = ηv, μv = μv)
-            return r[end] - s.r[findfirst(F1R.fluid_mask(s.η; visc_fluid = ηf))]
+            return r[end] - s.r[findfirst(vmask(s.η; visc_fluid = ηf))]
         end
         Hs = [H(x) for x in 10 .^ range(6, 10, length = 41)]
         @test all(diff(Hs) .<= 0)                              # stiffer mush, shallower interface
@@ -527,11 +629,13 @@ cplx1(v) = complex(v[1], v[2])
         # column_spec with sub-layers: the Love number of a smooth column barely changes, the solution is passive
         # and closes, and the fluid nodes follow the sub-layer mask
         core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
-        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5, visc_fluid = ηf)
+        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, porosity_thresh = 1e-5, visc_fluid = ηf, profile = :layers)
         αB = 1.0 .- κdc ./ κc
         cs1 = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw...)
         cs4 = F1R.column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, 1.0, ϕ, k, core...; kw..., n_sub = 4)
-        @test length(cs4.fluid_layers) == 12
+        # every node takes the fluid class of its sub-layer
+        s4 = ref(4); fl4 = vmask(s4.η; visc_fluid = ηf)
+        @test cs4.fluid == [fl4[clamp(searchsortedfirst(s4.r, x) - 1, 1, 12)] for x in cs4.r_c]
         r1 = F1R.solve_column(cs1); r4 = F1R.solve_column(cs4)
         @test r4.passive && abs(r4.closure - 1) < 2e-3
         @test abs(r4.k - r1.k) < 0.2 * abs(r1.k)
@@ -550,13 +654,13 @@ cplx1(v) = complex(v[1], v[2])
         κc = ComplexF64[2e11, 2e11, 3e11]; αB = zeros(ComplexF64, 3)
         κl = Float64[8e10, 8e10, 8e10]; k = zeros(3)
         core = (4π / 3 * r[1]^3 * 1e4, 1e4, 0.1 + 0im, 5e11 + 0im)
-        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000)
+        kw = (σ_R = 1e-3, dr_min = 1000, dr_max = 3000, profile = :layers)
         # a melt layer (empty frame, porosity 0.9) gets the Reuss average of melt and grain, a pure melt (porosity 1)
         # the melt modulus; neither is the grain modulus. Shear is the layer's own modulus, porosity and alpha vanish
         κdu = ComplexF64[2e11, 2e11, 0]
         cu = F1R.column_spec(ω, r, ρ, η, μc, κc, κdu, αB, κl, 1.0, [0.0, 0.0, 0.9], k, core...; kw...)
         q = findfirst(cu.fluid)
-        @test cu.fluid_layers == [false, false, true]
+        @test layer_fluid(cu) == [false, false, true]
         @test cu.μ[q] == μc[3]
         @test cu.κs[q] ≈ 1 / (0.9 / κl[3] + 0.1 / real(κc[3])) rtol = 1e-12
         @test cu.κd[q] == cu.κs[q] && cu.α[q] == 0 && cu.ϕ[q] == 0
