@@ -48,7 +48,10 @@ using Obliqua.constants
     end
 
     @testset "Grid Resolution" begin
-        @test res == 60.0
+        @test res == 20.0
         @test res isa Float64
+        # derived angular grid follows the resolution: 0:20:180 (10 latitudes), 0:20:340 (18 longitudes)
+        @test nlats == 10
+        @test nlons == 18
     end
 end

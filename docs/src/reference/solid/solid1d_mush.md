@@ -5,7 +5,7 @@
 
 The `solid1d-mush` model also uses the shooting method approach and is in many regards identical to the original **Love.jl** model by Hamish Hay (see [original repository](https://github.com/hamishHay/Love.jl)). In addition to the `solid1d` model, it includes the effects of porosity making it a **poro-viscoelastic model**. 
 
-The governing equations are an extension of the `solid1d` model. The additional complexity is handled through two extra variables: the 7th and 8th $y$-functions, representing **pore pressure** and **Darcy flux** (relative tangential displacement), respectively.
+The governing equations are an extension of the `solid1d` model. The additional complexity is handled through two extra variables: the 7th and 8th $y$-functions, representing **pore pressure** and the **radial melt flux** $W = \phi R$ relative to the matrix ($R$ the relative melt displacement), respectively.
 
 ### Porous Transitions and Elementary Solutions
 The solver initially treats the system as a $6 \times 6$ problem. When it encounters a porous layer, it updates the elementary solutions by embedding the $3 \times 1$ coefficient set into a $4 \times 1$ matrix and adding a fourth elementary solution vector, $\pmb{y}^{(4)}_n(r_i)$.

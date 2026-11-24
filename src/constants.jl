@@ -32,7 +32,7 @@ module constants
 
 
     # Define spherical grid resolution
-    const res::Float64 = 60.0                    # angular resolution in degrees
+    const res::Float64 = 20.0                    # angular resolution in degrees
     const lat_vals     = deg2rad.(0:res:180)
     const nlats        = length(lat_vals)
     const nlons        = length(0:res:360-0.001)

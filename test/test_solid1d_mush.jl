@@ -199,9 +199,10 @@ using Obliqua.constants
         solid1d_mush.compute_strain_ten!(ϵ_view, y_dummy, 2, 15.0, 3000.0, 1.5, 1e10+0im, 2e10+0im, 1e-3, 1000.0, 2e9, 1e10+0im, 0.5+0im, 1.0, 0.1, 1e-12)
         @test any(ϵ .!= 0.0)
         
-        # Evaluate Darcy Displacement Vector
-        solid1d_mush.compute_darcy_displacement!(dis_view, y_dummy, 2, 15.0, 1e-3, 0.1, 1.0, 1e-12, 1.5, 1000.0)
+        # Evaluate the melt flux vector: radial component y8 = W, tangential from Darcy's law (common.darcy_w9)
+        solid1d_mush.compute_darcy_flux!(dis_view, y_dummy, 2, 15.0, 1e-3, 0.1, 1.0, 1e-12, 1.5, 1000.0)
         @test any(dis_rel .!= 0.0)
+        @test dis_rel[:, :, 1] ≈ solid1d_mush.Y[1, :, :] .* y_dummy[8]
         
         # Evaluate Fluid Pore Pressure
         solid1d_mush.compute_pore_pressure!(p_view, y_dummy, 2)

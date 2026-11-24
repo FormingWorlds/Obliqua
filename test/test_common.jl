@@ -2,6 +2,7 @@ using Test
 using LinearAlgebra
 using AssociatedLegendrePolynomials
 using DoubleFloats
+using SpecialFunctions: besselix, besselj
 using Obliqua
 using Obliqua.constants
 using Obliqua.solid1d.common
@@ -67,13 +68,34 @@ using Obliqua.solid1d.common
         @test_throws ErrorException doublefactorial(-1)
     end
 
-    @testset "sbesselj" begin
-        # Analytical matching for n=0: j_0(x) = sin(x)/x
-        x_val = 1.5
-        @test sbesselj(0, x_val) ≈ sin(x_val) / x_val
-        
-        # Verify execution path type consistency
-        @test sbesselj(1, 2.0 + 0.0im) isa ComplexF64
+    @testset "sbessel_inv_ratio: scaled Bessel functions of the inertial cores" begin
+        # closed forms for n = 0: j_0 = sin x / x, j_1 / j_0 = 1/x - cot x (complex x, as in the core solutions)
+        for x in (1.5 + 0.0im, 0.3 + 2.0im)
+            inv, rat = sbessel_inv_ratio(0, x)
+            @test inv ≈ x / sin(x) rtol = 1e-13
+            @test rat ≈ 1 / x - cot(x) rtol = 1e-13
+        end
+        @test sbessel_inv_ratio(1, 2.0 + 0.0im)[2] isa ComplexF64
+        # equal to 1 / j_n and j_{n+1} / j_n from the unscaled spherical Bessel function where that does not
+        # overflow (measured 6e-16)
+        jdirect(n, x) = sqrt(π / (2x)) * besselj(n + 0.5, x)
+        md = 0.0
+        for n in (2, 6, 12, 20), x in (3.0 + 0.5im, 0.2 + 40im, 1.0 + 300im, 5.0 + 650im)
+            inv, rat = sbessel_inv_ratio(n, x)
+            jn = jdirect(n, x); jn1 = jdirect(n + 1, x)
+            md = max(md, abs(inv - 1 / jn) * abs(jn), abs(rat - jn1 / jn) / abs(jn1 / jn))
+        end
+        @test md < 1e-13
+        # x = i y: j_{n+1} / j_n = i I_{n+3/2}(y) / I_{n+1/2}(y) (modified Bessel functions, an independent route),
+        # and 1 / j_n -> 0 where j_n itself overflows (|Im x| > ~700)
+        for n in (6, 20), y in (800.0, 2500.0)
+            inv, rat = sbessel_inv_ratio(n, complex(0.0, y))
+            @test rat ≈ 1im * besselix(n + 1.5, y) / besselix(n + 0.5, y) rtol = 1e-12
+            @test isfinite(inv) && abs(inv) < 1e-300
+        end
+        @test_throws Exception jdirect(6, complex(0.0, 800.0))         # the unscaled form overflows there
+        # the BigFloat argument of the core solutions keeps its type
+        @test sbessel_inv_ratio(2, Complex{BigFloat}(3, 0.5))[1] isa Complex{BigFloat}
     end
 
     @testset "get_Ic (Core Solution Matrix)" begin
@@ -129,6 +151,85 @@ using Obliqua.solid1d.common
         A8 = get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1.0) 
         @test size(A8) == (8, 8)
         @test A8 isa Matrix{ComplexF64}
+    end
+
+    @testset "8x8 motion matrix: melt flux W = phi R as the 8th state" begin
+        # R form of the two-phase matrix (Hay et al. 2025, eq. S4.6; the entries of the previous implementation),
+        # built on the drained solid-body part. get_A! returns its similarity transform D A_R D^-1, D = diag(1,..,1,phi):
+        # the W row is phi times the R row, the W column the R column / phi, the diagonal unchanged.
+        function A_R(ω, r, ρ, g, μ, Ks, ρl, Kl, Kd, α, ηl, ϕ, k, n)
+            A = zeros(ComplexF64, 8, 8)
+            get_A!(A, ω, r, ρ, g, μ, Ks, ρl, Kl, Kd, α, ηl, 0.0, k, n; G0 = 1.0)     # ϕ = 0: drained solid part only
+            λ = Kd - 2μ / 3; S = ϕ / Kl + (α - ϕ) / Ks; ri = 1 / r; βi = 1 / (2μ + λ); Gn = G
+            A[1, 7] = α * βi
+            A[3, 1] += 1im * k * ρl^2 * g^2 * n * (n + 1) / (ω * ηl) * ri^2
+            A[3, 5] += -(n + 1) * ri * 1im * (k * ρl^2 * g * n) / (ω * ηl) * ri
+            A[3, 7] = 1im * (k * ρl * g * n * (n + 1)) / (ω * ηl) * ri^2 - 4μ * α * βi * ri
+            A[3, 8] = 1im * (k * ρl^2 * g^2 * n * (n + 1)) / (ω * ηl) * ri^2 - 4ϕ * ρl * g * ri
+            A[4, 7] = 2α * μ * ri * βi
+            A[4, 8] = ϕ * ρl * g * ri
+            A[5, 8] = 4π * Gn * ρl * ϕ
+            A[6, 1] += -1im * 4π * Gn * n * (n + 1) * ri * (k * ρl^2 * g / (ω * ηl) * ri)
+            A[6, 5] = 1im * 4π * n * (n + 1) * Gn * ρl^2 * k * ri^2 / (ω * ηl)
+            A[6, 7] = -1im * 4π * n * (n + 1) * Gn * ρl * k * ri^2 / (ω * ηl)
+            A[6, 8] = 4π * Gn * (n + 1) * ri * (ϕ * ρl - 1im * n * k * ρl^2 * g / (ω * ηl) * ri)
+            A[7, 1] = ρl * g * ri * (4 - 1im * (k * ρl * g * n * (n + 1) / (ω * ϕ * ηl)) * ri)
+            A[7, 2] = -ρl * n * (n + 1) * ri * g
+            A[7, 5] = -ρl * (n + 1) * ri * (1 - 1im * (k * ρl * g * n) / (ω * ϕ * ηl) * ri)
+            A[7, 6] = ρl
+            A[7, 7] = -1im * (k * ρl * g * n * (n + 1)) / (ω * ϕ * ηl) * ri^2
+            A[7, 8] = -1im * ω * ϕ * ηl / k - 4π * Gn * (ρ - ϕ * ρl) * ρl + ρl * g * ri * (4 - 1im * (k * ρl * g * n * (n + 1)) / (ω * ϕ * ηl) * ri)
+            A[8, 1] = ri * (1im * k * ρl * g * n * (n + 1) / (ω * ϕ * ηl) * ri - α / ϕ * 4μ * βi)
+            A[8, 2] = α / ϕ * 2n * (n + 1) * μ * βi * ri
+            A[8, 3] = -α / ϕ * βi
+            A[8, 5] = -1im * k * ρl * n * (n + 1) / (ω * ϕ * ηl) * ri^2
+            A[8, 7] = 1im * k * n * (n + 1) / (ω * ϕ * ηl) * ri^2 - 1 / ϕ * (S + α^2 * βi)
+            A[8, 8] = 1im * k * ρl * g * n * (n + 1) / (ω * ϕ * ηl) * ri^2 - 2ri
+            return A
+        end
+        # physical inputs (SI); ϕ from a well-connected mush down to the threshold regime, where W << R
+        ω, r, ρ, g = 1e-5, 5.0e6, 3500.0, 9.0
+        μ, Ks, Kd = 1e10 + 1e8im, 1e11 + 0im, 5e9 + 1e7im
+        ρl, Kl, ηl, k = 3000.0, 1e10, 1.0, 1e-9
+        for ϕ in (0.3, 0.07, 1e-5), n in (2, 5)
+            α = 1 - Kd / Ks
+            AW = get_A(ω, r, ρ, g, μ, Ks, ρl, Kl, Kd, α, ηl, ϕ, k, n; G0 = 1.0)
+            AR = A_R(ω, r, ρ, g, μ, Ks, ρl, Kl, Kd, α, ηl, ϕ, k, n)
+            D = Diagonal(vcat(ones(7), ϕ))
+            ref = D * AR * inv(D)
+            # entry by entry, relative to each entry (no entry may hide under a larger one)
+            @test all(isapprox.(AW, ref; rtol = 1e-12, atol = 0))
+            # the W row carries no 1/ϕ: closed form of the (W, X) entry, -α / (K_d + 4μ/3)
+            @test AW[8, 3] ≈ -α / (Kd + 4μ / 3) rtol = 1e-14
+            # guard: the untransformed R matrix differs in that entry by the factor 1/ϕ
+            @test abs(AR[8, 3] - AW[8, 3]) > 1e-3 * abs(AW[8, 3])
+            # a similarity transform keeps the eigenvalues (the propagated modes) unchanged
+            byri(x) = (real(x), imag(x))
+            @test sort(eigvals(AW); by = byri) ≈ sort(eigvals(AR); by = byri) rtol = 1e-8
+        end
+        # no porosity: the porous entries stay off, identical in both forms
+        @test get_A(ω, r, ρ, g, μ, Ks, ρl, Kl, Kd, 0.0 + 0im, ηl, 0.0, k, 2; G0 = 1.0)[8, :] == zeros(8)
+    end
+
+    @testset "Rayleigh drag in the motion matrices" begin
+        # the drag rate σ_R only adds i ω ρ σ_R to the (Y, V) entry: tangential inertia ρ ω² -> ρ ω (ω - i σ_R)
+        ω, r, ρ, g, n = 1e-4, 5.0e6, 3000.0, 9.0, 2
+        μ, K, σR = 1e9 + 1e7im, 1e11 + 0im, 3e-5
+        for Y in ([1, 2, 3, 4, 5, 6], [1, 2, 4, 5, 3, 6])
+            A0 = get_A(ω, r, ρ, g, μ, K, n; G0 = 1.0, inertial_terms = true, Y = Y)
+            Ad = get_A(ω, r, ρ, g, μ, K, n; G0 = 1.0, inertial_terms = true, Y = Y, drag = σR)
+            E = zeros(ComplexF64, 6, 6); E[Y[4], Y[2]] = 1im * ω * ρ * σR
+            @test Ad - A0 == E
+            # with inertia the entry is ρ ω (ω - i σ_R) less than without: discriminates a sign error of the drag
+            A00 = get_A(ω, r, ρ, g, μ, K, n; G0 = 1.0, inertial_terms = false, Y = Y)
+            @test Ad[Y[4], Y[2]] - A00[Y[4], Y[2]] ≈ -ρ * ω * (ω - 1im * σR) rtol = 1e-12
+        end
+        # the 8x8 mush matrix gets the same entry on the matrix (drained) block, nothing else
+        args8 = (ω, r, ρ, g, μ, K, 2500.0, 1e10, 5e9 + 0im, 0.95 + 0im, 1.0, 0.1, 1e-9, n)
+        D8 = get_A(args8...; G0 = 1.0, drag = σR) - get_A(args8...; G0 = 1.0)
+        @test D8[4, 2] ≈ 1im * ω * ρ * σR && count(!iszero, D8) == 1
+        # zero drag is the plain matrix (the default)
+        @test get_A(ω, r, ρ, g, μ, K, n; G0 = 1.0, drag = 0.0) == get_A(ω, r, ρ, g, μ, K, n; G0 = 1.0)
     end
 
     @testset "compute_strain_ten!" begin
@@ -349,7 +450,7 @@ end
         # n(n+1)*gamma^2/omega^2 term that diverges as omega->0.
         for n in (2, 3, 4)
             @testset "Harmonic Degree n = $n" begin
-                for ω_val in (1e-4, 1e-3)   # 1e-5 overflows sbesselj (double-precision AMOS) at n=4, r=R0
+                for ω_val in (1e-4, 1e-3)   # 1e-5 overflowed the unscaled j_n (AMOS) at n=4, r=R0 before sbessel_inv_ratio
                     for r in [0.1 * R0, 0.25 * R0, 0.5 * R0, 0.75 * R0, 1.0 * R0]
                         g_r = (4/3) * π * G * ρ0 * r
                         A = zeros(ComplexF64, 6, 6)

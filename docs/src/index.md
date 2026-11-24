@@ -100,7 +100,9 @@ Obliqua/
 │   ├── 📄 common.jl
 │   ├── 📄 constants.jl
 │   ├── 📄 fluid0d.jl
+│   ├── 📄 fluid1d_relax.jl
 │   ├── 📄 Hansen.jl
+│   ├── 📄 helper.jl
 │   ├── 📄 interior.jl
 │   ├── 📄 load.jl
 │   ├── 📄 Obliqua.jl
@@ -113,7 +115,8 @@ Obliqua/
 │   ├── 📄 solid1d.jl
 │   └── 📄 SphericalHarmonics.jl
 ├── 📂 examples/
-│   ├── 📄 hansen_k_table.ipynb
+│   ├── 📂 PoroviscoelasticTides/
+│   ├── 📝 Project.toml
 │   └── 📄 visualize_output.ipynb
 ├── 📂 docs/
 │   ├── 📂 src/
@@ -130,7 +133,14 @@ Obliqua/
 │   ├── 📄 test_common.jl
 │   ├── 📄 test_constants.jl
 │   ├── 📄 test_fluid0d.jl
+│   ├── 📄 test_fluid1d_relax.jl
+│   ├── 📄 test_gassmann.jl
+│   ├── 📄 test_hansen.jl
+│   ├── 📄 test_helper.jl
+│   ├── 📄 test_interior.jl
+│   ├── 📄 test_mush_interfaces.jl
 │   ├── 📄 test_obliqua.jl
+│   ├── 📄 test_profile_coupling.jl
 │   ├── 📄 test_setup.jl
 │   ├── 📄 test_solid0d.jl
 │   ├── 📄 test_solid1d_equil_relax.jl
@@ -159,10 +169,12 @@ Obliqua/
 
 The source code for Obliqua is organized into several modules, each responsible for a specific aspect of the functionality. The main modules include:
 
-- `common.jl`: Common functions and utilities used throughout the package.
+- `common.jl`: Physics shared between the solvers: motion matrices, layer and profile handling, fluid/solid classification, gravity.
 - `constants.jl`: Physical constants and parameters used in the calculations.
 - `fluid0d.jl`: 0D fluid model.
-- `Hansen.jl`: Hansen coefficients for tidal dissipation.
+- `fluid1d_relax.jl`: 1D non-rotating model of the whole interior as one column of solid, mush and fluid layers, using a relaxation based solver.
+- `Hansen.jl`: Hansen coefficients of the eccentric-orbit forcing, by FFT, and the selection of the forcing modes.
+- `helper.jl`: Argument checks and diagnostics (tidal work, interface residuals, boundary-layer resolution).
 - `interior.jl`: Complementary models for the interior properties of planets.
 - `load.jl`: Load interior data functions.
 - `Obliqua.jl`: Main module for the Obliqua package.

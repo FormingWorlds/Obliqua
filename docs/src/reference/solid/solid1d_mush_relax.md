@@ -74,7 +74,9 @@ $\pmb{A}_n$ the $6 \times 6$ motion matrix, exactly as in
 [Solid-Phase - solid1d-relax](@ref). At some point we may encounter a
 porous layer, where we must couple the $6\times6$ elastic system to the
 $8\times8$ poro-elastic one that carries the two extra porous
-$y$-functions (pore pressure $P_{n,m}$ and Darcy flux $R_{n,m}$).
+$y$-functions (pore pressure $P_{n,m}$ and radial melt flux $W_{n,m} = \phi R_{n,m}$ relative to the matrix).
+The melt flux is continuous wherever the pores connect, so a porosity change between two porous nodes needs no
+interface condition.
 
 ### Solid-to-mush and mush-to-solid interfaces
 
@@ -95,19 +97,32 @@ side of the interface has no porous degrees of freedom to match against:
   pore-pressure and Darcy-flux rows of $\pmb D_{n+1}$ are zeroed, since
   the solid side above has neither degree of freedom.
 
-In both cases a small regularizing term $\pmb K_n$ — a single $1$ placed
-on the Darcy-flux diagonal entry — is added to $\pmb X_n = \pmb P_n \pmb
-R_{n-1} + \pmb S_n$ before it is inverted, since dropping a row/column
-pair can otherwise leave $\pmb X_n$ singular. Because this padding and
-regularization can leave $\pmb X_n$ ill-conditioned, the response matrix
-is obtained with the Moore-Penrose pseudo-inverse,
-$\pmb R_n = -\pmb X_n^{+} \pmb Q_n$, rather than a direct solve. The
-physical boundary condition actually enforced at the interface — zero
-Darcy flux crossing it — is then applied directly and unconditionally
-afterwards, by overwriting the Darcy-flux column (mush $\to$ solid) or
-row (solid $\to$ mush) of the resulting $\pmb R_n$ with zeros. This
-guarantees the no-flux condition regardless of what the padded,
-pseudo-inverted solve produced for that entry.
+At a **solid $\to$ mush** transition a small regularizing term $\pmb K_n$ (a single $1$ on the melt-flux
+diagonal entry) is added to $\pmb X_n = \pmb P_n \pmb R_{n-1} + \pmb S_n$, $\pmb R_n = -\pmb X_n^{-1} \pmb Q_n$ is
+obtained with a direct solve (the pseudo-inverse only if $\pmb X_n$ is singular), and the melt-flux row of $\pmb R_n$
+is set to zero, so that $W = 0$ at the last solid node. The pivot only turns the (identically cancelled)
+pore-pressure row of the interface cell into a slack; through the melt-flux row of that cell, $W$ then vanishes at
+the cell face, which is the base of the porous layer (the pore pressure is free).
+
+At a **mush $\to$ solid** transition the pore pressure jumps from its value on the porous side,
+$(\pmb C_n \pmb y_n)_P$, to zero. With this self-referencing jump the pore-pressure row of the
+difference equation across the interface vanishes identically, so the pore pressure is free. The
+vacated row takes the melt-flux row of the same difference equation, $(\pmb C_n \pmb y_n)_W = 0$,
+i.e. zero radial melt flux at the cell face (this row has no slot in the $6\times6$ solid block
+row above), and $\pmb R_n = -\pmb X_n^{-1}\pmb Q_n$ is obtained with a direct solve. The $X$, $Y$, $\Psi$
+rows of the interface cell keep their coupling to $P_n$ and $R_n$: that part of $\pmb C^l_n \pmb y_n$ is
+returned as `Pn_extra` and added to $\pmb X_{n+1}$ by the next block row. With both choices the
+interface cell is treated consistently and the scheme is second-order accurate across a buried porous
+layer on a grid whose interfaces fall on cell faces. Imposing $R_n = 0$ at the last porous node instead is
+first order (0.5 to 3 % error in $\mathrm{Im}\,k_2$ at $\Delta r = 1$ km in the test cases), and adding the
+regularizing $\pmb K_n$ at this interface imposes $R_n = -(\pmb C_n \pmb y_n)_P$, a drained-type
+condition that lets melt cross the interface (30 to 130 times too much Darcy dissipation in the test cases).
+
+The Darcy dissipation is concentrated in a poroelastic boundary layer of thickness
+$\delta = \sqrt{2 k M/(\eta_l \omega)}$, with $1/M = S + \alpha^2/(K_d + 4\mu/3)$, at every impermeable
+boundary. On grids coarser than $\delta$, $\mathrm{Im}\,k_2$ remains close to its converged value, but the
+heating of the unresolved boundary layer does not, and the energy budget fails (37 % at
+$\Delta r = 20$ km for $\delta \approx 0.2$ km in the test case). See `test/test_mush_interfaces.jl`.
 
 Once inside the porous layer, we continue constructing $R_n$ using the
 full $8\times8$ motion matrix,
@@ -133,3 +148,25 @@ $8\times8$ propagator instead of exercising this coupling logic at all.
 Obliqua.run_solid1d_mush_relax
 ```
 
+
+### Heating profile
+
+The cycle-averaged dissipation density is evaluated on the solver grid and integrated over the sphere on the angular grid
+of `constants.res`. It is then volume-averaged onto the interior-model layers, which conserves the integrated heating.
+There are three channels (Hay et al. 2025, Eqs. 38-39):
+
+- **Shear:** $\omega\,\mathrm{Im}(\tilde\mu)\left[\sum_i |\epsilon_{ii}|^2 + 2\sum_{i<j}|\epsilon_{ij}|^2 - \tfrac13|\mathrm{tr}\,\epsilon|^2\right]$.
+- **Darcy:** $\tfrac12\,\omega^2(\eta_l/k)\,|\boldsymbol w|^2$, with $\boldsymbol w = \phi\,\boldsymbol u_{rel}$ the melt flux relative to the matrix.
+- **Compaction (volumetric):** with the solver's constitutive law (total mean stress $\tilde\kappa_d\,e - \tilde\alpha p$, fluid content $\tilde\alpha e + \tilde S p$, $e = \mathrm{tr}\,\epsilon$),
+
+$$
+\dot E_C = \frac{\omega}{2}\left[\mathrm{Im}(\tilde\kappa_d)\,|e|^2 - \mathrm{Im}(\tilde S)\,|p|^2 - 2\,\mathrm{Im}(\tilde\alpha)\,\mathrm{Re}(p\,e^*)\right]
+         = \frac{\omega}{2}\,\mathrm{Im}(\tilde\kappa_d)\left|e + \frac{p}{\kappa_s}\right|^2,
+$$
+
+  where the second form uses $\tilde\alpha = 1 - \tilde\kappa_d/\kappa_s$ and $\tilde S = \phi/\kappa_l + (\tilde\alpha - \phi)/\kappa_s$ with real $\kappa_s, \kappa_l$.
+  This follows from the work rate $\sigma_{ij}\dot\epsilon_{ij} + p\,\dot\zeta$ (the solid term of Hay et al. Eq. 38).
+  Hay et al. Eq. 39b, $\tfrac{\omega}{2}\mathrm{Im}(\tilde\kappa_d)\,(|e|^2 + |p/\kappa_s|^2)$, lacks the cross term $2\,\mathrm{Re}(p\,e^*)/\kappa_s$.
+  It is exact only for incompressible grains ($\kappa_s\to\infty$). Without the cross term, a porous layer with a lossy
+  drained modulus overestimates the heating by ~9 % against the Love-number dissipation $-(2n+1)R\omega\,\mathrm{Im}(k_2)/(8\pi G)$.
+  With it, the balance closes to < 0.1 % (`test/test_profile_coupling.jl`).

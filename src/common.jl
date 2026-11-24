@@ -4,7 +4,9 @@
 module common
 
     include("constants.jl")
+    include("helper.jl")
     using .constants
+    using .helper
 
     import GenericLinearAlgebra
     using DoubleFloats
@@ -15,7 +17,8 @@ module common
     using LinearAlgebra
     using Optim
 
-    export expand_layers, resample_profiles, get_g, optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbesselj, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_displacement!, compute_pore_pressure!, get_heating_profile, get_heating_map
+    export expand_layers, resample_profiles, gassmann, get_g, optimize_scales, Ynm, define_spherical_grid, get_scales, doublefactorial, sbessel_inv_ratio, get_Ic, get_A, get_A!, get_surface_bc!, compute_strain_ten!, compute_darcy_flux!, compute_pore_pressure!, get_heating_profile, get_heating_map, shear_integral, strain_on_grid!, darcy_w9, strain_parts, get_heating_profile_nodal, get_heating_map_nodal, cell_average, cell_average_map
+    export solver_grid, interpolate_layers, refine_layers, fluid_measure, skeleton_measure, fluid_mask
 
     
     """
@@ -219,6 +222,181 @@ module common
         g_new, M_tot = get_g(r_new_b, ρ_new, m_core) 
 
         return r_new_b, ρ_new, η_new, μ_new, κs_new, κl_new, κd_new, α_new, ηl_new, φ_new, k_new, g_new, M_tot
+    end
+
+
+    """
+        refine_layers(n_sub, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu=nothing) -> NamedTuple
+
+    Split every input layer into `n_sub` equal radial sub-layers and interpolate the layer values linearly in radius
+    between the layer centres (flat beyond the first and last centre). The fluid class (`fluid_measure`) is evaluated
+    on the sub-layers, so an interface moves with the layer values instead of jumping by a whole layer when one layer
+    changes class.
+
+    Interpolation: density and porosity linearly; viscosity, melt and undrained bulk moduli and permeability in log (linearly where
+    an end value is zero); the real and imaginary parts of the complex moduli separately, in log of the magnitude where
+    both end values share a sign and linearly otherwise, so passive moduli stay passive and moduli at -ω stay the
+    conjugates of those at ω. The Biot coefficient is recomputed from the interpolated moduli by the caller.
+
+    # Returns
+    NamedTuple (r, ρ, η, μc, κc, κdc, κl, ϕ, k, κu, parent) on the sub-layers (`κu` nothing when not given); `parent` is
+    the input layer of each.
+    """
+    function refine_layers(n_sub::Integer, r::AbstractVector, ρ::AbstractVector, η::AbstractVector,
+                           μc::AbstractVector, κc::AbstractVector, κdc::AbstractVector, κl::AbstractVector,
+                           ϕ::AbstractVector, k::AbstractVector; κu = nothing)
+        check_arg(n_sub >= 1, "refine_layers: n_sub = $n_sub must be >= 1")
+
+        # sub-layer boundaries: every input layer split into n_sub equal parts
+        Nl = length(ρ)
+        rs = vcat([collect(range(r[i], r[i+1]; length = n_sub + 1))[1:end-1] for i in 1:Nl]..., [r[end]])
+        return interpolate_layers(rs, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu = κu)
+    end
+
+    """
+        solver_grid(r_C, R, dr_min, dr_max) -> Vector{Float64}
+
+    Cell faces of Obliqua's exponential grid between r_C and R (the grid of `resample_profiles`: spacing dr_min at the
+    surface and dr_max at the CMB), with the end faces set to r_C and R exactly.
+    """
+    function solver_grid(r_C::Float64, R::Float64, dr_min::Int, dr_max::Int)
+        a = log(dr_max / dr_min)
+        N = Int(ceil((R - r_C) / dr_min * a / (exp(a) - 1)))
+        ξ = (N .- collect(1:N)) ./ (N - 1)
+        rs = R .+ (r_C - R) .* ((exp.(a .* ξ) .- 1) ./ (exp(a) - 1))
+        rs[1] = r_C; rs[end] = R
+        return rs
+    end
+
+    """
+        interpolate_layers(rs, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu=nothing) -> NamedTuple
+
+    Values of the input layers (boundaries `r`) on new layers with boundaries `rs` (same span), evaluated at the centres
+    of the new layers with the interpolation of `refine_layers`. With `rs` the cell faces of the solver grid every
+    cell gets the value of the interpolated profile at its centre (node), so the profile has no steps inside an input
+    layer.
+    """
+    function interpolate_layers(rs::AbstractVector, r::AbstractVector, ρ::AbstractVector, η::AbstractVector,
+                                μc::AbstractVector, κc::AbstractVector, κdc::AbstractVector, κl::AbstractVector,
+                                ϕ::AbstractVector, k::AbstractVector; κu = nothing)
+        Nl = length(ρ)
+        rc0 = 0.5 .* (r[1:end-1] .+ r[2:end])
+        rcs = 0.5 .* (rs[1:end-1] .+ rs[2:end])
+        # input layer of each new layer (the one containing its centre)
+        parent = [clamp(searchsortedfirst(r, x) - 1, 1, Nl) for x in rcs]
+
+        # bracketing centres (a, b) and weight w of each sub-layer centre; flat outside [rc0[1], rc0[end]]
+        a = similar(parent); b = similar(parent); w = zeros(Float64, length(rcs))
+
+        # find the bracketing layers for each sub-layer centre
+        for (s, x) in enumerate(rcs)
+            j = clamp(searchsortedlast(rc0, x), 1, Nl)
+            if x <= rc0[1] || Nl == 1
+                a[s] = b[s] = 1
+            elseif x >= rc0[end]
+                a[s] = b[s] = Nl
+            else
+                a[s] = j; b[s] = j + 1; w[s] = (x - rc0[j]) / (rc0[j+1] - rc0[j])
+            end
+        end
+
+        # linear interpolation of the input values to the sub-layer centres, with flat extrapolation beyond the first and last centre
+        lin(v) = [(1 - w[s]) * v[a[s]] + w[s] * v[b[s]] for s in eachindex(rcs)]
+        # log interpolation where both ends are positive, linear otherwise (a zero stays a zero at its centre)
+        lg(x, y, t) = t == 0 ? x : t == 1 ? y : (x > 0 && y > 0) ? exp((1 - t) * log(x) + t * log(y)) : (1 - t) * x + t * y
+        lgv(v) = [lg(v[a[s]], v[b[s]], w[s]) for s in eachindex(rcs)]
+        # complex parts in log of the magnitude where both ends share a sign, so the moduli at -ω stay the conjugates
+        lgs(x, y, t) = (x < 0 && y < 0) ? -lg(-x, -y, t) : lg(x, y, t)
+        lgc(v) = [complex(lgs(real(v[a[s]]), real(v[b[s]]), w[s]), lgs(imag(v[a[s]]), imag(v[b[s]]), w[s]))
+                  for s in eachindex(rcs)]
+        return (r = rs, ρ = lin(ρ), η = lgv(η), μc = lgc(μc), κc = lgc(κc), κdc = lgc(κdc), κl = lgv(κl), ϕ = lin(ϕ),
+                k = lgv(k), κu = κu === nothing ? nothing : lgv(κu), parent = parent)
+    end
+
+
+    """
+        gassmann(Kd, Ks, Kl, ϕ)
+
+    Undrained (Gassmann) bulk modulus of a porous frame with drained modulus `Kd`, grain modulus `Ks`, melt modulus
+    `Kl` and porosity `ϕ` [Pa]: K_u = K_d + alpha^2 / S with alpha = 1 - K_d/K_s and storativity
+    S = ϕ/K_l + (alpha - ϕ)/K_s, the same S as the two-phase motion matrix. K_u = K_s for ϕ = 0 (returned exactly),
+    and K_u = K_d when alpha = 0. Complex moduli are allowed (viscoelastic frame).
+    """
+    function gassmann(Kd::Number, Ks::Number, Kl::Real, ϕ::Real)
+        ϕ <= 0 && return Ks
+        α = 1 - Kd / Ks
+        iszero(α) && return Kd
+        S = ϕ / Kl + (α - ϕ) / Ks
+        return Kd + α^2 / S
+    end
+
+
+    """
+        fluid_measure(η, μc; criterion=:viscosity, visc_fluid=1e8, κdc, κc, ϕ) -> Vector{Float64}
+
+    Class variable per layer, negative where the layer is fluid-like.
+    
+    `:viscosity`: log(η / visc_fluid), the fixed cutoff.
+    `:skeleton`: negative where the drained frame modulus κdc has vanished.
+    `:loss`: negative where the loss modulus exceeds the storage modulus at the forcing frequency. 
+    """
+    function fluid_measure(η::AbstractVector, μc::AbstractVector; criterion::Symbol = :viscosity,
+                           visc_fluid::Real = 1e8, κdc = nothing, κc = nothing, ϕ = nothing)
+        check_option("fluid_measure", "criterion", criterion, (:viscosity, :loss, :skeleton))
+        criterion === :viscosity && return log.(Float64.(η)) .- log(visc_fluid)
+        criterion === :loss && return [log(abs(real(m)) / abs(imag(m))) for m in μc]
+        check_arg(!(κdc === nothing || κc === nothing || ϕ === nothing), "fluid_measure: criterion :skeleton needs κdc, κc and ϕ")
+        return skeleton_measure(κdc, κc, ϕ)
+    end
+
+    """
+        skeleton_measure(κdc, κc, ϕ) -> Vector{Float64}
+
+    Class variable of the skeleton criterion, negative where the solid frame has failed. A layer with a frame
+    (Re κd > 0) gets x = Re κd / Re κs, which for the Nur critical-porosity frame is 1 - v / v_c (v the melt volume
+    fraction). A layer without a frame (Re κd <= 0, or ϕ >= 1) gets the value extrapolated from the nearest framed layer
+    j below, x = 1 - (1 - x_j) ϕ / ϕ_j (v / ϕ taken as equal in the two layers), capped below zero. The zero crossing
+    between a framed and a failed layer then moves continuously with the framed layer's κd.
+    """
+    function skeleton_measure(κdc::AbstractVector, κc::AbstractVector, ϕ::AbstractVector)
+        N = length(κdc)
+        check_arg(length(κc) == N && length(ϕ) == N, "skeleton_measure: inputs need equal length")
+
+        # find layers with skeleton (Re κd > 0 and ϕ < 1)
+        framed = [real(κdc[i]) > 0 && ϕ[i] < 1 for i in 1:N]
+        # compute the class variable x: Re κd / Re κs for framed layers, -1 for failed layers
+        x = [framed[i] ? Float64(real(κdc[i]) / real(κc[i])) : -1.0 for i in 1:N]
+        # propagate the last framed value downwards to the failed layers, capped below zero
+        for i in 1:N
+            # if the current layer is framed, skip it
+            framed[i] && continue
+            # find the last framed layer j below i
+            j = findlast(view(framed, 1:i-1))
+            # if no framed layer is found, skip this layer
+            j === nothing && continue
+            # propagate the last framed value downwards, capped below zero
+            ϕ[j] > 0 && (x[i] = min(1 - (1 - x[j]) * ϕ[i] / ϕ[j], -1e-6))
+        end
+        return x
+    end
+
+    """
+        fluid_mask(x) -> Vector{Bool}
+
+    Fluid layers (ordered bottom to top) from a class variable x (`fluid_measure`): the contiguous layers from the
+    surface down with x < 0. Only the ocean connected to the surface is fluid: a buried layer with x < 0 stays a solid
+    or mush layer (with a non-monotonic viscosity near the cutoff it would otherwise form a second fluid region under a
+    thin mush sliver, which changes k by tens of per cent at every frequency). With the viscosity criterion the mask
+    does not depend on the forcing frequency, so every tidal mode of a snapshot sees the same layering.
+    """
+    function fluid_mask(x::AbstractVector)::Vector{Bool}
+        out = falses(length(x))
+        i = length(x)
+        while i >= 1 && x[i] < 0
+            out[i] = true
+            i -= 1
+        end
+        return collect(Bool, out)
     end
 
 
@@ -618,7 +796,7 @@ module common
             S[5, 5] = 1.0        # y5: potential (m^2/s^2)
             S[6, 6] = g0/P0      # y6: potential gradient/gravity (m/s^2)
             S[7, 7] = μ0/(g0*R0) # y7: pore pressure (Pa)
-            S[8, 8] = 1.0/g0     # y8: relative radial displacement (m)
+            S[8, 8] = 1.0/g0     # y8: radial melt flux relative to the matrix, W = ϕ R (m)
         end
 
         Sinv = inv(S)
@@ -651,27 +829,21 @@ module common
 
     
     """
-        sbesselj(nu::Int, x::T) where T <: Number
+        sbessel_inv_ratio(n, x) -> (1 / j_n(x), j_{n+1}(x) / j_n(x))
 
-    Compute the scaled spherical Bessel function of the first kind, defined as:
-    sbesselj(nu, x) = sqrt(π / (2x)) * besselj(nu + 0.5, x)
-
-    # Arguments
-    - `nu::Int`                       : Order of the spherical Bessel function.
-    - `x::T`                          : Argument of the Bessel function. Can be a real or complex number.
-
-    # Returns
-    - `result::T`                     : The value of the scaled spherical Bessel function of the first kind at the given order and argument.
+    The two combinations of spherical Bessel functions that the inertial core solutions use, computed from the
+    exponentially scaled Bessel function besseljx(nu, x) = J_nu(x) exp(-|Im x|). For a self-gravitating core at tidal
+    frequencies x is nearly imaginary, |Im x| ~ sqrt(n (n + 1)) gamma r / (omega alpha) reaches 1e3 at degree 6 and
+    above, and j_n itself overflows Float64 (Amos error); 1 / j_n then tends to zero and the ratio stays finite. The
+    exponential is evaluated in the precision of x (BigFloat for the core solutions), the scaled Bessel values in
+    Float64 (SpecialFunctions.jl has no BigFloat Bessel functions of complex argument).
     """
-    function sbesselj(nu::Int, x::T) where T <: Number
-        if T <: Complex{BigFloat} || T <: BigFloat
-            # Cast to Float64 for SpecialFunctions.jl compatibility
-            x64 = ComplexF64(x)
-            val = sqrt(π / (2 * x64)) * besselj(nu + 0.5, x64)
-            return parse(T, string(val)) # Robust way to bring back to BigFloat
-        else
-            return sqrt(π / (2 * x)) * besselj(nu + 0.5, x)
-        end
+    function sbessel_inv_ratio(n::Int, x::T) where T <: Number
+        x64 = ComplexF64(x)
+        a = besseljx(n + 0.5, x64)
+        b = besseljx(n + 1.5, x64)
+        inv = exp(-abs(imag(x))) / (sqrt(π / (2 * x64)) * a)
+        return convert(T, inv), convert(T, b / a)
     end
 
 
@@ -826,16 +998,15 @@ module common
 
             # 4. Second Elementary Solution (Kervazo B.23-B.28, general finite-mu,K)
             # Scaled Analytical Solution: divided by j_n(x) to prevent numerical
-            # overflow. sbesselj wraps SpecialFunctions.besselj, which is numerically
-            # stable across the physically relevant range of x, so no separate
-            # small-x/low-frequency branch is required.
+            # overflow; 1/j_n and j_{n+1}/j_n come from exponentially scaled Bessel
+            # functions (sbessel_inv_ratio), so no separate small-x/low-frequency
+            # branch is required.
             @info("Using full inertial solution for core boundary conditions.")
-            jn = sbesselj(n, x)
-            jnp1 = sbesselj(n+1, x)
+            inv_jn, rat_n = sbessel_inv_ratio(n, x)       # 1/j_n(x), j_{n+1}(x)/j_n(x) (scaled: no overflow)
 
             ϕl_scaled = doublefactorial(2n+1) / x^n
-            ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
-            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
+            ψl_scaled = 2*(2n+3)/x^2 * (inv_jn - ϕl_scaled)
+            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * rat_n
 
             pref = -r^(n+1) / (2n + 3)
 
@@ -846,8 +1017,8 @@ module common
             Ic[Y[4],2] = μ * r^n * (ϕl_scaled - 1/(2n+3) * ((n-1)*h*ψl_scaled + 2*(f+1)*ϕlp1_scaled))
             # Takeuchi & Saito (1972) Eq. 102's y5 has a bare (non-Bessel) term
             # -(n+1)*(shear speed)^2/r^2 in addition to (compressional speed)^2*f/r^2
-            Ic[Y[5],2] = r^(n+2) * (((β^2*f - (n+1)*α^2) / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
-            Ic[Y[6],2] = r^(n+1) * ((((2n+1)*(β^2*f - (n+1)*α^2)) / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[5],2] = r^(n+2) * (((β^2*f - (n+1)*α^2) / r^2) * inv_jn - (3γ*f / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[6],2] = r^(n+1) * ((((2n+1)*(β^2*f - (n+1)*α^2)) / r^2) * inv_jn - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
 
             # 5. Third Elementary Solution (Kervazo B.23-B.28, "-" root of B.30).
             # A genuinely solid (elastic, finite mu) core has no fluid-solid
@@ -855,12 +1026,11 @@ module common
             # embed here (unlike "liquid"/"inertial-liquid", whose third column
             # IS that slip vector) -- the correct third basis vector is instead
             # this second, independent Bessel elementary solution. 
-            jnm = sbesselj(n, xm)
-            jnp1m = sbesselj(n+1, xm)
+            inv_jnm, rat_nm = sbessel_inv_ratio(n, xm)
 
             ϕl_scaled_m = doublefactorial(2n+1) / xm^n
-            ψl_scaled_m = 2*(2n+3)/xm^2 * (1/jnm - ϕl_scaled_m)
-            ϕlp1_scaled_m = (doublefactorial(2n+3) / xm^(n+1)) * (jnp1m / jnm)
+            ψl_scaled_m = 2*(2n+3)/xm^2 * (inv_jnm - ϕl_scaled_m)
+            ϕlp1_scaled_m = (doublefactorial(2n+3) / xm^(n+1)) * rat_nm
 
             pref_m = -r^(n+1) / (2n + 3)
 
@@ -869,8 +1039,8 @@ module common
             Ic[Y[3],3] = (-(λ + 2μ) * r^n * fm * ϕl_scaled_m
                           + μ * r^n / (2n+3) * (-n*(n-1)*hm*ψl_scaled_m + 2*(2*fm + n*(n+1))*ϕlp1_scaled_m))
             Ic[Y[4],3] = μ * r^n * (ϕl_scaled_m - 1/(2n+3) * ((n-1)*hm*ψl_scaled_m + 2*(fm+1)*ϕlp1_scaled_m))
-            Ic[Y[5],3] = r^(n+2) * (((β^2*fm - (n+1)*α^2) / r^2) * (1/jnm) - (3γ*fm / (2*(2n+3))) * ψl_scaled_m)
-            Ic[Y[6],3] = r^(n+1) * ((((2n+1)*(β^2*fm - (n+1)*α^2)) / r^2) * (1/jnm) - (3γ*((2n+1)*fm - n*hm) / (2*(2n+3))) * ψl_scaled_m)
+            Ic[Y[5],3] = r^(n+2) * (((β^2*fm - (n+1)*α^2) / r^2) * inv_jnm - (3γ*fm / (2*(2n+3))) * ψl_scaled_m)
+            Ic[Y[6],3] = r^(n+1) * ((((2n+1)*(β^2*fm - (n+1)*α^2)) / r^2) * inv_jnm - (3γ*((2n+1)*fm - n*hm) / (2*(2n+3))) * ψl_scaled_m)
 
             # 6. Column-wise Normalization (Brings vectors to unit length)
             # Uses LinearAlgebra's norm. 
@@ -918,15 +1088,13 @@ module common
 
             # 4. Second Elementary Solution (Korenaga B.5, fluid mu=0)
             # Scaled Analytical Solution: divided by j_n(x) to prevent numerical
-            # overflow (sbesselj wraps SpecialFunctions.besselj, numerically stable
-            # across the physically relevant range of x).
+            # overflow (1/j_n and j_{n+1}/j_n from sbessel_inv_ratio).
             @info("Using full inertial-liquid solution for core boundary conditions.")
-            jn = sbesselj(n, x)
-            jnp1 = sbesselj(n+1, x)
+            inv_jn, rat_n = sbessel_inv_ratio(n, x)       # 1/j_n(x), j_{n+1}(x)/j_n(x) (scaled: no overflow)
 
             ϕl_scaled = doublefactorial(2n+1) / x^n
-            ψl_scaled = 2*(2n+3)/x^2 * (1/jn - ϕl_scaled)
-            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * (jnp1 / jn)
+            ψl_scaled = 2*(2n+3)/x^2 * (inv_jn - ϕl_scaled)
+            ϕlp1_scaled = (doublefactorial(2n+3) / x^(n+1)) * rat_n
 
             pref = -r^(n+1) / (2n + 3)
 
@@ -934,8 +1102,8 @@ module common
             Ic[Y[2],2] = pref * (0.5 * h * ψl_scaled - ϕlp1_scaled)
             Ic[Y[3],2] = -K * r^n * f * ϕl_scaled
             Ic[Y[4],2] = 0.0
-            Ic[Y[5],2] = r^(n+2) * ((α^2 * f / r^2) * (1/jn) - (3γ*f / (2*(2n+3))) * ψl_scaled)
-            Ic[Y[6],2] = r^(n+1) * (((2n+1)*α^2*f / r^2) * (1/jn) - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[5],2] = r^(n+2) * ((α^2 * f / r^2) * inv_jn - (3γ*f / (2*(2n+3))) * ψl_scaled)
+            Ic[Y[6],2] = r^(n+1) * (((2n+1)*α^2*f / r^2) * inv_jn - (3γ*((2n+1)*f - n*h) / (2*(2n+3))) * ψl_scaled)
 
             # 5. Boundary Condition Column
             Ic[:,3] .= 0.0
@@ -1040,10 +1208,10 @@ module common
     # Returns
     - `A::Array{precc,2}`               : 6x6 A matrix at radius r, which is used in the ODE for the solid-body problem.
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])::Array{precc,2}
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6], drag::Real=0.0)::Array{precc,2}
         M = length(Y)
         A = zeros(precc, M, M) 
-        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y)
+        get_A!(A, ω, r, ρ, g, μ, K, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y, drag=drag)
         return A
     end
 
@@ -1051,8 +1219,8 @@ module common
     """
         get_A(ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6,7,8])
 
-    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025).
+    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. The 8th state is the radial melt flux relative
+    to the matrix, W = ϕ R (Biot's w), instead of the relative melt displacement R of Equation S4.6 in Hay et al. (2025).
 
     # Arguments
     - `ω::prec`                          : Forcing frequency.
@@ -1081,9 +1249,9 @@ module common
 
     See also [`get_A!`](@ref)
     """
-    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A(ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=1, inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8], drag::Real=0.0)
         A = zeros(precc, 8, 8)
-        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y)
+        get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=G0, inertial_terms=inertial_terms, λ=λ, Y=Y, drag=drag)
         return A
     end
 
@@ -1140,8 +1308,9 @@ module common
     - `inertial_terms::Bool=false`       : Whether to include inertial terms in the motion matrix.
     - `λ::precc=nothing`                 : Lamé's first parameter at radius r. If not provided, it is computed as λ = K - 2μ/3.
     - `Y::Vector{Int}=[1,2,3,4,5,6]`     : Ordering of the solution vector components. This allows for different conventions in the literature.
+    - `drag::Real=0`                     : Rayleigh drag rate σ_R on the tangential motion (same units as ω).
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6], drag::Real=0.0)
         if isnothing(λ)
             λ = K - 2μ/3
         end
@@ -1185,14 +1354,17 @@ module common
             A[Y[3],Y[1]] -= ω^2 * ρ
             A[Y[4],Y[2]] -= ω^2 * ρ
         end
+
+        # Rayleigh drag on the tangential motion: inertia ρ ω² -> ρ ω (ω - i drag) in the tangential momentum row
+        iszero(drag) || (A[Y[4],Y[2]] += 1im * ω * ρ * drag)
     end
 
 
     """
         get_A!(A, ω, r, ρ, g, μ, K, ρₗ, Kl, Kd, α, ηₗ, ϕ, k, n; G0=1, inertial_terms=false, λ=nothing, Y=[1,2,3,4,5,6,7,8])
 
-    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. These correspond to 
-    the coefficients given in Equation S4.6 in Hay et al., (2025).
+    Compute the 8x8 `A` matrix in the ODE for the two-phase problem. The 8th state is the radial melt flux relative
+    to the matrix, W = ϕ R (Biot's w), instead of the relative melt displacement R of Equation S4.6 in Hay et al. (2025).
 
     # Arguments
     - `A::Array{precc,2}`                : 8x8 A matrix at radius r, which is used in the ODE for the two-phase problem.
@@ -1220,12 +1392,12 @@ module common
     # Notes
     See also [`get_A`](@ref)
     """
-    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8])
+    function get_A!(A::Matrix, ω::prec, r::prec, ρ::prec, g::prec, μ::precc, K::precc, ρₗ::prec, Kl::prec, Kd::precc, α::precc, ηₗ::prec, ϕ::prec, k::prec, n::Int; G0::prec=prec(1.0), inertial_terms::Bool=false, λ::Union{Nothing, precc}=nothing, Y::Vector{Int}=[1,2,3,4,5,6,7,8], drag::Real=0.0)
         λ = Kd .- 2μ/3       # Lame's second param, which uses the drained compaction modulus
         S = ϕ/Kl + (α - ϕ)/K # Storavity, which uses liquid and solid grain bulk moduli  
 
         # First add the solid-body coefficients, but using drained moduli. 
-        get_A!(A, ω, r, ρ, g, μ, Kd, n; λ=λ, G0=G0, inertial_terms=inertial_terms, Y=Y)    # Note that here we replace the bulk modulus with the compaction modulus
+        get_A!(A, ω, r, ρ, g, μ, Kd, n; λ=λ, G0=G0, inertial_terms=inertial_terms, Y=Y, drag=drag)    # Note that here we replace the bulk modulus with the compaction modulus; drag on the matrix motion
 
         r_inv = 1.0/r
         β_inv = 1.0/(2μ + λ)
@@ -1240,30 +1412,32 @@ module common
             A[Y[3],Y[1]] += 1im * k*ρₗ^2 *g^2 * n*(n+1) / (ω*ηₗ) * r_inv^2
             A[Y[3],Y[5]] += -(n+1)r_inv * 1im *(k*ρₗ^2*g*n)/(ω*ηₗ) * r_inv                               
             A[Y[3],Y[7]] = 1im * (k*ρₗ*g*n*(n+1))/(ω*ηₗ)*r_inv^2 - 4μ*α*β_inv*r_inv 
-            A[Y[3],Y[8]] =  1im * (k*ρₗ^2*g^2*n*(n+1))/(ω*ηₗ)*r_inv^2 - 4ϕ*ρₗ*g*r_inv 
+            # column W = column R of Hay et al. (2025) divided by ϕ
+            A[Y[3],Y[8]] =  1im * (k*ρₗ^2*g^2*n*(n+1))/(ω*ϕ*ηₗ)*r_inv^2 - 4ρₗ*g*r_inv
         
             A[Y[4],Y[7]] = 2α*μ*r_inv * β_inv
-            A[Y[4],Y[8]] = ϕ*ρₗ*g*r_inv 
+            A[Y[4],Y[8]] = ρₗ*g*r_inv
             
-            A[Y[5],Y[8]] = 4π*G_norm*ρₗ*ϕ
+            A[Y[5],Y[8]] = 4π*G_norm*ρₗ
 
             A[Y[6],Y[1]] += -1im * 4π*G_norm*n*(n+1)*r_inv * (k*ρₗ^2*g/(ω*ηₗ)*r_inv)
             A[Y[6],Y[5]] = 1im*4π*n*(n+1)G_norm*(ρₗ)^2*k*r_inv^2 / (ω*ηₗ)  
             A[Y[6],Y[7]] = -1im *4π*n*(n+1)G_norm*ρₗ*k*r_inv^2 / ( ω*ηₗ) 
-            A[Y[6],Y[8]] = 4π*G_norm*(n+1)*r_inv * (ϕ*ρₗ - 1im * n*k*ρₗ^2*g/(ω*ηₗ)*r_inv) 
+            A[Y[6],Y[8]] = 4π*G_norm*(n+1)*r_inv * (ρₗ - 1im * n*k*ρₗ^2*g/(ω*ϕ*ηₗ)*r_inv)
             
             A[Y[7],Y[1]] = ρₗ*g*r_inv * ( 4 - 1im *(k*ρₗ*g*n*(n+1)/(ω*ϕ*ηₗ))*r_inv)  
             A[Y[7],Y[2]] = -ρₗ*n*(n+1)*r_inv*g
             A[Y[7],Y[5]] = -ρₗ*(n+1)r_inv * (1 - 1im*(k*ρₗ*g*n)/(ω*ϕ*ηₗ)*r_inv)  
             A[Y[7],Y[6]] = ρₗ 
             A[Y[7],Y[7]] = - 1im*(k*ρₗ*g*n*(n+1))/(ω*ϕ*ηₗ)*r_inv^2
-            A[Y[7],Y[8]] = -1im*ω*ϕ*ηₗ/k - 4π*G_norm*(ρ - ϕ*ρₗ)*ρₗ + ρₗ*g*r_inv*(4 - 1im*(k*ρₗ*g*n*(n+1))/(ω*ϕ*ηₗ)*r_inv) 
+            A[Y[7],Y[8]] = -1im*ω*ηₗ/k + (-4π*G_norm*(ρ - ϕ*ρₗ)*ρₗ + ρₗ*g*r_inv*(4 - 1im*(k*ρₗ*g*n*(n+1))/(ω*ϕ*ηₗ)*r_inv)) / ϕ
         
-            A[Y[8],Y[1]] = r_inv*( 1im * k*ρₗ*g*n*(n+1)/(ω*ϕ*ηₗ)*r_inv - α/ϕ * 4μ*β_inv) 
-            A[Y[8],Y[2]] = α/ϕ * 2n*(n+1)*μ *β_inv * r_inv
-            A[Y[8],Y[3]] = -α/ϕ * β_inv 
-            A[Y[8],Y[5]] = -1im * k *ρₗ *n*(n+1) / (ω*ϕ*ηₗ)*r_inv^2 
-            A[Y[8],Y[7]] = 1im*k*n*(n+1)/(ω*ϕ*ηₗ)*r_inv^2 - 1/ϕ * (S + α^2 * β_inv) # If solid and liquid are compressible, keep the 1/M term
+            # row W = row R of Hay et al. (2025) times ϕ (the fluid-content equation for the melt flux)
+            A[Y[8],Y[1]] = r_inv*( 1im * k*ρₗ*g*n*(n+1)/(ω*ηₗ)*r_inv - α * 4μ*β_inv)
+            A[Y[8],Y[2]] = α * 2n*(n+1)*μ *β_inv * r_inv
+            A[Y[8],Y[3]] = -α * β_inv
+            A[Y[8],Y[5]] = -1im * k *ρₗ *n*(n+1) / (ω*ηₗ)*r_inv^2
+            A[Y[8],Y[7]] = 1im*k*n*(n+1)/(ω*ηₗ)*r_inv^2 - (S + α^2 * β_inv) # If solid and liquid are compressible, keep the 1/M term
             A[Y[8],Y[8]] = 1im * k *ρₗ*g *n*(n+1) / (ω*ϕ*ηₗ)*r_inv^2  - 2r_inv 
         end
 
@@ -1307,7 +1481,7 @@ module common
         y2 = -(2 * n + 1) * g / (4 * pi * R^2) * U_prime - P
         y4 = tau
         y6 = ((2 * n + 1) / R) * (U + G/G0 / R * U_prime)
-        y8 = 0
+        y8 = 0                    # closed (impermeable) surface: radial melt flux W = 0
 
         if M == 8
             # radial Stress y3
@@ -1468,15 +1642,15 @@ module common
 
 
     """
-        compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl, SphericalGrid)
+        compute_darcy_flux!(w, y, n, r, ω, ϕ, ηl, k, g, ρl, SphericalGrid)
 
-    Calculate the Darcy displacement vector at a particular radial level. 
+    Calculate the Darcy displacement vector at a particular radial level.
 
     # Arguments
-    - `dis_rel::Array{ComplexF64}`      : Array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
-    - `y::Matrix`                       : Solution vector y at a particular radial level, with 8 components.
+    - `w::Array{ComplexF64}`            : Array to store the melt flux at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components (r, θ, φ).
+    - `y::Matrix`                       : Solution vector y at a particular radial level, with 8 components (y8 = W).
     - `n::Int`                          : Tidal degree. 
-    - `r::Float64`                      : Radius at which to compute the Darcy displacement vector.
+    - `r::Float64`                      : Radius at which to compute the melt flux.
     - `ω::Float64`                      : Forcing frequency.
     - `ϕ::Float64`                      : Porosity at radius r.
     - `ηl::Float64`                     : Liquid viscosity at radius r.
@@ -1485,7 +1659,7 @@ module common
     - `ρl::Float64`                     : Liquid density at radius r.
     - `SphericalGrid::NamedTuple`       : A struct containing the spherical grid information (Y, dYdθ, dYdϕ) for the current radial level.
     """
-    function compute_darcy_displacement!(dis_rel::Array{ComplexF64}, y::Array{ComplexF64,1}, n::Int, r::Float64, ω::Float64, ϕ::Float64, ηl::Float64, k::Float64, g::Float64, ρl::Float64, SphericalGrid::NamedTuple)
+    function compute_darcy_flux!(w::Array{ComplexF64}, y::Array{ComplexF64,1}, n::Int, r::Float64, ω::Float64, ϕ::Float64, ηl::Float64, k::Float64, g::Float64, ρl::Float64, SphericalGrid::NamedTuple)
         i = 1
 
         @views clats = SphericalGrid.clats
@@ -1497,11 +1671,11 @@ module common
         y5 = y[5]
         y7 = y[7]
         y8 = y[8]
-        y9 = 1im * k / (ω*ϕ*ηl*r) * (ρl*g*y1 - ρl * y5 + ρl*g*y8 + y7)
+        w9 = darcy_w9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8)
         
-        dis_rel[:,:,1] = Y * y8 
-        dis_rel[:,:,2] = dYdθ * y9
-        dis_rel[:,:,3] = dYdϕ * y9 ./ sin.(clats)
+        w[:,:,1] = Y * y8 
+        w[:,:,2] = dYdθ * w9
+        w[:,:,3] = dYdϕ * w9 ./ sin.(clats)
     end
 
 
@@ -1611,6 +1785,32 @@ module common
 
 
     """
+        biot_bulk_dissipation(e, p, ω, Kd, α, ϕ, Kl, Ks)
+
+    Cycle-averaged volumetric (bulk) dissipation density of the poroviscoelastic medium, consistent with the constitutive
+    law integrated by the two-phase solver (`get_A!`, Hay et al. 2025, Eq. S4.6).
+
+    # Arguments
+    - `e::AbstractArray`                : Volumetric strain tr(ε) on the angular grid.
+    - `p::AbstractArray`                : Pore pressure on the angular grid (zeros for non-porous cells).
+    - `ω::Real`                         : Forcing frequency.
+    - `Kd, α`                           : Drained bulk modulus and Biot coefficient (complex).
+    - `ϕ, Kl, Ks`                       : Porosity, liquid bulk modulus and solid-grain bulk modulus.
+
+    # Returns
+    - `D::Array{Float64}`               : Dissipation density on the angular grid (W m^-3 per unit forcing).
+    """
+    function biot_bulk_dissipation(e::AbstractArray, p::AbstractArray, ω::Real, Kd::Number, α::Number, ϕ::Real, Kl::Real, Ks::Number)
+        D = (ω/2) .* imag(Kd) .* abs2.(e)
+        if ϕ > 0
+            S = ϕ/Kl + (α - ϕ)/Ks
+            D = D .- (ω/2) .* (imag(S) .* abs2.(p) .+ 2imag(α) .* real.(p .* conj.(e)))
+        end
+        return Float64.(D)
+    end
+
+
+    """
         get_heating_profile(y, r, ρ, g, μ, Ks, ω, ρl, Kl, Kd, α, ηl, ϕ, k, n, SphericalGrid; lay=nothing)
 
     Get the radial volumetric heating for two-phase tides and eccentricity forcing,
@@ -1686,10 +1886,13 @@ module common
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields
-            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kd[i], α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
+            # bulk modulus of the node's own motion matrix: the drained K_d for a porous node, the grain K_s for a
+            # non-porous node (solved with the 6x6 matrix and K_s); see biot_bulk_dissipation
+            Kb = k[i] > 0 ? Kd[i] : Ks[i]
+            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kb, α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
             
             if ϕ[i] > 0
-                compute_darcy_displacement!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
+                compute_darcy_flux!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
                 p .= yrr[7] .* Y 
             else
                 p .= 0.0
@@ -1701,16 +1904,13 @@ module common
                      1/3 .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             Eμ_loc .*= ω * imag(μ[i])
 
-            # 3. Compaction Heating (Bulk)
-            Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-            if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.(p ./ Ks[i]).^2)       # <-- Fixed typo present in Love.jl :)
-            end
+            # 3. Compaction Heating (Bulk): drained-frame / Biot dissipation, see biot_bulk_dissipation
+            Eκ_loc = biot_bulk_dissipation(sum(ϵ[:,:,1:3], dims=3)[:,:,1], p, ω, Kb, α[i], ϕ[i], Kl[i], Ks[i])
 
             # 4. Darcy Dissipation (Liquid)
             El_loc = zeros(nlats, nlons)
             if ϕ[i] > 0
-                El_loc .= 0.5 * ϕ[i]^2 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)
+                El_loc .= 0.5 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)   # d_disp: melt flux w
             end
 
             # 5. Angular Integration and Volume Averaging
@@ -1876,10 +2076,13 @@ module common
             yrr = y[:, i]
 
             # 1. Compute Tensors/Fields for the current shell
-            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kd[i], α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
+            # bulk modulus of the node's own motion matrix: the drained K_d for a porous node, the grain K_s for a
+            # non-porous node (solved with the 6x6 matrix and K_s); see biot_bulk_dissipation
+            Kb = k[i] > 0 ? Kd[i] : Ks[i]
+            compute_strain_ten!(ϵ, yrr, n, rr, ρ[i], g[i], μ[i], Ks[i], ω, ρl[i], Kl[i], Kb, α[i], ηl[i], ϕ[i], k[i], SphericalGrid)
             
             if ϕ[i] > 0
-                compute_darcy_displacement!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
+                compute_darcy_flux!(d_disp, yrr, n, rr, ω, ϕ[i], ηl[i], k[i], g[i], ρl[i], SphericalGrid)
                 p .= yrr[7] .* Y 
             else
                 p .= 0.0
@@ -1891,16 +2094,13 @@ module common
                      1/3 .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
             Eμ_loc .*= ω * imag(μ[i])
 
-            # 3. Local Volumetric Compaction Heating (Bulk)
-            Eκ_loc = ω/2 * imag(Kd[i]) .* abs.(sum(ϵ[:,:,1:3], dims=3)).^2
-            if ϕ[i] > 0
-                Eκ_loc .+= (ω/2 * imag(Kd[i]) .* abs.((p) ./ Ks[i]).^2)
-            end
+            # 3. Local Volumetric Compaction Heating (Bulk): drained-frame / Biot dissipation, see biot_bulk_dissipation
+            Eκ_loc = biot_bulk_dissipation(sum(ϵ[:,:,1:3], dims=3)[:,:,1], p, ω, Kb, α[i], ϕ[i], Kl[i], Ks[i])
 
             # 4. Local Volumetric Darcy Dissipation (Liquid)
             El_loc = zeros(nlats, nlons)
             if ϕ[i] > 0
-                El_loc .= 0.5 * ϕ[i]^2 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)
+                El_loc .= 0.5 * ω^2 * (ηl[i] / k[i]) .* (abs.(d_disp[:,:,1]).^2 .+ abs.(d_disp[:,:,2]).^2 .+ abs.(d_disp[:,:,3]).^2)
             end
 
             # 5. Accumulate the heat flux from each shell into the final map (W/m³)
@@ -1911,6 +2111,339 @@ module common
         end
 
         return Eμ_3d, Eκ_3d, El_3d
+    end
+
+
+    """
+        shear_integral(e, s, a, b, L)
+
+    Angular integral of |ε_dev|^2 for a strain field of a single degree n with orthonormal harmonics (integral |Y|^2 dΩ = 1,
+    as in `define_spherical_grid`), L = n(n+1):
+
+        ε = e Y r̂r̂ + s (r̂ ∇₁Y + ∇₁Y r̂) + a Y I_h + b D(Y),     D = traceless part of ∇₁∇₁Y,
+        integral |ε|^2 dΩ = |e|^2 + 2L|s|^2 + 2|a|^2 + L(L-2)|b|^2 / 2,     tr ε = (e + 2a) Y.
+
+    The deviatoric part subtracts |tr ε|^2 / 3. On the grid of `define_spherical_grid` the same strain is
+    `strain_on_grid!`, whose angular quadrature converges to this value.
+    """
+    function shear_integral(e::Number, s::Number, a::Number, b::Number, L::Int)
+        tot = abs2(e) + 2L * abs2(s) + 2abs2(a) + 0.5L * (L - 2) * abs2(b)
+        return tot - abs2(e + 2a) / 3
+    end
+
+
+    """
+        strain_on_grid!(ϵ, e, s, a, b, SphericalGrid)
+
+    Strain tensor components on the angular grid from the strain amplitudes (e, s, a, b) of `shear_integral`, in the order
+    of `compute_strain_ten!` (rr, θθ, ϕϕ, rθ, rϕ, θϕ). `compute_strain_ten!` obtains the same amplitudes from the stresses
+    y3, y4 of the solution; here they are given, e.g. from finite differences of the displacements (`strain_parts`).
+    """
+    function strain_on_grid!(ϵ::Array{ComplexF64,3}, e::Number, s::Number, a::Number, b::Number, SphericalGrid::NamedTuple)
+        @views clats = SphericalGrid.clats
+        @views Y    = SphericalGrid.Y[1,:,:]
+        @views dYdθ = SphericalGrid.dYdθ[1,:,:]
+        @views dYdϕ = SphericalGrid.dYdϕ[1,:,:]
+        @views Z    = SphericalGrid.Z[1,:,:]
+        @views X    = SphericalGrid.X[1,:,:]
+
+        ϵ[:,:,1] = e * Y                                                        # e_rr
+        ϵ[:,:,2] = a * Y + 0.5b * X                                             # e_θθ
+        ϵ[:,:,3] = a * Y - 0.5b * X                                             # e_ϕϕ
+        ϵ[:,:,4] = s * dYdθ                                                     # e_rθ
+        ϵ[:,:,5] = s * dYdϕ .* 1.0 ./ sin.(clats)                               # e_rϕ
+        ϵ[:,:,6] = 0.5b * Z                                                     # e_θϕ
+    end
+
+
+    """
+        darcy_w9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8)
+
+    Tangential melt flux relative to the matrix, w9 = ϕ y9 (y9 the tangential relative melt displacement), from the
+    tangential component of Darcy's law: w9 = i k / (ω ηl r) (ρl g y1 - ρl y5 + ρl g y8 / ϕ + y7), with y8 = W the
+    radial melt flux (y8 / ϕ = R, the radial relative displacement, enters through the weight of the displaced melt).
+    """
+    darcy_w9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8) = 1im * k / (ω * ηl * r) * (ρl * g * y1 - ρl * y5 + ρl * g * y8 / ϕ + y7)
+
+
+    """
+        strain_parts(y, r_c, r_grid, n, μ, Kb, α, disp, jump)
+
+    Strain amplitudes (e, s, a, b of `shear_integral`) of a nodal solution `y` (columns at the cell centres `r_c`, cells
+    [r_grid[q], r_grid[q+1]]), split into the parts over which each cell's dissipation is integrated.
+
+    - Nodes with `disp[q]` use the displacement-based strain: on each interval between nodes j and j+1,
+      e = dU/dr, s = (dV/dr - V/r + U/r)/2, a = (U - L V/2)/r, b = V/r from the node values at the midpoint. Each interval
+      is split at the cell face and each half belongs to its own node's cell (the end cells also get the half-cells
+      [r_grid[1], r_c[1]] and [r_c[end], r_grid[end]] with the first/last interval's strain). Where `jump[j]` marks a
+      material change between nodes j and j+1, each half takes the strain of the neighbouring interval on its own side,
+      so no difference is taken across a jump of V (free slip), U (open pores) or R (porosity jump).
+    - Other nodes use the stress-based node strain of `compute_strain_ten!` (from y3, y4 and the pore pressure y7, with
+      the bulk modulus `Kb` of the node's motion matrix), at r_grid[q] with the weight r^2 dr.
+
+    # Returns
+    NamedTuple of vectors over the parts: `q` (cell), `e, s, a, b`, `y` (the state vector the part uses), `r` (its
+    radius) and `w` (integral of r^2 dr over the part).
+    """
+    function strain_parts(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, n::Int, μ::AbstractVector,
+                          Kb::AbstractVector, α::AbstractVector, disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        L = n * (n + 1)
+        rc = Float64.(r_c); rg = Float64.(r_grid)
+        q_ = Int[]; e_ = ComplexF64[]; s_ = ComplexF64[]; a_ = ComplexF64[]; b_ = ComplexF64[]
+        y_ = Vector{ComplexF64}[]; r_ = Float64[]; w_ = Float64[]
+        function add!(q, e, s, a, b, yv, r, w)
+            push!(q_, q); push!(e_, e); push!(s_, s); push!(a_, a); push!(b_, b); push!(y_, yv); push!(r_, r); push!(w_, w)
+        end
+
+        # displacement-based strain on the interval between nodes j and j+1 (midpoint values)
+        function interval_strain(j)
+            h = rc[j+1] - rc[j]; rm = 0.5 * (rc[j] + rc[j+1])
+            U, V = 0.5 * (y[1, j] + y[1, j+1]), 0.5 * (y[2, j] + y[2, j+1])
+            dU, dV = (y[1, j+1] - y[1, j]) / h, (y[2, j+1] - y[2, j]) / h
+            return dU, 0.5 * (dV - V / rm + U / rm), (U - 0.5L * V) / rm, V / rm, ComplexF64.(0.5 .* (y[:, j] .+ y[:, j+1])), rm
+        end
+        for j in 1:Nc-1
+            parts = [(j, rc[j], rg[j+1]), (j + 1, rg[j+1], rc[j+1])]
+            j == 1 && push!(parts, (1, rg[1], rc[1]))
+            j == Nc - 1 && push!(parts, (Nc, rc[Nc], rg[Nc+1]))
+            for (q, lo, hi) in parts
+                disp[q] || continue
+                jj = clamp(jump[j] ? (q == j ? j - 1 : j + 1) : j, 1, Nc - 1)   # one-sided across a material face
+                e, s, a, b, ym, rm = interval_strain(jj)
+                add!(q, e, s, a, b, ym, rm, (hi^3 - lo^3) / 3)
+            end
+        end
+
+        # stress-based node strain (compute_strain_ten! in closed form)
+        for q in 1:Nc
+            disp[q] && continue
+            rr = rg[q]
+            μq, Kq, αq = ComplexF64(μ[q]), ComplexF64(Kb[q]), ComplexF64(α[q])
+            λ = Kq - 2μq / 3; β = λ + 2μq
+            yq = ComplexF64.(y[:, q])
+            e = (-2λ * yq[1] + L * λ * yq[2] + rr * yq[3] + rr * αq * yq[7]) / (β * rr)
+            add!(q, e, 0.5 / μq * yq[4], (yq[1] - 0.5L * yq[2]) / rr, yq[2] / rr, yq, rr, rr^2 * (rg[q+1] - rg[q]))
+        end
+
+        return (q = q_, e = e_, s = s_, a = a_, b = b_, y = y_, r = r_, w = w_)
+    end
+
+
+    """
+        get_heating_profile_nodal(y, r_c, r_grid, ρ, g, μ, Ks, Kd, α, ϕ, Kl, ηl, k, ρl, σR, porous, n, ω; disp, jump)
+
+    Radial volumetric heating of a nodal solution `y` (8 x N_c, standard order U, V, y3, y4, y5, y6, P, W; zeros in the
+    slots a node does not carry) with the solution at the cell centres `r_c` and cells [r_grid[q], r_grid[q+1]]. This is
+    the counterpart of `get_heating_profile` for solvers whose nodes sit at the cell centres (fluid1d_relax): the strain
+    comes from `strain_parts` (displacement-based where `disp`, stress-based elsewhere), the angular integrals are analytic
+    (`shear_integral`, single degree n), and a Rayleigh drag channel is added.
+
+    Channels, per unit forcing, as the shell mean (angular integral over 4π, the convention of `get_heating_profile`):
+    - shear     ω Im(μ) |ε_dev|^2
+    - bulk      `biot_bulk_dissipation`, with the bulk modulus of the node's motion matrix (K_d where `porous`, else K_s)
+    - Darcy     ω^2 (ηl / k) |w|^2 / 2, w = (y8 Y, w9 ∇₁Y) the melt flux relative to the matrix (`porous` nodes only)
+    - drag      ρ σR ω^2 |u_h|^2 / 2, u_h = V ∇₁Y, at the node's cell (σR > 0 only)
+
+    # Arguments
+    - `y::AbstractMatrix`                : Solution at the nodes (8 x N_c).
+    - `r_c, r_grid`                      : Node radii (N_c) and cell faces (N_c + 1) [m].
+    - `ρ, g, μ, Ks, Kd, α`               : Density, gravity, complex shear, grain bulk and drained bulk moduli, Biot coefficient.
+    - `ϕ, Kl, ηl, k, ρl`                 : Porosity, melt bulk modulus, melt viscosity, permeability, melt density.
+    - `σR`                               : Rayleigh drag rate [s^-1] per node.
+    - `porous::AbstractVector{Bool}`     : Nodes solved with the two-phase (8-state) matrix.
+    - `n::Int`                           : Tidal degree.
+    - `ω::Real`                          : Forcing frequency [rad s^-1].
+
+    # Keyword Arguments
+    - `disp::AbstractVector{Bool}`       : Nodes with the displacement-based strain (`strain_parts`).
+    - `jump::AbstractVector{Bool}`       : Material change between nodes j and j+1 (length N_c - 1).
+
+    # Returns
+    - `Eμ_tot, Eκ_tot, El_tot, Ed_tot`   : Shear, bulk, Darcy and drag heating per cell (W/m³ per unit forcing).
+    """
+    function get_heating_profile_nodal(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, Kd::AbstractVector, α::AbstractVector, ϕ::AbstractVector, Kl::AbstractVector, ηl::AbstractVector, k::AbstractVector, ρl::AbstractVector, σR::AbstractVector, porous::AbstractVector{Bool}, n::Int, ω::Real; disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        L = n * (n + 1)
+        ω = Float64(ω)
+        rg = Float64.(r_grid)
+        Kb = [porous[q] ? ComplexF64(Kd[q]) : ComplexF64(Ks[q]) for q in 1:Nc]
+        pt = strain_parts(y, r_c, rg, n, μ, Kb, α, disp, jump)
+
+        Eμ_tot = zeros(Float64, Nc)
+        Eκ_tot = zeros(Float64, Nc)
+        El_tot = zeros(Float64, Nc)
+        Ed_tot = zeros(Float64, Nc)
+
+        for i in eachindex(pt.q)
+            q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
+            e, s, a, b = pt.e[i], pt.s[i], pt.a[i], pt.b[i]
+            p = porous[q] ? yp[7] : 0.0im
+
+            # 1. Shear Heating
+            Eμ_tot[q] += ω * imag(μ[q]) * shear_integral(e, s, a, b, L) * w
+            # 2. Bulk Heating
+            Eκ_tot[q] += biot_bulk_dissipation([e + 2a], [p], ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q]))[1] * w
+            # 3. Darcy Heating
+            if porous[q]
+                w9 = darcy_w9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
+                El_tot[q] += 0.5 * ω^2 * (ηl[q] / k[q]) * (abs2(yp[8]) + L * abs2(w9)) * w
+            end
+        end
+
+        # 4. Rayleigh Drag Heating
+        # angular integral of |∇₁Y|^2 is L
+        for q in 1:Nc
+            σR[q] > 0 || continue
+            Ed_tot[q] = 0.5 * ρ[q] * σR[q] * ω^2 * L * abs2(y[2, q]) * (rg[q+1]^3 - rg[q]^3) / 3
+        end
+
+        # power per cell over 4π times the cell volume: shell mean
+        dvol = 4π / 3 .* (rg[2:end].^3 .- rg[1:end-1].^3)
+        return Eμ_tot ./ dvol, Eκ_tot ./ dvol, El_tot ./ dvol, Ed_tot ./ dvol
+    end
+
+
+    """
+        get_heating_map_nodal(y, r_c, r_grid, ρ, g, μ, Ks, Kd, α, ϕ, Kl, ηl, k, ρl, σR, porous, n, ω, SphericalGrid; disp, jump)
+
+    Heating maps of a nodal solution on the angular grid of `define_spherical_grid`, the counterpart of `get_heating_map`
+    for `get_heating_profile_nodal` (same strain parts and channels, evaluated on the grid instead of integrated
+    analytically). The angular integral of each map (weights sin θ dres^2) converges to the profile.
+
+    # Returns
+    - `Eμ_3d, Eκ_3d, El_3d, Ed_3d`       : Shear, bulk, Darcy and drag maps (lat x lon x cell), in the convention of
+                                           `get_heating_map`.
+    """
+    function get_heating_map_nodal(y::AbstractMatrix, r_c::AbstractVector, r_grid::AbstractVector, ρ::AbstractVector, g::AbstractVector, μ::AbstractVector, Ks::AbstractVector, Kd::AbstractVector, α::AbstractVector, ϕ::AbstractVector, Kl::AbstractVector, ηl::AbstractVector, k::AbstractVector, ρl::AbstractVector, σR::AbstractVector, porous::AbstractVector{Bool}, n::Int, ω::Real, SphericalGrid::NamedTuple; disp::AbstractVector{Bool}, jump::AbstractVector{Bool})
+        Nc = length(r_c)
+        ω = Float64(ω)
+        rg = Float64.(r_grid)
+        Kb = [porous[q] ? ComplexF64(Kd[q]) : ComplexF64(Ks[q]) for q in 1:Nc]
+        pt = strain_parts(y, r_c, rg, n, μ, Kb, α, disp, jump)
+
+        clats = SphericalGrid.clats
+        Y     = SphericalGrid.Y[1, :, :]
+        dYdθ  = SphericalGrid.dYdθ[1, :, :]
+        dYdϕ  = SphericalGrid.dYdϕ[1, :, :] ./ sin.(clats)
+        nlats, nlons = size(Y)
+
+        ϵ = zeros(ComplexF64, nlats, nlons, 6)
+        Eμ_3d = zeros(Float64, nlats, nlons, Nc)
+        Eκ_3d = zeros(Float64, nlats, nlons, Nc)
+        El_3d = zeros(Float64, nlats, nlons, Nc)
+        Ed_3d = zeros(Float64, nlats, nlons, Nc)
+
+        # Compute the heating maps for each part of each cell
+        for i in eachindex(pt.q)
+            q = pt.q[i]; yp = pt.y[i]; w = pt.w[i]
+            strain_on_grid!(ϵ, pt.e[i], pt.s[i], pt.a[i], pt.b[i], SphericalGrid)
+            tr = sum(ϵ[:,:,1:3], dims=3)[:,:,1]
+
+            # 1. Local Volumetric Shear Heating
+            Eμ_loc = sum(abs.(ϵ[:,:,1:3]).^2, dims=3)[:,:,1] .+ 2sum(abs.(ϵ[:,:,4:6]).^2, dims=3)[:,:,1] .- 1/3 .* abs.(tr).^2
+            Eμ_3d[:, :, q] .+= ω * imag(μ[q]) .* Eμ_loc .* w
+
+            # 2. Local Volumetric Bulk Heating
+            p = porous[q] ? yp[7] .* Y : zeros(ComplexF64, nlats, nlons)
+            Eκ_3d[:, :, q] .+= biot_bulk_dissipation(tr, p, ω, Kb[q], ComplexF64(α[q]), Float64(ϕ[q]), Float64(Kl[q]), ComplexF64(Ks[q])) .* w
+
+            # 3. Local Volumetric Darcy Dissipation
+            if porous[q]
+                w9 = darcy_w9(k[q], ω, ϕ[q], ηl[q], pt.r[i], ρl[q], g[q], yp[1], yp[5], yp[7], yp[8])
+                El_3d[:, :, q] .+= 0.5 * ω^2 * (ηl[q] / k[q]) .* (abs2.(yp[8] .* Y) .+ abs2.(w9 .* dYdθ) .+ abs2.(w9 .* dYdϕ)) .* w
+            end
+        end
+
+        # 4. Local Volumetric Rayleigh Drag Dissipation
+        for q in 1:Nc
+            σR[q] > 0 || continue
+            Ed_3d[:, :, q] .= 0.5 * ρ[q] * σR[q] * ω^2 * abs2(y[2, q]) .* (abs2.(dYdθ) .+ abs2.(dYdϕ)) .* (rg[q+1]^3 - rg[q]^3) / 3
+        end
+
+        # same normalisation as get_heating_map: local density times (integral of r^2 dr) / cell volume
+        dvol = reshape(4π / 3 .* (rg[2:end].^3 .- rg[1:end-1].^3), 1, 1, Nc)
+        return Eμ_3d ./ dvol, Eκ_3d ./ dvol, El_3d ./ dvol, Ed_3d ./ dvol
+    end
+
+
+    """
+        cell_average(r_fine, f_fine, r_coarse)
+
+    Volume-weighted average of a radial field, piecewise constant on fine shells, onto coarser shells.
+
+    `f_fine[i]` is the value on the fine shell `[r_fine[i], r_fine[i+1]]`. The result `f[j]` is the average over the coarse
+    shell `[r_coarse[j], r_coarse[j+1]]`, weighted by the exact overlap volume, so that the volume integral is conserved:
+    `sum(f .* dV_coarse) == sum(f_fine .* dV_fine)` over the common radial range. The shell boundaries need not coincide.
+    Parts of fine shells outside `[r_coarse[1], r_coarse[end]]` are ignored.
+
+    Used to hand the heating density computed on the solver grid back on the interior-model grid. Sampling the fine profile
+    at the coarse cell centres instead misses dissipation that is concentrated inside a cell (e.g. a poroelastic boundary
+    layer or a standing shear wave next to a sharp interior jump), which breaks the heating vs Love-number energy balance.
+
+    # Arguments
+    - `r_fine::AbstractVector`          : Increasing fine shell boundaries (length N_f + 1).
+    - `f_fine::AbstractVector`          : Values on the fine shells (length N_f).
+    - `r_coarse::AbstractVector`        : Increasing coarse shell boundaries (length N_c + 1).
+
+    # Returns
+    - `f::Vector{Float64}`              : Volume-averaged values on the coarse shells (length N_c).
+    """
+    function cell_average(r_fine::AbstractVector, f_fine::AbstractVector, r_coarse::AbstractVector)::Vector{Float64}
+        N_f = length(f_fine)
+        N_c = length(r_coarse) - 1
+        if length(r_fine) != N_f + 1
+            throw(ArgumentError("cell_average: length(r_fine) = $(length(r_fine)) must equal length(f_fine) + 1 = $(N_f + 1)"))
+        end
+        if N_c < 1
+            throw(ArgumentError("cell_average: r_coarse needs at least two boundaries"))
+        end
+        if any(diff(r_fine) .<= 0) || any(diff(r_coarse) .<= 0)
+            throw(ArgumentError("cell_average: shell boundaries must be strictly increasing"))
+        end
+
+        rf = Float64.(r_fine)
+        rc = Float64.(r_coarse)
+        acc = zeros(Float64, N_c)
+        j = 1
+        for i in 1:N_f
+            a, b = rf[i], rf[i+1]
+            # first coarse shell whose top lies above the bottom of this fine shell
+            while j <= N_c && rc[j+1] <= a
+                j += 1
+            end
+            jj = j
+
+            # accumulate the overlap of this fine shell with all coarse shells whose bottom lies below the top of this fine shell
+            while jj <= N_c && rc[jj] < b
+                lo = max(a, rc[jj])
+                hi = min(b, rc[jj+1])
+                # only add if there is an overlap
+                if hi > lo
+                    acc[jj] += Float64(f_fine[i]) * (hi^3 - lo^3)
+                end
+                jj += 1
+            end
+        end
+
+        # the common factor 4π/3 cancels between overlap and shell volumes
+        return acc ./ (rc[2:end].^3 .- rc[1:end-1].^3)
+    end
+
+
+    """
+        cell_average_map(r_fine, map_fine, r_coarse)
+
+    Apply `cell_average` along the radial (third) dimension of a (lat, lon, r) heating map.
+    """
+    function cell_average_map(r_fine::AbstractVector, map_fine::AbstractArray{<:Real,3}, r_coarse::AbstractVector)::Array{Float64,3}
+        nlat, nlon, _ = size(map_fine)
+        out = zeros(Float64, nlat, nlon, length(r_coarse) - 1)
+        # loop over lat/lon and average the radial profile for each cell
+        for lon_idx in 1:nlon, lat_idx in 1:nlat
+            out[lat_idx, lon_idx, :] .= cell_average(r_fine, view(map_fine, lat_idx, lon_idx, :), r_coarse)
+        end
+        return out
     end
 
 end

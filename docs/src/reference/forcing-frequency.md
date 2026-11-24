@@ -9,26 +9,24 @@ Given the fact that the tidal forcing magnitude decreases exponentially with har
 \sigma = m\Omega - k n_{\mathrm{orb}},
 ```
 
-where ``\Omega`` is spin rate and ``n_{\mathrm{orb}}`` orbital mean motion, and for integer values of order ``-2 \leq m \leq 2`` and harmonic ``-\infty \leq k \leq \infty``. In our formalism tides are occuring over a large time interval, a time step ``\Delta t``. As such, we must account for tidal excitations that occur over a wide range of frequencies. We calculate the imaginary part of the ``n``th harmonic degree (``k_n``) Love number (``\Im[k_{n}(\sigma)]``) for all relevant harmonnic frequencies for which the Hansen coefficient 
+where ``\Omega`` is spin rate and ``n_{\mathrm{orb}}`` orbital mean motion, and for integer values of order ``-2 \leq m \leq 2`` and harmonic ``-\infty \leq k \leq \infty``. In our formalism tides are occuring over a large time interval, a time step ``\Delta t``. As such, we must account for tidal excitations that occur over a wide range of frequencies. We calculate the imaginary part of the ``n``th harmonic degree (``k_n``) Love number (``\Im[k_{n}(\sigma)]``) for all relevant harmonic frequencies. The Hansen coefficients
 
 ```math
-|X^{-(n+1), m}_k(e) |= \bigg|
+X^{-(n+1), m}_k(e) =
 \frac{1}{2\pi} \int_0^{2\pi}
-\left(\frac{r}{a}\right)^n
-e^{im\Omega - ikn_{\mathrm{orb}}}\,dn_{\mathrm{orb}} \bigg| \geq 0.001,
+\left(\frac{r}{a}\right)^{-(n+1)}
+e^{imv}\, e^{-ikM}\,dM ,
 ```
 
-(i.e. ~0.1% corrections). This implies that we are considering the following set $K$ of harmonnic frequencies $k$:
-
-```math
-K = \{k \in \mathbb{Z} \, \big| \, |X^{-(n+1), m}_k| \geq 0.001 \}
-```
+with ``v`` the true and ``M`` the mean anomaly, are computed by FFT over ``M`` (Kepler's equation solved by a bracketed Newton iteration, so any ``e < 1`` is supported). In the adaptive spectrum the set ``K = [k_\mathrm{lo}, k_\mathrm{hi}]`` of harmonics is chosen from this spectrum: with weights ``w_k = (1 + |k|) X_k^2``, ``K`` is the smallest range that leaves less than ``\varepsilon\sum_k w_k`` outside on each side, where ``\varepsilon`` is the config value `hansen_tail_tol` (default ``10^{-6}``). ``X_k^2`` measures the tidal potential of mode ``k`` and ``|k| X_k^2`` its heating under a frequency-independent phase lag. A configured `s_min` or `s_max` replaces the matching end. For ``m = 0`` the spectrum is symmetric in ``k`` and only ``k \geq 0`` is kept. The weight is explained under "k-range" on the [main loop page](../explanation/main_loop.md).
 
 ---
 
 ### Function Documentation
 
 ```@docs
-Obliqua.Hansen.get_k_range
+Obliqua.Hansen.hansen_modes
 Obliqua.Hansen.get_hansen
+Obliqua.Hansen.hansen_spectrum
+Obliqua.Hansen.kepler_safe
 ```
