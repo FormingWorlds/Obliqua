@@ -207,30 +207,23 @@ function mi_two(phi2, phi3; perm=MI_PERM, ω=MI_OMEGA, dr=2000)
 end
 
 @testset "solid1d_mush_relax: porosity jump between two porous layers" begin
-    # With R (relative melt displacement) continuous across the porosity jump, as before the fix, the budget is
-    # off by a grid-independent 16 % (0.1 | 0.4) and 5 % (0.4 | 0.1): P_love / E = 0.838 and 0.950 at dr = 2 and 1 km.
-    # Melt flux continuity phi- R- = phi+ R+ (flux_continuity!) closes it to the discretisation error.
+    # With R (relative melt displacement) continuous across the porosity jump, the budget was off by a
+    # grid-independent 16 % (0.1 | 0.4) and 5 % (0.4 | 0.1): P_love / E = 0.838 and 0.950 at dr = 2 and 1 km.
+    # The state is the melt flux W = phi R, continuous across the jump, which closes it to the discretisation error.
     for (p2, p3) in ((0.1, 0.4), (0.4, 0.1))
         c2, k2, _, _ = mi_two(p2, p3; dr=2000)
         c1, k1, y, ϕ = mi_two(p2, p3; dr=1000)
         @test abs(c1 - 1) < 2e-3
         @test abs(c2 - 1) < 2e-3
         @test imag(k1) < 0
-        # at the porosity face R jumps by the porosity ratio and phi R is continuous. The nodes sit half a cell
-        # from the face inside a ~6 km boundary layer, so the node values match to a few per cent (observed 2-3 %);
-        # with R continuous the flux would jump by |phi+ - phi-| / phi = 75-300 %
+        # at the porosity face the flux W = y8 is continuous and R = W / phi jumps by the porosity ratio. The nodes
+        # sit half a cell from the face inside a ~6 km boundary layer, so the node values match to a few per cent
+        # (observed 2-3 %); with R continuous the flux would jump by |phi+ - phi-| / phi = 75-300 %
         j = findfirst(i -> ϕ[i] > 0 && ϕ[i+1] > 0 && ϕ[i] != ϕ[i+1], 1:size(y, 2)-1)
-        flux_lo, flux_hi = ϕ[j] * y[8, j], ϕ[j+1] * y[8, j+1]
-        @test abs(flux_lo - flux_hi) < 5e-2 * abs(flux_hi)
-        @test abs(y[8, j] - y[8, j+1]) > 0.5 * abs(y[8, j+1])     # R itself jumps (ratio 4 or 1/4)
+        @test abs(y[8, j] - y[8, j+1]) < 5e-2 * abs(y[8, j+1])
+        R_lo, R_hi = y[8, j] / ϕ[j], y[8, j+1] / ϕ[j+1]
+        @test abs(R_lo - R_hi) > 0.5 * abs(R_hi)                   # R itself jumps (ratio 4 or 1/4)
     end
-    # no porosity change: identical to the former treatment (flux_continuity! is a no-op)
-    C = rand(ComplexF64, 4, 8); D = rand(ComplexF64, 4, 8)
-    C2, D2 = solid1d_mush_relax.flux_continuity!(copy(C), copy(D), 0.2, 0.2)
-    @test C2 == C && D2 == D
-    C3, D3 = solid1d_mush_relax.flux_continuity!(copy(C), copy(D), 0.1, 0.4; Y=[1, 2, 5, 6, 3, 7, 4, 8])
-    @test C3[4, :] == 0.1 .* C[4, :] && D3[4, :] == 0.4 .* D[4, :]
-    @test C3[1:3, :] == C[1:3, :] && D3[1:3, :] == D[1:3, :]
 end
 
 

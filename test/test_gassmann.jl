@@ -37,7 +37,8 @@ const GS_F = Obliqua.fluid1d_relax
                 ϕ1 = 0.0; ϕ[4] = 0.0
             end
             cs = GS_F.column_spec(1e-5, r, ρ, η, μ, κ, κd, αB, κl, 1.0, ϕ, K, 4π / 3 * r[1]^3 * 1e4, 1e4,
-                                  0.1 + 0im, 5e11 + 0im; σ_R = 0.0, dr_min = 1000, dr_max = 3000, porosity_thresh = thr)
+                                  0.1 + 0im, 5e11 + 0im; σ_R = 0.0, dr_min = 1000, dr_max = 3000, porosity_thresh = thr,
+                                  profile = :layers)               # one porous layer with sharp edges at the threshold
             return GS_F.solve_column(cs).k
         end
         k_above = kthr(thr * 1.001)
