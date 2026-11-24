@@ -25,11 +25,12 @@
 # y- = C_n y_n and y+ = -D_{n+1} y_{n+1} (eq:face_values, eq:interface_LG), which turns the cell equation into
 # (L C_n) y_n + (G D_{n+1}) y_{n+1} = 0 (eq:interface_cell). Paper subset (tab:interface_conditions):
 #   free slip at every solid/mush <-> fluid face and at a liquid core (Y = 0 on the side(s) that carry shear, V free),
-#   closed pores at solid <-> mush (R = 0 on the porous side, P free),
-#   open pores at mush <-> fluid (U_f = U_s + phi R, P + X_f = 0),
-#   melt flux continuity phi- R- = phi+ R+ where the porosity changes between two mush cells (everything else continuous).
-# Core: a static liquid core is the 4x2 solution (eq:IC_liquid) and the CMB is an interface like any other; above
-# omega_sw the "inertial-liquid" core of Obliqua is used instead (its 6x3 I_C has the same free-slip structure).
+#   closed pores at solid <-> mush (W = 0 on the porous side, P free),
+#   open pores at mush <-> fluid (U_f = U_s + W, P + X_f = 0, with the melt flux W = phi R),
+#   melt flux W = phi R continuous where the porosity changes between two mush cells (everything else continuous).
+# Core: the CMB rows are the left null space of Obliqua's core solutions I_C (core_rows); a liquid core's I_C carries
+# the tangential slip as its own column (free slip). A liquid core is solved as "inertial-liquid", with the static
+# "liquid" core where the inertial solution is not finite (|omega| below about 1e-11 rad/s).
 #
 # Grid (sec "Surface solve and grid", docs/obliqua_grid_order.md): nodes at the cell centres of Obliqua's exponential
 # grid; the CMB rows act on the face extrapolation y(r_C) = (I - h_1 A_1) y_1 and the surface rows on
@@ -41,15 +42,16 @@
 # The energy theorem (2n+1) R w / (8 pi G) (-Im k) = integral of the dissipation is the acceptance check.
 #
 # State vectors and slots. Physical ("standard") order, as everywhere in Obliqua:
-#   y = (y1, ..., y8) = (U, V, sigma_rr, sigma_rtheta, Phi, Psi, P, R)
+#   y = (y1, ..., y8) = (U, V, sigma_rr, sigma_rtheta, Phi, Psi, P, W)
 #   U, V   radial and tangential displacement [m]
 #   X = y3 = sigma_rr, Y = y4 = sigma_rtheta [Pa]
 #   Phi = y5 potential perturbation, Psi = y6 its gradient term (Obliqua's sign convention, k = y5(R) - 1)
-#   P = y7 pore pressure [Pa], R = y8 radial displacement of the melt relative to the matrix [m]
-# The solver works in the "slot" order of the appendix (eq:y_order), U V Phi P | X Y Psi R, so that the upper half
+#   P = y7 pore pressure [Pa], W = y8 radial melt flux relative to the matrix, W = phi R with R the relative melt
+#   displacement [m] (common.get_A): continuous wherever the pores connect, so a porosity change is no face
+# The solver works in the "slot" order of the appendix (eq:y_order), U V Phi P | X Y Psi W, so that the upper half
 # (slots 1-4) holds the quantities bounded from below and the lower half (slots 5-8) the tractions:
 #   storage slot   1  2  3    4  5  6  7    8
-#   component      U  V  Phi  P  X  Y  Psi  R
+#   component      U  V  Phi  P  X  Y  Psi  W
 # A solid or fluid node carries only the six slots [1, 2, 3, 5, 6, 7]; a mush node all eight. The permutation is
 # passed to Obliqua's get_A as Y (Y[k] = slot of standard component k): Y6 = [1, 2, 4, 5, 3, 6] for the 6-state
 # order (U, V, Phi, X, Y, Psi) and Y8 = [1, 2, 5, 6, 3, 7, 4, 8] for the 8-state order.
@@ -58,23 +60,24 @@ module fluid1d_relax
 
     include("constants.jl")
     include("common.jl")
+    include("helper.jl")
     using .constants
     using .common
+    using .helper
 
     using LinearAlgebra
     using Printf
 
     export column_spec, column_solve, column_heating, column_heating_map, solve_column, face_residuals, tidal_work
-    export interface_conditions, interface_step, liquid_core_rows, A_drag, node_slots, refine_layers, fluid_mask
-    export fluid_measure, fluid_mask_x, skeleton_measure
-    export boundary_layer_resolution
+    export interface_conditions, interface_step, core_rows, left_null_rows, node_slots, boundary_layer_resolution
 
-    # storage slots: U 1, V 2, Phi 3, P 4, X 5, Y 6, Psi 7, R 8
+    # storage slots: U 1, V 2, Phi 3, P 4, X 5, Y 6, Psi 7, W 8
     const SU, SV, SΦ, SP, SX, SY, SΨ, SR = 1, 2, 3, 4, 5, 6, 7, 8
 
-    # get_A permutations: Y[k] is the slot that standard component k (U, V, y3, y4, y5, y6[, P, R]) occupies
+    # get_A permutations: Y[k] is the slot that standard component k (U, V, y3, y4, y5, y6[, P, W]) occupies
     const Y6 = [1, 2, 4, 5, 3, 6]          # 6-state order U, V, Phi, X, Y, Psi
-    const Y8 = [1, 2, 5, 6, 3, 7, 4, 8]    # 8-state order U, V, Phi, P, X, Y, Psi, R
+    const Y8 = [1, 2, 5, 6, 3, 7, 4, 8]    # 8-state order U, V, Phi, P, X, Y, Psi, W
+
 
     """
         node_slots(t)
@@ -84,362 +87,155 @@ module fluid1d_relax
     """
     node_slots(t::Symbol) = t === :mush ? collect(1:8) : [SU, SV, SΦ, SX, SY, SΨ]
 
+
     """Unit vector e_s of C^8 (8-slot storage order)."""
     unit8(s::Int) = (v = zeros(8); v[s] = 1.0; v)
 
 
-    # ------------------------------------------------------------------------------------------------ motion matrix
-
-    """
-        A_drag(ω, r, ρ, g, μ, K, n, σd; G0, inertial_terms, Y)
-
-    6x6 motion matrix of a fluid node with absolute Rayleigh drag, non-dimensional:
-
-        A_f = A(mu_f, K_f) + i w rho sigma_R e_Y e_V^T.
-
-    Obliqua's get_A puts -rho w^2 in the (Y, V) entry, i.e. the tangential momentum row dY/dr has the term
-    -rho w^2 V from the tangential inertia. With drag the inertia becomes rho w (w - i sigma_R), so the entry gains
-    +i w rho sigma_R. Only the tangential row changes: the radial inertia (the (X, U) entry) is left as it is, so the
-    thin-layer limit is the drag of the Laplace tidal equations. With sigma_R = 0 this is exactly Obliqua's matrix.
-    The drag does work -1/2 rho sigma_R w^2 integral |u_h|^2 dV <= 0, so the response is passive for sigma_R >= 0.
-
-    # Arguments
-    - `ω, r, ρ, g, μ, K`  : Non-dimensional frequency, radius, density, gravity and complex moduli of the node.
-    - `n::Int`            : Spherical-harmonic degree.
-    - `σd`                : Non-dimensional drag rate sigma_R / omega_0 (0 for undragged nodes).
-    """
-    function A_drag(ω, r, ρ, g, μ, K, n, σd; G0, inertial_terms, Y)
-        A = get_A(ω, r, ρ, g, μ, K, n; G0 = G0, inertial_terms = inertial_terms, Y = Y)
-        # row of Y (= y4, tangential stress), column of V (= y2): tangential inertia -rho w^2 -> -rho w (w - i sigma_R)
-        iszero(σd) || (A[Y[4], Y[2]] += 1im * ω * ρ * σd)
-        return A
-    end
-
-
-    # ------------------------------------------------------------------------------------------- sub-layer refinement
-
-    """
-        refine_layers(n_sub, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu=nothing) -> NamedTuple
-
-    Split every input layer into `n_sub` equal radial sub-layers and interpolate the layer values linearly in radius
-    between the layer centres (flat beyond the first and last centre). The fluid class (`fluid_measure`) is evaluated
-    on the sub-layers, so an interface moves with the layer values instead of jumping by a whole layer when one layer
-    changes class.
-
-    Interpolation: density and porosity linearly; viscosity, melt and undrained bulk moduli and permeability in log (linearly where
-    an end value is zero); the real and imaginary parts of the complex moduli separately, in log of the magnitude where
-    both end values share a sign and linearly otherwise, so passive moduli stay passive and moduli at -ω stay the
-    conjugates of those at ω. The Biot coefficient is recomputed from the interpolated moduli by the caller.
-
-    # Returns
-    NamedTuple (r, ρ, η, μc, κc, κdc, κl, ϕ, k, κu, parent) on the sub-layers (`κu` nothing when not given); `parent` is
-    the input layer of each.
-    """
-    function refine_layers(n_sub::Integer, r::AbstractVector, ρ::AbstractVector, η::AbstractVector,
-                           μc::AbstractVector, κc::AbstractVector, κdc::AbstractVector, κl::AbstractVector,
-                           ϕ::AbstractVector, k::AbstractVector; κu = nothing)
-        # check arguments
-        n_sub >= 1 || throw(ArgumentError("refine_layers: n_sub = $n_sub must be >= 1"))
-        
-        # sub-layer centres and weights for interpolation
-        Nl = length(ρ)
-        rc0 = 0.5 .* (r[1:end-1] .+ r[2:end])
-        rs = vcat([collect(range(r[i], r[i+1]; length = n_sub + 1))[1:end-1] for i in 1:Nl]..., [r[end]])
-        rcs = 0.5 .* (rs[1:end-1] .+ rs[2:end])
-        # input layer of each sub-layer (1:Nl) for interpolation
-        parent = repeat(1:Nl, inner = n_sub)
-
-        # bracketing centres (a, b) and weight w of each sub-layer centre; flat outside [rc0[1], rc0[end]]
-        a = similar(parent); b = similar(parent); w = zeros(Float64, length(rcs))
-
-        # find the bracketing layers for each sub-layer centre
-        for (s, x) in enumerate(rcs)
-            j = clamp(searchsortedlast(rc0, x), 1, Nl)
-            if x <= rc0[1] || Nl == 1
-                a[s] = b[s] = 1
-            elseif x >= rc0[end]
-                a[s] = b[s] = Nl
-            else
-                a[s] = j; b[s] = j + 1; w[s] = (x - rc0[j]) / (rc0[j+1] - rc0[j])
-            end
-        end
-
-        # linear interpolation of the input values to the sub-layer centres, with flat extrapolation beyond the first and last centre
-        lin(v) = [(1 - w[s]) * v[a[s]] + w[s] * v[b[s]] for s in eachindex(rcs)]
-        # log interpolation where both ends are positive, linear otherwise (a zero stays a zero at its centre)
-        lg(x, y, t) = t == 0 ? x : t == 1 ? y : (x > 0 && y > 0) ? exp((1 - t) * log(x) + t * log(y)) : (1 - t) * x + t * y
-        lgv(v) = [lg(v[a[s]], v[b[s]], w[s]) for s in eachindex(rcs)]
-        # complex parts in log of the magnitude where both ends share a sign, so the moduli at -ω stay the conjugates
-        lgs(x, y, t) = (x < 0 && y < 0) ? -lg(-x, -y, t) : lg(x, y, t)
-        lgc(v) = [complex(lgs(real(v[a[s]]), real(v[b[s]]), w[s]), lgs(imag(v[a[s]]), imag(v[b[s]]), w[s]))
-                  for s in eachindex(rcs)]
-        return (r = rs, ρ = lin(ρ), η = lgv(η), μc = lgc(μc), κc = lgc(κc), κdc = lgc(κdc), κl = lgv(κl), ϕ = lin(ϕ),
-                k = lgv(k), κu = κu === nothing ? nothing : lgv(κu), parent = parent)
-    end
-
-
-    # ------------------------------------------------------------------------------------------------ column spec
-
     """
         column_spec(ω, r, ρ, η, μc, κc, κdc, αB, κl, ηl, ϕ, k, m_core, ρ_core, μ_core, κ_core; kwargs...)
 
-    Frequency-dependent column of the whole interior (core to surface) on Obliqua's resampled grid, as a NamedTuple
-    for `column_solve` and `column_heating`.
+    Frequency-dependent column of the whole interior (core to surface) on Obliqua's exponential grid, as a NamedTuple
+    for `column_solve` and `column_heating`. Nodes sit at the cell centres; every node carries its own material.
 
-    The surface-connected layers selected by `fluid_criterion` are fluid (`fluid_measure`, `fluid_mask_x`): they keep their shear
-    modulus, take the undrained (Gassmann) modulus of their frame, grain and melt moduli as their only bulk modulus (the
-    mush limit without Darcy flow; the melt modulus for phi = 1), no porosity, and the drag sigma_R. Porosity below
-    `porosity_thresh` is set to zero (as in the mush solver), so a layer with phi < porosity_thresh is solid. With `κu`
+    The surface-connected nodes selected by `fluid_criterion` are fluid (`fluid_measure`, `fluid_mask`): they keep their
+    shear modulus, take the undrained (Gassmann) modulus of their frame, grain and melt moduli as their only bulk modulus
+    (the mush limit without Darcy flow; the melt modulus for phi = 1), no porosity, and the drag sigma_R. Porosity below
+    `porosity_thresh` is set to zero (as in the mush solver), so a node with phi < porosity_thresh is solid. With `κu`
     (the undrained modulus of the interior rheology, per layer) that modulus replaces the Gassmann modulus built here
     wherever it is positive; the interior computes it with the melt volume fraction.
 
     # Arguments (per input layer unless noted; r has N_l + 1 boundaries)
-    - `ω`               : Forcing frequency [rad s^-1], nonzero; the moduli are those at ω (conjugate for ω < 0).
-    - `r, ρ, η`         : Layer boundaries [m], density [kg m^-3], shear viscosity [Pa s].
-    - `μc, κc, κdc, αB` : Complex shear, grain bulk and drained bulk moduli [Pa] at ω, and the Biot coefficient.
-    - `κl`              : Melt bulk modulus [Pa] per layer.
-    - `ηl`              : Melt viscosity [Pa s] (scalar), used in the Darcy terms of the mush.
-    - `ϕ, k`            : Porosity [-] and permeability [m^2].
-    - `m_core, ρ_core`  : Core mass [kg] and density [kg m^-3].
-    - `μ_core, κ_core`  : Core moduli [Pa] (only used by solid/inertial core solutions).
+    - `ω`                    : Forcing frequency [rad s^-1], nonzero; the moduli are those at ω (conjugate for ω < 0).
+    - `r, ρ, η`              : Layer boundaries [m], density [kg m^-3], shear viscosity [Pa s].
+    - `μc, κc, κdc, αB`      : Complex shear, grain bulk and drained bulk moduli [Pa] at ω, and the Biot coefficient (the
+                               nodes take 1 - κd / κs of their own moduli, which is αB for consistent input).
+    - `κl`                   : Melt bulk modulus [Pa] per layer.
+    - `ηl`                   : Melt viscosity [Pa s] (scalar), used in the Darcy terms of the mush.
+    - `ϕ, k`                 : Porosity [-] and permeability [m^2].
+    - `m_core, ρ_core`       : Core mass [kg] and density [kg m^-3].
+    - `μ_core, κ_core`       : Core moduli [Pa] (only used by solid/inertial core solutions).
 
     # Keyword Arguments
     - `σ_R=1e-4`             : Rayleigh drag rate in the fluid layers [s^-1], >= 0.
     - `dr_min, dr_max`       : Grid spacing at the surface and at the CMB [m] (Obliqua's exponential grid).
-    - `core="liquid"`        : Configured core type.
-    - `ω_sw=1e-5`            : A "liquid" core becomes "inertial-liquid" for |ω| >= ω_sw [rad s^-1].
+    - `core="liquid"`        : Core type (`get_Ic`); a liquid core is solved as inertial where that is finite (`core_rows`).
     - `inertial_terms=true`  : Inertia in the motion matrices.
-    - `porosity_thresh=0.0`  : Porosity below which a layer is non-porous.
+    - `porosity_thresh=0.0`  : Porosity below which a node is non-porous.
     - `slip=:freeslip`       : :freeslip or :noslip at solid/mush <-> fluid faces.
     - `pores=:open`          : :open or :closed at mush <-> fluid faces (solid <-> mush is always closed).
-    - `visc_fluid=1e8`       : Viscosity [Pa s] below which the layers connected to the surface are fluid, at every
+    - `visc_fluid=1e8`       : Viscosity [Pa s] below which the nodes connected to the surface are fluid, at every
                                frequency. Layers with η >~ 1e10 Pa s as fluid break the energy closure of the heating.
-    - `n_sub=1`              : Interpolated sub-layers per input layer (`refine_layers`).
     - `fluid_criterion=:viscosity`: `:viscosity` (η < visc_fluid) or `:skeleton` (drained frame modulus zero)
-    - `κu=nothing`           : Undrained bulk modulus per input layer [Pa] (entries <= 0: Gassmann of the layer here).
+    - `κu=nothing`           : Undrained bulk modulus per input layer [Pa] (entries <= 0: Gassmann of the node here).
+    - `profile=:nodes`       : `:nodes` interpolates the layer values between the layer centres to every node
+                               (`interpolate_layers`), so the material varies from node to node without steps. `:layers`
+                               keeps the values constant per input layer, or per sub-layer with `n_sub` (`refine_layers`);
+                               every porosity change is then a step with its own pressure-diffusion layer.
+    - `n_sub=1`              : Interpolated sub-layers per input layer for `profile = :layers` (not used with `:nodes`).
 
-    A layer below the porosity threshold is solved as non-porous with the undrained (Gassmann) bulk modulus of its
+    A node below the porosity threshold is solved as non-porous with the undrained (Gassmann) bulk modulus of its
     melt-bearing frame, K_u = K_d + alpha^2 / S (common.gassmann), as both its grain and drained modulus. A poorly
     connected mush with little melt is undrained at tidal frequencies, so the bulk stiffness is continuous where a
-    layer crosses the threshold; without melt K_u = K_s.
+    node crosses the threshold; without melt K_u = K_s.
     """
     function column_spec(ω::Real, r::AbstractVector, ρ::AbstractVector, η::AbstractVector, μc::AbstractVector,
                          κc::AbstractVector, κdc::AbstractVector, αB::AbstractVector, κl::AbstractVector, ηl::Real,
                          ϕ::AbstractVector, k::AbstractVector, m_core::Real, ρ_core::Real, μ_core::Number,
                          κ_core::Number; σ_R::Real = 1e-4, dr_min::Integer = 300, dr_max::Integer = 3000,
-                         core::String = "liquid", ω_sw::Real = 1e-5, inertial_terms::Bool = true,
+                         core::String = "liquid", inertial_terms::Bool = true,
                          porosity_thresh::Real = 0.0, slip::Symbol = :freeslip, pores::Symbol = :open,
                          visc_fluid::Real = 1e8, n_sub::Integer = 1, κu = nothing,
-                         fluid_criterion::Symbol = :viscosity)
-        # check arguments
-        ω != 0 || throw(ArgumentError("column_spec: ω must be nonzero (evaluate the relaxed limit at a small ω)"))
-        visc_fluid > 0 || throw(ArgumentError("column_spec: visc_fluid = $visc_fluid must be > 0"))
-        σ_R >= 0 || throw(ArgumentError("column_spec: σ_R = $σ_R must be >= 0 (passivity)"))
-        fluid_criterion in (:viscosity, :skeleton) ||
-            throw(ArgumentError("column_spec: fluid_criterion must be :viscosity or :skeleton"))
-        slip in (:freeslip, :noslip) || throw(ArgumentError("column_spec: slip must be :freeslip or :noslip"))
-        pores in (:open, :closed) || throw(ArgumentError("column_spec: pores must be :open or :closed"))
+                         fluid_criterion::Symbol = :viscosity, profile::Symbol = :nodes)
+        fn = "column_spec"
         Nl = length(ρ)
-        length(r) == Nl + 1 || throw(ArgumentError("column_spec: r needs length(ρ) + 1 boundaries"))
-        # the exponential grid of resample_profiles needs ln(dr_max/dr_min) > 0
-        dr_max > dr_min > 0 || throw(ArgumentError("column_spec: need dr_max > dr_min > 0, got $dr_min, $dr_max"))
-        n_sub >= 1 || throw(ArgumentError("column_spec: n_sub = $n_sub must be >= 1"))
-        
-        # refine the layers around the interfaces if applicable
-        if n_sub > 1
-            # sub-layers with interpolated values, so class boundaries move continuously (refine_layers)
-            sub = refine_layers(n_sub, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu = κu)
-            r, ρ, η, μc, κc, κdc, κl, ϕ, k, κu = sub.r, sub.ρ, sub.η, sub.μc, sub.κc, sub.κdc, sub.κl, sub.ϕ, sub.k, sub.κu
-            αB = 1 .- κdc ./ κc
-            Nl = length(ρ)
-        end
+        check_arg(ω != 0, "$fn: ω must be nonzero (a zero-frequency mode is the equilibrium tide)")
+        check_arg(visc_fluid > 0, "$fn: visc_fluid = $visc_fluid must be > 0")
+        check_arg(σ_R >= 0, "$fn: σ_R = $σ_R must be >= 0 (passivity)")
+        check_option(fn, "fluid_criterion", fluid_criterion, (:viscosity, :skeleton))
+        check_option(fn, "slip", slip, (:freeslip, :noslip))
+        check_option(fn, "pores", pores, (:open, :closed))
+        check_option(fn, "profile", profile, (:nodes, :layers))
+        check_arg(length(r) == Nl + 1, "$fn: r needs length(ρ) + 1 boundaries")
+        check_arg(dr_max > dr_min > 0, "$fn: need dr_max > dr_min > 0, got $dr_min, $dr_max")   # ln(dr_max/dr_min) > 0
+        check_arg(n_sub >= 1, "$fn: n_sub = $n_sub must be >= 1")
+        check_arg(κu === nothing || length(κu) == Nl, "$fn: κu needs one entry per layer")
+        profile === :nodes && n_sub > 1 &&
+            @warn "$fn: n_sub = $n_sub is not used with profile = :nodes (material interpolated at every node)" maxlog = 1
 
-        # the surface-connected layers selected by fluid_criterion are fluid (viscosity cutoff or failed frame)
-        fluid = fluid_mask_x(fluid_measure(η, μc; criterion = fluid_criterion, visc_fluid = visc_fluid,
-                                           κdc = κdc, κc = κc, ϕ = ϕ))
-        # with :skeleton the drag also acts below the fluid, in the surface-connected layers where loss > storage
-        dragged = fluid_criterion === :skeleton ? fluid .| fluid_mask_x(fluid_measure(η, μc; criterion = :loss)) : fluid
-        any(i -> fluid[i] && iszero(μc[i]), 1:Nl) &&
-            throw(ArgumentError("column_spec: a fluid layer has a zero shear modulus (give the melt μ and η)"))
-        
-        # resample the input profiles to Obliqua's exponential grid
-        rr = Vector{prec}(r)
-        ρa = Vector{prec}(ρ); ηa = Vector{prec}(η); ϕa = Vector{prec}(ϕ); ka = Vector{prec}(k)
-        μa = Vector{precc}(μc); κa = Vector{precc}(κc); κda = Vector{precc}(κdc); αa = Vector{precc}(αB)
-
-        # apply the porosity threshold, as in run_solid1d_mush_relax. A layer below it is solved as non-porous with the
-        # undrained (Gassmann) modulus of its frame as its only bulk modulus (K_u = K_s without melt), alpha = 0
-        κu === nothing || length(κu) == Nl || throw(ArgumentError("column_spec: κu needs one entry per layer"))
-        # undrained modulus of layer i: the interior's where given, else Gassmann with ϕ as porosity
-        undrained(i) = (κu !== nothing && κu[i] > 0) ? precc(κu[i]) : gassmann(κda[i], κa[i], prec(κl[i]), ϕa[i])
-        nopore = ϕa .< porosity_thresh
-        for i in findall(nopore)
-            Ku = undrained(i)
-            κa[i] = Ku; κda[i] = Ku; αa[i] = 0.0
-        end
-        ϕa[nopore] .= 0.0
-
-        # fluid layers: undrained bulk modulus of the frame (Gassmann), no porosity, Rayleigh drag on the tangential
-        for i in findall(fluid)
-            # undrained bulk modulus of the layer (kappa_l at phi = 1) as grain and drained modulus; no porosity                    # Check this 
-            κa[i] = undrained(i)
-            κda[i] = κa[i]; αa[i] = 0.0
-            ϕa[i] = 0.0; ka[i] = 0.0
-        end
-
-        # melt bulk modulus and viscosity per layer
-        κla = Vector{prec}(vcat(κl, κl[end]))
-        ηla = fill(prec(ηl), Nl + 1)
-
-        # Obliqua's exponential grid: cell faces r_grid, material constant per cell, g_grid = G M(face above) / r^2 at the outer faces
-        r_grid, ρg, ηg, μg, κsg, κlg, κdg, αg, ηlg, ϕg, kg, g_grid, M_tot =
-            resample_profiles(rr, ρa, ηa, μa, κa, κla, κda, αa, ηla, ϕa, ka, prec(m_core), Int(dr_min), Int(dr_max))
-        
-        # cell centers of the resampled grid
+        # solver grid (cell faces) and nodes at the cell centres; lay: input layer of each node
+        r_grid = solver_grid(Float64(r[1]), Float64(r[end]), Int(dr_min), Int(dr_max))
         r_c = 0.5 .* (r_grid[1:end-1] .+ r_grid[2:end])
+        lay = [clamp(searchsortedfirst(r, x) - 1, 1, Nl) for x in r_c]
 
-        # node -> input layer (resample_profiles' own rule), and the fluid mask of the nodes
-        lay = [clamp(searchsortedfirst(rr, x) - 1, 1, Nl) for x in r_c]
-        fl = [Bool(fluid[L]) for L in lay]
-
-        # Rayleigh drag on the dragged nodes (the fluid, and with :skeleton the loss-dominated layers below it)
-        σR = [dragged[lay[q]] ? Float64(σ_R) : 0.0 for q in eachindex(r_c)]
-
-        # node types: fluid, mush or solid
-        types = [fl[q] ? :fluid : (ϕg[q] > 0 && kg[q] > 0) ? :mush : :solid for q in eachindex(r_c)]
-
-        # core switch: Obliqua's "inertial-liquid" core returns NaN below ~5e-6 rad/s in Float64; the static
-        # "liquid" core is used below omega_sw
-        core_type = (core == "liquid" && abs(ω) >= ω_sw) ? "inertial-liquid" : core
-        return (σ = Float64(ω), r_grid = r_grid, r_c = r_c, ρ = ρg, g = g_grid, μ = μg, κs = κsg, κl = κlg, κd = κdg,
-                α = αg, ηl = ηlg, ϕ = ϕg, k = kg, ρl = ρg .* ϕg, scales = [rr[end], M_tot, G], M_tot = M_tot,
-                ρ_core = Float64(ρ_core), μ_core = ComplexF64(μ_core), κ_core = ComplexF64(κ_core), core = core_type,
-                inertial_terms = inertial_terms, fluid = fl, σR = σR, types = types, lay = lay, slip = slip,
-                pores = pores, fluid_layers = fluid)
-    end
-
-
-    """
-        fluid_mask(η; visc_fluid=1e8) -> Vector{Bool}
-
-    Fluid mask of the layers (ordered bottom to top): the contiguous layers from the surface down whose viscosity η is
-    below `visc_fluid` [Pa s]. They get the fluid treatment (the undrained bulk modulus, no melt variables, the Rayleigh
-    drag) and keep their own shear modulus. The mask does not depend on the forcing frequency, so every tidal mode of a
-    snapshot sees the same layering. For the tidal frequencies and the melt and mush shear moduli of interest a layer
-    below about 1e8 Pa s also relaxes faster than the tide (Maxwell time eta / mu below 1 / omega).
-
-    Only the ocean connected to the surface is fluid. A buried layer below the cutoff stays a solid or mush layer: with a
-    non-monotonic viscosity near the cutoff it would otherwise form a second fluid region under a thin mush sliver, which
-    changes k by tens of per cent at every frequency.
-    """
-    function fluid_mask(η::AbstractVector; visc_fluid::Real = 1e8)::Vector{Bool}
-        out = falses(length(η))
-        i = length(η)
-        while i >= 1 && η[i] < visc_fluid
-            out[i] = true
-            i -= 1
+        # material at the nodes: interpolated to every node, or constant per (sub-)layer
+        if profile === :nodes
+            m = interpolate_layers(r_grid, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu = κu)
+        else
+            src = n_sub > 1 ? refine_layers(n_sub, r, ρ, η, μc, κc, κdc, κl, ϕ, k; κu = κu) :
+                              (r = r, ρ = ρ, η = η, μc = μc, κc = κc, κdc = κdc, κl = κl, ϕ = ϕ, k = k, κu = κu)
+            j = [clamp(searchsortedfirst(src.r, x) - 1, 1, length(src.ρ)) for x in r_c]   # (sub-)layer of each node
+            m = (ρ = src.ρ[j], η = src.η[j], μc = src.μc[j], κc = src.κc[j], κdc = src.κdc[j], κl = src.κl[j],
+                 ϕ = src.ϕ[j], k = src.k[j], κu = src.κu === nothing ? nothing : src.κu[j])
         end
-        return collect(Bool, out)
-    end
+        ρn = Vector{prec}(m.ρ); ηn = Vector{prec}(m.η); μn = Vector{precc}(m.μc); κln = Vector{prec}(m.κl)
+        κs = Vector{precc}(m.κc); κd = Vector{precc}(m.κdc); ϕn = Vector{prec}(m.ϕ); kn = Vector{prec}(m.k)
+        α = 1 .- κd ./ κs
 
+        # fluid nodes: connected to the surface and selected by fluid_criterion (viscosity cutoff or failed frame);
+        # with :skeleton the drag also acts below the fluid, in the surface-connected nodes where loss > storage
+        fluid = fluid_mask(fluid_measure(ηn, μn; criterion = fluid_criterion, visc_fluid = visc_fluid,
+                                         κdc = κd, κc = κs, ϕ = ϕn))
+        dragged = fluid_criterion === :skeleton ? fluid .| fluid_mask(fluid_measure(ηn, μn; criterion = :loss)) : fluid
+        check_arg(!any(fluid .& iszero.(μn)), "$fn: a fluid layer has a zero shear modulus (give the melt μ and η)")
 
-    """
-        fluid_measure(η, μc; criterion=:viscosity, visc_fluid=1e8) -> Vector{Float64}
-
-    Class variable per layer, negative where the layer is fluid-like.
-    
-    `:viscosity`: log(η / visc_fluid), the fixed cutoff.
-    `:skeleton`: negative where the drained frame modulus κdc has vanished.
-    `:loss`: negative where the loss modulus exceeds the storage modulus at the forcing frequency. 
-    """
-    function fluid_measure(η::AbstractVector, μc::AbstractVector; criterion::Symbol = :viscosity,
-                           visc_fluid::Real = 1e8, κdc = nothing, κc = nothing, ϕ = nothing)
-        # check arguments
-        criterion === :viscosity && return log.(Float64.(η)) .- log(visc_fluid)
-        criterion === :loss && return [log(abs(real(m)) / abs(imag(m))) for m in μc]
-        criterion === :skeleton ||
-            throw(ArgumentError("fluid_measure: criterion must be :viscosity, :loss or :skeleton"))
-        (κdc === nothing || κc === nothing || ϕ === nothing) &&
-            throw(ArgumentError("fluid_measure: criterion :skeleton needs κdc, κc and ϕ"))
-        return skeleton_measure(κdc, κc, ϕ)
-    end
-
-    """
-        skeleton_measure(κdc, κc, ϕ) -> Vector{Float64}
-
-    Class variable of the skeleton criterion, negative where the solid frame has failed. A layer with a frame
-    (Re κd > 0) gets x = Re κd / Re κs, which for the Nur critical-porosity frame is 1 - v / v_c (v the melt volume
-    fraction). A layer without a frame (Re κd <= 0, or ϕ >= 1) gets the value extrapolated from the nearest framed layer
-    j below, x = 1 - (1 - x_j) ϕ / ϕ_j (v / ϕ taken as equal in the two layers), capped below zero. The zero crossing
-    between a framed and a failed layer then moves continuously with the framed layer's κd.
-    """
-    function skeleton_measure(κdc::AbstractVector, κc::AbstractVector, ϕ::AbstractVector)
-        # check arguments
-        N = length(κdc)
-        (length(κc) == N && length(ϕ) == N) || throw(ArgumentError("skeleton_measure: inputs need equal length"))
-
-        # find layers with skeleton (Re κd > 0 and ϕ < 1)
-        framed = [real(κdc[i]) > 0 && ϕ[i] < 1 for i in 1:N]
-        # compute the class variable x: Re κd / Re κs for framed layers, -1 for failed layers
-        x = [framed[i] ? Float64(real(κdc[i]) / real(κc[i])) : -1.0 for i in 1:N]
-        # propagate the last framed value downwards to the failed layers, capped below zero
-        for i in 1:N
-            # if the current layer is framed, skip it
-            framed[i] && continue
-            # find the last framed layer j below i
-            j = findlast(view(framed, 1:i-1))
-            # if no framed layer is found, skip this layer
-            j === nothing && continue
-            # propagate the last framed value downwards, capped below zero
-            ϕ[j] > 0 && (x[i] = min(1 - (1 - x[j]) * ϕ[i] / ϕ[j], -1e-6))
+        # undrained modulus of node i: the interior's where given, else Gassmann with ϕ as porosity
+        undrained(i) = (m.κu !== nothing && m.κu[i] > 0) ? precc(m.κu[i]) : gassmann(κd[i], κs[i], κln[i], ϕn[i])
+        # below the porosity threshold (as in run_solid1d_mush_relax): non-porous, the undrained modulus as the only
+        # bulk modulus (K_u = K_s without melt), alpha = 0
+        nopore = ϕn .< porosity_thresh
+        for i in findall(nopore)
+            κs[i] = κd[i] = undrained(i); α[i] = 0
         end
-        return x
-    end
-
-    """
-        fluid_mask_x(x) -> Vector{Bool}
-
-    Fluid layers from a class variable (`fluid_measure`): the layers connected to the surface with x < 0.
-    """
-    function fluid_mask_x(x::AbstractVector)::Vector{Bool}
-        out = falses(length(x))
-        i = length(x)
-        while i >= 1 && x[i] < 0
-            out[i] = true
-            i -= 1
+        ϕn[nopore] .= 0
+        # fluid nodes: the undrained modulus (kappa_l at phi = 1) as grain and drained modulus, no porosity
+        for i in findall(fluid)
+            κs[i] = κd[i] = undrained(i); α[i] = 0
+            ϕn[i] = 0; kn[i] = 0
         end
-        return collect(Bool, out)
+
+        # gravity at the outer cell faces from the enclosed mass
+        g_grid, M_tot = get_g(r_grid, ρn, prec(m_core))
+        # Rayleigh drag on the dragged nodes; node types
+        σR = [dragged[q] ? Float64(σ_R) : 0.0 for q in eachindex(r_c)]
+        types = [fluid[q] ? :fluid : (ϕn[q] > 0 && kn[q] > 0) ? :mush : :solid for q in eachindex(r_c)]
+
+        return (σ = Float64(ω), r_grid = r_grid, r_c = r_c, ρ = ρn, g = g_grid, μ = μn, κs = κs, κl = κln, κd = κd,
+                α = α, ηl = fill(prec(ηl), length(r_c)), ϕ = ϕn, k = kn, ρl = ρn .* ϕn, scales = [r[end], M_tot, G],
+                M_tot = M_tot, ρ_core = Float64(ρ_core), μ_core = ComplexF64(μ_core), κ_core = ComplexF64(κ_core),
+                core = core, inertial_terms = inertial_terms, fluid = fluid, σR = σR, types = types, lay = lay,
+                slip = slip, pores = pores, profile = profile)
     end
 
 
-    # ------------------------------------------------------------------------------------------------ interfaces
-
     """
-        interface_conditions(lo, hi; slip=:freeslip, pores=:open, ϕlo=0, ϕhi=0) -> (up, low)
+        interface_conditions(lo, hi; slip=:freeslip, pores=:open) -> (up, low)
 
     Conditions l . y- = g . y+ (pairs (l, g) of 8-slot vectors) at the face between a node of type `lo` (below) and
-    `hi` (above). A condition keeps the row of the component whose continuity it replaces:
+    `hi` (above), with the melt flux W = phi R in slot 8 of a mush node. A condition keeps the row of the component
+    whose continuity it replaces:
 
     - `up`  : the M-/2 rows of block row n, i.e. the upper-half slots of the node below: U, V, Phi and, for a mush
               below, slot 4 (P).
     - `low` : the M+/2 rows of block row n+1, i.e. the lower-half slots of the node above: X, Y, Psi and, for a mush
-              above, slot 8 (R).
+              above, slot 8 (W).
 
-    In total x = (M- + M+)/2 conditions. A one-sided porous pair (P, R) gives one condition, placed in the row of its
-    free member: at the top of a mush (slot 4 of block row n) and at its base (slot 8 of block row n+1). `ϕlo`/`ϕhi` 
-    are the porosities of the porous side for the open-pore melt flux.
-
-    Mush | mush with a porosity change (lo === hi === :mush): R is the displacement of the melt relative to the matrix,                     # Is this because we pass porosity phi and not melt mass fraction v?
-    and the fluid-content equation (row R of the 8x8 matrix, zeta = -div(phi w)) conserves the volume flux phi R. At a
-    porosity jump the melt flux is continuous, phi- R- = phi+ R+, while R itself jumps; this condition takes the R row
-    (slot 8 of block row n+1). All other components are continuous: U, V (welded matrix), Phi, the total tractions X, Y,
-    the pore pressure P (connected pores, finite Darcy flux), and Psi, which contains the full mass flux
-    4 pi G (rho U + rho_l phi R) and is therefore continuous at any density or porosity jump. Without this face the
-    recursion imposes R- = R+, which creates or absorbs melt at every porosity jump and breaks the energy closure in
-    proportion to the melt flow (Darcy flux), independently of the grid spacing.
+    In total x = (M- + M+)/2 conditions. A one-sided porous pair (P, W) gives one condition, placed in the row of its
+    free member: at the top of a mush (slot 4 of block row n) and at its base (slot 8 of block row n+1). A porosity
+    change between two mush nodes is not a face: W, P and all other components are continuous there.
     """
-    function interface_conditions(lo::Symbol, hi::Symbol; slip::Symbol = :freeslip, pores::Symbol = :open,
-                                  ϕlo::Real = 0.0, ϕhi::Real = 0.0)
+    function interface_conditions(lo::Symbol, hi::Symbol; slip::Symbol = :freeslip, pores::Symbol = :open)
+        check_arg(lo !== hi, "interface_conditions: no face between two nodes of type $lo")
         z8 = zeros(8)
         # continuity of slot s: e_s . y- = e_s . y+ (the row of an ordinary cell, L = G = I)
         cont(s) = (unit8(s), unit8(s))
@@ -451,50 +247,40 @@ module fluid1d_relax
         # helper to check if a node type is fluid
         isfl(t) = t === :fluid
 
-        # check the interface type
-        if lo === hi
-            # mush | mush with a porosity change: P continuous, melt flux phi- R- = phi+ R+ in place of R continuity.                           # again maybe that can be removed once we pass melt mass fraction instead of porosity, check Hay 2025, the original source
-            # (Same-material cells without a porosity change are ordinary cells in column_solve and never get here.)
-            lo === :mush && (r4 = cont(SP); r8 = (ϕlo * unit8(SR), ϕhi * unit8(SR)))
-        else
-            # catch fluid | fluid interfaces, which are not allowed
-            isfl(lo) && isfl(hi) && error("interface_conditions: two fluid types do not meet")
-
-            # interface: mush | ...
-            if lo === :mush                                               # top of a porous layer (slot 4, block row n)
-                # ... | fluid (open pores)
-                if pores === :open && isfl(hi)
-                    # open pores: pore pressure = fluid pressure, P- + X+ = 0 (P- = -X+, the fluid's sigma_rr)
-                    r4 = (unit8(SP), -unit8(SX))
-                    # the melt leaving the pores enters the fluid: U- + phi R- = U+ (replaces U continuity)
-                    rows[SU] = (unit8(SU) + ϕlo * unit8(SR), unit8(SU))
-                # ... | solid/fluid (closed pores)
-                else
-                    # closed pores: no Darcy flux through the face, R- = 0 (P- is free)
-                    r4 = (unit8(SR), z8)
-                end
+        # interface: mush | ...
+        if lo === :mush                                               # top of a porous layer (slot 4, block row n)
+            # ... | fluid (open pores)
+            if pores === :open && isfl(hi)
+                # open pores: pore pressure = fluid pressure, P- + X+ = 0 (P- = -X+, the fluid's sigma_rr)
+                r4 = (unit8(SP), -unit8(SX))
+                # the melt leaving the pores enters the fluid: U- + W- = U+ (replaces U continuity)
+                rows[SU] = (unit8(SU) + unit8(SR), unit8(SU))
+            # ... | solid/fluid (closed pores)
+            else
+                # closed pores: no Darcy flux through the face, W- = 0 (P- is free)
+                r4 = (unit8(SR), z8)
             end
-            # interface: ... | mush
-            if hi === :mush                                               # base of a porous layer (slot 8, block row n+1)
-                # fluid | ... (open pores)
-                if pores === :open && isfl(lo)
-                    # open pores, mirror image: P+ + X- = 0 and U- = U+ + phi R+
-                    r8 = (-unit8(SX), unit8(SP))
-                    rows[SU] = (unit8(SU), unit8(SU) + ϕhi * unit8(SR))
-                # solid/fluid | ... (closed pores)
-                else
-                    # closed pores: R+ = 0 (P+ is free)
-                    r8 = (z8, unit8(SR))
-                end
+        end
+        # interface: ... | mush
+        if hi === :mush                                               # base of a porous layer (slot 8, block row n+1)
+            # fluid | ... (open pores)
+            if pores === :open && isfl(lo)
+                # open pores, mirror image: P+ + X- = 0 and U- = U+ + W+
+                r8 = (-unit8(SX), unit8(SP))
+                rows[SU] = (unit8(SU), unit8(SU) + unit8(SR))
+            # solid/fluid | ... (closed pores)
+            else
+                # closed pores: W+ = 0 (P+ is free)
+                r8 = (z8, unit8(SR))
             end
-            # interface: solid/mush/fluid | solid/mush/fluid (free slip) (symmetric), no fluid | fluid interfaces
-            if slip === :freeslip && isfl(lo) != isfl(hi)
-                # free slip at a solid/mush <-> fluid face: zero shear traction on both sides, V may jump.
-                # Y- = 0 replaces V continuity (V row of block row n) ...
-                rows[SV] = (unit8(SY), z8)
-                # ... and Y+ = 0 replaces Y continuity (Y row of block row n+1)
-                rows[SY] = (z8, unit8(SY))
-            end
+        end
+        # interface: solid/mush/fluid | solid/mush/fluid (free slip) (symmetric)
+        if slip === :freeslip && isfl(lo) != isfl(hi)
+            # free slip at a solid/mush <-> fluid face: zero shear traction on both sides, V may jump.
+            # Y- = 0 replaces V continuity (V row of block row n) ...
+            rows[SV] = (unit8(SY), z8)
+            # ... and Y+ = 0 replaces Y continuity (Y row of block row n+1)
+            rows[SY] = (z8, unit8(SY))
         end
         up = [rows[SU], rows[SV], rows[SΦ]]
         length(node_slots(lo)) == 8 && push!(up, r4)                      # 4th row of block row n for a mush below
@@ -502,6 +288,7 @@ module fluid1d_relax
         length(node_slots(hi)) == 8 && push!(low, r8)                     # 4th row of block row n+1 for a mush above
         return up, low
     end
+
 
     """
         interface_step(C, D, up, low, slo, shi) -> (Ĉu, D̂u, Ĉl, D̂l)
@@ -521,59 +308,58 @@ module fluid1d_relax
         return Lu * C, Gu * D, Ll * C, Gl * D
     end
 
-    """
-        liquid_core_rows(Ic6, t1) -> (B, K, J, Yc)
 
-    The CMB of a static liquid core as an interface ("Fluid core -> solid, mush or fluid (free slip)").                         # Is this not identical to just calling nullspace on the 6x3 I_C? 
-    The core is the 4-state (U, X, Phi, Psi) with its two regular solutions Yc (4x2,
-    eq:IC_liquid): columns 1 and 3 of Obliqua's liquid I_C (get_Ic in the 6-slot order U, V, Phi, X, Y, Psi),
-    restricted to those components; column 2 of that I_C is the pure tangential slip (V only).
-
-    Conditions on the mantle-side face value y+ = y(r_C) (slots of node type t1) and the core weights a:
-        S_c y+ - Yc a = 0     continuity of U, X, Phi, Psi (4 rows)
-        e_Y . y+ = 0          free slip: no shear traction on the mantle side (V free)
-        e_R . y+ = 0          mush only: closed pores at the CMB (P free)
-    written as K y+ + J a = 0 with J (m x 2). Eliminating a with N, a basis of the left null space of J (N J = 0),
-    gives B_1 = N K with m - 2 = M/2 rows (3 for a solid/fluid node, 4 for a mush).
     """
-    function liquid_core_rows(Ic6, t1::Symbol)
-        # rows U (slot 1), X (slot 4), Phi (slot 3), Psi (slot 6) of the 6-slot I_C; columns 1 and 3 (regular solutions)
-        Yc = Ic6[[1, 4, 3, 6], [1, 3]]
-        sl = node_slots(t1)
-        loc(s) = findfirst(==(s), sl)
-        rowsK = Vector{Vector{ComplexF64}}(); rowsJ = Vector{Vector{ComplexF64}}()
-        for (k, s) in enumerate((SU, SX, SΦ, SΨ))
-            # mantle component s minus the core's: y+_s - (Yc a)_k = 0
-            v = zeros(ComplexF64, length(sl)); v[loc(s)] = 1
-            push!(rowsK, v); push!(rowsJ, -Yc[k, :])
-        end
-        # free slip (Y = 0) and, for a mush, closed pores (R = 0): conditions on the mantle side only
-        extra = t1 === :mush ? (SY, SR) : (SY,)
-        for s in extra
-            v = zeros(ComplexF64, length(sl)); v[loc(s)] = 1
-            push!(rowsK, v); push!(rowsJ, zeros(ComplexF64, 2))
-        end
-        K = permutedims(reduce(hcat, rowsK)); J = permutedims(reduce(hcat, rowsJ))
-        # rows of N span the left null space of J, so N (K y + J a) = N K y = 0 for every core state
-        Nl = permutedims(nullspace(permutedims(J)))
-        return (B = Nl * K, K = K, J = J, Yc = Yc)
+        left_null_rows(J) -> Matrix
+
+    Rows spanning the left null space of the full-column-rank matrix J (B J = 0, as `permutedims(nullspace(transpose(J)))`),
+    computed from J with every column scaled to unit norm. The scaling leaves the null space unchanged; without it the
+    regular core solutions of a small core at high degree, whose norms differ by about (r_C / R)^n, fall below the rank
+    tolerance of `nullspace` and the core gets one row too many.
+    """
+    function left_null_rows(J::AbstractMatrix)
+        Js = J ./ transpose([max(norm(c), floatmin(Float64)) for c in eachcol(J)])
+        B = permutedims(nullspace(transpose(Js)))
+        size(B, 1) == size(J, 1) - size(J, 2) ||
+            error("left_null_rows: core solutions of rank $(size(J, 1) - size(B, 1)) instead of $(size(J, 2))")
+        return B
     end
 
 
-    # ------------------------------------------------------------------------------------------------ column solve
+    """
+        core_rows(core, t1, ω, r, ρ, g, μ, K, n; G0) -> (B, core_used)
+
+    Core rows B_1 at the CMB, B_1 y(r_C) = 0, for a first node of type `t1` (non-dimensional inputs): the left null
+    space of the core solutions I_C (`get_Ic`, eq:B1_nullspace) in the node's slots; for a mush on the core the free
+    pore pressure column e_P is added (the core columns have W = 0: no melt flux through the CMB, P free). This covers
+    the free-slip interface of a liquid core, whose I_C carries the tangential slip as its own column. A liquid core
+    is solved as "inertial-liquid", the dynamic solution that tends to the static one as ω -> 0 (agreement to 1e-9 at
+    1e-10 to 1e-6 rad/s on the test interior); where that is not finite (|ω| below about 1e-11 rad/s) the static
+    "liquid" core is used. Returns the rows and the core type used.
+    """
+    function core_rows(core::String, t1::Symbol, ω, r, ρ, g, μ, K, n::Int; G0)
+        Ic = nothing; used = core
+        if core == "liquid"
+            Ic = try get_Ic(ω, r, ρ, g, μ, K, "inertial-liquid", n; G0 = G0, Y = Y6) catch; nothing end
+            Ic !== nothing && all(isfinite, Ic) ? (used = "inertial-liquid") : (Ic = nothing)
+        end
+        Ic === nothing && (Ic = get_Ic(ω, r, ρ, g, μ, K, core, n; G0 = G0, Y = Y6))
+        if t1 === :mush
+            # embed the 6-slot I_C in the 8 slots and add the free pore pressure column
+            Ic8 = zeros(ComplexF64, 8, 4); Ic8[node_slots(:solid), 1:3] .= Ic; Ic8[SP, 4] = 1
+            Ic = Ic8
+        end
+        return left_null_rows(Ic), used
+    end
+
 
     """
-        column_solve(cs, n=2; core_route=:auto, bc_at=:face, g_at=:node)
+        column_solve(cs, n=2; bc_at=:face, g_at=:node)
 
     Response of the column `cs` (column_spec) to a unit degree-n tidal potential, with every material face closed by
     interface_conditions/interface_step. One Henyey recursion from the CMB to the surface.
 
     # Keyword Arguments
-    - `core_route=:auto` : :interface builds B_1 from the CMB as an interface with the 4x2 liquid core
-                           (liquid_core_rows; static "liquid" core only); :ic takes B_1 as the left null space of
-                           Obliqua's 6x3 I_C (eq:B1_nullspace), with the free pore pressure column added for a mush on
-                           the core. :auto uses :interface for a static liquid core and :ic otherwise ("inertial-liquid",
-                           "solid", "inertial"). For free slip the two routes span the same rows.
     - `bc_at=:face`      : CMB rows on y(r_C) = (I - h_1 A_1) y_1, surface rows on y(R) = (I + h_N A_N) y_N, k read at
                            R, material faces at their grid radius (second order). :node is Obliqua's convention
                            (boundary rows at the end nodes, faces at node midpoints; first order).
@@ -582,18 +368,17 @@ module fluid1d_relax
 
     # Returns
     NamedTuple with `k`, `h` (Love numbers at r_top), `y` (8 x N physical profiles, standard order U, V, y3, y4,
-    Phi, Psi, P, R), `z` (non-dimensional node states), `faces` (for face_residuals), `slots`, `types`, `finite`,
-    `r_top`, `scale`, `core` (core weights and state for the interface route), `g_node`, `z_C`, `z_R`.
+    Phi, Psi, P, W), `z` (non-dimensional node states), `faces` (for face_residuals), `slots`, `types`, `finite`,
+    `r_top`, `scale`, `core` (the core type used, `core_rows`), `g_node`, `z_C`, `z_R`.
     """
-    function column_solve(cs, n::Int = 2; core_route::Symbol = :auto, bc_at::Symbol = :face, g_at::Symbol = :node)
-        # check arguments
-        bc_at in (:face, :node) || error("column_solve: bc_at must be :face or :node")
-        g_at in (:node, :outer) || error("column_solve: g_at must be :node or :outer")
+    function column_solve(cs, n::Int = 2; bc_at::Symbol = :face, g_at::Symbol = :node)
+        check_option("column_solve", "bc_at", bc_at, (:face, :node))
+        check_option("column_solve", "g_at", g_at, (:node, :outer))
 
         # non-dimensionalization and node quantities
         t = cs.types
         N = length(t)
-        N >= 2 || error("column_solve: the column needs at least two nodes")
+        check_arg(N >= 2, "column_solve: the column needs at least two nodes")
 
         # non-dimensionalization (common.get_scales): R0 = planet radius, M0 = planet mass, G0 = G;
         # S is the diagonal state scale, y_physical = S z (8-state order, used for 6-state nodes through their slots)
@@ -601,7 +386,7 @@ module fluid1d_relax
         
         # check grid
         rg = cs.r_grid
-        length(rg) == N + 1 || error("column_solve: r_grid must have N + 1 faces")
+        check_arg(length(rg) == N + 1, "column_solve: r_grid must have N + 1 faces")
 
         # enclosed mass at the faces, consistent with cs.g = G M(r_face above) / r_face_above^2 (resample_profiles)
         Mf = vcat(cs.g[1] * rg[2]^2 / G - 4π / 3 * cs.ρ[1] * (rg[2]^3 - rg[1]^3), cs.g .* rg[2:end] .^ 2 ./ G)
@@ -617,18 +402,18 @@ module fluid1d_relax
         ρₗs = cs.ρl ./ ρ0; Kls = cs.κl ./ μ0; Kds = cs.κd ./ μ0; ηₗs = cs.ηl ./ (μ0 / ω0); ks = cs.k ./ R0^2
         σd = cs.σR ./ ω0
         kw = (G0 = G0, inertial_terms = cs.inertial_terms)
+        # layered profile (porosity steps at the input layer faces) or nodal profile (material varies at every node);
+        # a column built without column_spec has no such field and counts as layered
+        stepped = get(cs, :profile, :layers) === :layers
 
         # motion matrix of node i in its own slot order (6x6 for solid/fluid, 8x8 for mush)
         function Anode(i)
             ti = t[i]
-            (ti === :solid || ti === :fluid) && return A_drag(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n, σd[i]; kw..., Y = Y6)
-            if ti === :mush
-                A = get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], cs.α[i], ηₗs[i], cs.ϕ[i], ks[i],
-                          n; kw..., Y = Y8)
-                # drag on the matrix tangential motion, the (Y, V) entry of eq:A_drag (fluid_criterion = :skeleton)
-                iszero(σd[i]) || (A[Y8[4], Y8[2]] += 1im * ωs * ρs[i] * σd[i])
-                return A
-            end
+            # Rayleigh drag (drag = σ_R / ω0) on the tangential motion of the fluid, and with fluid_criterion = :skeleton
+            # on the matrix of the solid/mush nodes below it (eq:A_drag)
+            (ti === :solid || ti === :fluid) && return get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], n; kw..., Y = Y6, drag = σd[i])
+            ti === :mush && return get_A(ωs, rs[i], ρs[i], gs[i], μs[i], Ks[i], ρₗs[i], Kls[i], Kds[i], cs.α[i], ηₗs[i],
+                                         cs.ϕ[i], ks[i], n; kw..., Y = Y8, drag = σd[i])
             error("column_solve: unknown node type $ti")
         end
 
@@ -636,8 +421,11 @@ module fluid1d_relax
         sl = [node_slots(ti) for ti in t]
         # degrees of freedom of each node (6 or 8)
         M = length.(sl)                                  # state size of each node (6 or 8)
-        # a cell is an interface cell where the material type changes, or where the porosity changes inside a mush
-        isface(i) = t[i] !== t[i+1] || (t[i] === :mush && cs.ϕ[i] != cs.ϕ[i+1])
+        # a cell is an interface cell where the material type changes. A porosity change inside a mush is an ordinary
+        # cell (W is continuous), but in a layered profile its half-steps still meet at the layer face (atface)
+        porojump(i) = t[i] === :mush && t[i+1] === :mush && cs.ϕ[i] != cs.ϕ[i+1]
+        isface(i) = t[i] !== t[i+1]
+        atface(i) = isface(i) || (stepped && porojump(i))
 
         # ---- cell equations C_n y_n + D_{n+1} y_{n+1} = 0, split into upper (u) and lower (l) halves. 
         # Block row n of the Henyey system holds the lower half of cell n-1 and the upper half of cell n.
@@ -652,21 +440,19 @@ module fluid1d_relax
             # half-step lengths: dr/2 each in an ordinary cell (trapezoidal rule); in an interface cell the
             # node-to-face distances h- = r_face - r_n and h+ = r_{n+1} - r_face (eq:face_values), so that the face
             # values are extrapolated to the actual material face r_grid[i+1]
-            hlo, hhi = (face && isface(i)) ? (rgs[i+1] - rs[i], rs[i+1] - rgs[i+1]) : (0.5 * dr, 0.5 * dr)
+            hlo, hhi = (face && atface(i)) ? (rgs[i+1] - rs[i], rs[i+1] - rgs[i+1]) : (0.5 * dr, 0.5 * dr)
             # C_n = I + h- A_n extrapolates y_n up to the face (y- = C_n y_n);
             # D_{n+1} = -I + h+ A_{n+1} extrapolates y_{n+1} down to the face (y+ = -D_{n+1} y_{n+1})
             C = Matrix{ComplexF64}(I, M[i], M[i]) + hlo * A_n
             D = -Matrix{ComplexF64}(I, M[i+1], M[i+1]) + hhi * A_np
             if !isface(i)
                 # ordinary cell: every row is continuity (L = G = I); rows 1:M/2 are the upper half (slots U, V, Phi
-                # [, P]) and go into block row i, rows M/2+1:M are the lower half (X, Y, Psi [, R]) for block row i+1
+                # [, P]) and go into block row i, rows M/2+1:M are the lower half (X, Y, Psi [, W]) for block row i+1
                 h = M[i] ÷ 2
                 Cu[i], Du[i], Cl[i], Dl[i] = C[1:h, :], D[1:h, :], C[h+1:end, :], D[h+1:end, :]
             else
-                # material face (or porosity jump in a mush): the rows are the interface conditions of
-                # tab:interface_conditions, plus melt flux continuity at a porosity jump
-                up, low = interface_conditions(t[i], t[i+1]; slip = cs.slip, pores = cs.pores, ϕlo = cs.ϕ[i],
-                                               ϕhi = cs.ϕ[i+1])
+                # material face: the rows are the interface conditions of tab:interface_conditions
+                up, low = interface_conditions(t[i], t[i+1]; slip = cs.slip, pores = cs.pores)
                 Cu[i], Du[i], Cl[i], Dl[i] = interface_step(C, D, up, low, sl[i], sl[i+1])
                 push!(faces, (i = i, lo = t[i], hi = t[i+1], up = up, low = low, C = C, D = D))
             end
@@ -682,37 +468,8 @@ module fluid1d_relax
         # the interface is placed at the bottom of the first node, so the first node's motion matrix is extrapolated down to the CMB
         E1 = face ? Matrix{ComplexF64}(I, M[1], M[1]) - (rs[1] - rgs[1]) * Anode(1) : Matrix{ComplexF64}(I, M[1], M[1])
 
-        # the core route: :interface for a static liquid core, :ic for an inertial-liquid or solid core, :auto for
-        # automatic selection
-        route = core_route === :auto ? (cs.core == "liquid" ? :interface : :ic) : core_route
-
-        # check if liquid core
-        liquid = cs.core in ("liquid", "inertial-liquid")
-        core_info = nothing
-        # if a liquid core, apply the fluid interface before returning
-        if cs.core == "liquid"
-            Ic6 = get_Ic(ωs, rC, ρc, gC, μc_, κc_, cs.core, n; G0 = G0, Y = Y6)
-            core_info = liquid_core_rows(Ic6, t[1])
-        end
-        # check if liquid core if an interface (free slip) is needed
-        if route === :interface
-            core_info === nothing && error("column_solve: core_route = :interface needs a static liquid core")
-            # the CMB as an interface with the 4x2 core solution (liquid_core_rows)
-            B = core_info.B
-        # all other cores don't need an interface condition
-        else
-            # left null space of I_C (eq:B1_nullspace): y(r_C) = I_C c for some c  <=>  B_1 y(r_C) = 0
-            Ic6 = get_Ic(ωs, rC, ρc, gC, μc_, κc_, cs.core, n; G0 = G0, Y = Y6)
-            if M[1] == 6
-                Ic = Ic6
-            else
-                # mush on the core: embed I_C in the 8 slots and add the free pore pressure column e_P; the
-                # columns have R = 0, so this imposes zero Darcy displacement at the CMB with P free
-                Ic = zeros(ComplexF64, 8, 3); Ic[[SU, SV, SΦ, SX, SY, SΨ], :] .= Ic6
-                Ic = hcat(Ic, unit8(SP))
-            end
-            B = permutedims(nullspace(transpose(Ic)))
-        end
+        # core rows: left null space of the core solutions (a liquid core as inertial where finite)
+        B, core_used = core_rows(cs.core, t[1], ωs, rC, ρc, gC, μc_, κc_, n; G0 = G0)
         B = B * E1
 
         # ---- forward elimination y_i = R_i y_{i+1} (M_n = 0: no sources but the interface terms)
@@ -745,7 +502,7 @@ module fluid1d_relax
         
         # free surface: X(R) = 0, Y(R) = 0, Psi(R) = (2n+1)/R for a unit degree-n tidal potential
         put!(1, SX); put!(2, SY); put!(3, SΨ); bt[3] = (2n + 1) / rtop
-        # porous surface node: closed (impermeable) surface, R(R) = 0
+        # porous surface node: closed (impermeable) surface, W(R) = 0
         M[N] == 8 && put!(4, SR)
 
         # apply extropolation step
@@ -762,23 +519,10 @@ module fluid1d_relax
             z[i] = Rm[i] * z[i+1]
         end
 
-        # physical profiles in the standard order (U, V, y3, y4, Phi, Psi, P, R); P and R stay 0 at non-porous nodes
+        # physical profiles in the standard order (U, V, y3, y4, Phi, Psi, P, W); P and W stay 0 at non-porous nodes
         y = zeros(ComplexF64, 8, N)
         for i in 1:N, (j, s) in enumerate(sl[i])
             y[std_of[s], i] = Sd[std_of[s]] * z[i][j]   # renormalize to physical units
-        end
-
-        # infer the core state and weights a from the CMB interface, if any; the misfit is the residual of the core's
-        # least-squares problem K y(r_C) + J a = 0, divided by the maximum of |K y(r_C)|
-        core = nothing
-        if core_info !== nothing
-            # core weights a from K y(r_C) + J a = 0 (least squares; exact when the rows hold), and the core state
-            zC = E1 * z[1]
-            a = -(pinv(core_info.J) * (core_info.K * zC))
-            state = core_info.Yc * a                         # (U, X, Phi, Psi) of the core at the CMB, non-dimensional
-            core = (a = a, state = state .* [Sd[std_of[s]] for s in (SU, SX, SΦ, SΨ)],
-                    misfit = norm(core_info.K * zC + core_info.J * a) / max(norm(core_info.K * zC), 1e-300),
-                    B_used = B, B_interface = core_info.B * E1)
         end
 
         # Love numbers at r_top (R for bc_at = :face): k = Phi(R) - 1 for a unit tidal potential, h = g U(R)
@@ -786,58 +530,10 @@ module fluid1d_relax
         kR = Sd[std_of[SΦ]] * zR[loc(SΦ)] - 1
         hR = gtop * Sd[std_of[SU]] * zR[loc(SU)]
         return (k = kR, h = hR, y = y, z = z, faces = faces, slots = sl, types = t, finite = all(isfinite, z[N]),
-                r_top = rtop, scale = [Sd[std_of[s]] for s in 1:8], core = core, g_node = gnode, z_C = E1 * z[1],
+                r_top = rtop, scale = [Sd[std_of[s]] for s in 1:8], core = core_used, g_node = gnode, z_C = E1 * z[1],
                 z_R = zR)
     end
 
-
-    # ------------------------------------------------------------------------------------------- verification
-
-    """
-        condition_label(c, lo, hi)
-
-    Readable form of a condition, e.g. "U⁻ + 0.2·R⁻ = U⁺", "Y⁻ = 0".
-    """
-    function condition_label(c, lo::Symbol, hi::Symbol)
-        name(s) = ("U", "V", "Φ", "P", "X", "Y", "Ψ", "R")[s]
-        side(v, sup) = (ts = [(abs(v[s]) == 1 ? (v[s] < 0 ? "-" : "") : string(round(v[s], sigdigits = 3), "·")) *
-                              name(s) * sup for s in 1:8 if v[s] != 0];
-                        isempty(ts) ? "0" : join(ts, " + "))
-        return side(c[1], "⁻") * " = " * side(c[2], "⁺")
-    end
-
-    """
-        face_residuals(sol) -> Vector of NamedTuples (i, lo, hi, label, residual, lhs, rhs)
-
-    Residual of every interface condition from the solved node states, with the exact face extrapolations
-    y- = C_n z_n and y+ = -D_{n+1} z_{n+1}: |l . y- - g . y+| divided by sum_k (|l_k| max|z_k|- + |g_k| max|z_k|+), the
-    maxima taken over the two layers that meet at the face (non-dimensional states). Round-off is ~1e-12 or below.
-    """
-    function face_residuals(sol)
-        N = length(sol.z)
-        out = Any[]
-        for f in sol.faces
-            t = sol.types
-            # extent of the layers below and above the face
-            lo0 = f.i; while lo0 > 1 && t[lo0-1] === t[f.i]; lo0 -= 1; end
-            hi1 = f.i + 1; while hi1 < N && t[hi1+1] === t[f.i+1]; hi1 += 1; end
-            slo, shi = sol.slots[f.i], sol.slots[f.i+1]
-            zlo = [maximum(abs(sol.z[q][j]) for q in lo0:f.i) for j in eachindex(slo)]
-            zhi = [maximum(abs(sol.z[q][j]) for q in f.i+1:hi1) for j in eachindex(shi)]
-            ym = f.C * sol.z[f.i]; yp = -(f.D * sol.z[f.i+1])
-            for c in vcat(f.up, f.low)
-                ℓ, g = c[1][slo], c[2][shi]
-                num = abs(sum(ℓ .* ym) - sum(g .* yp))
-                den = sum(abs.(ℓ) .* zlo) + sum(abs.(g) .* zhi)
-                push!(out, (i = f.i, lo = f.lo, hi = f.hi, label = condition_label(c, f.lo, f.hi),
-                            residual = num / max(den, 1e-300), lhs = sum(ℓ .* ym), rhs = sum(g .* yp)))
-            end
-        end
-        return out
-    end
-
-
-    # ------------------------------------------------------------------------------------------------ heating
 
     """
         column_heating(cs, y, n, ω; solid=:displacement, jump=nothing)
@@ -848,8 +544,8 @@ module fluid1d_relax
 
     Strain recovery (`common.strain_parts`): fluid nodes always use the displacement-based strain (y4 / mu_f is ill
     conditioned for a fluid); solid and mush nodes use the same (solid = :displacement) or the stress-based node strain
-    (solid = :stress). `jump` (default: every change of node type and every porosity change inside a mush) marks the
-    faces across which no displacement difference is taken.
+    (solid = :stress). `jump` (default: every change of node type and, in a layered profile, every porosity step
+    inside a mush) marks the faces across which no displacement difference is taken.
     """
     function column_heating(cs, y, n::Int, ω::Real; solid::Symbol = :displacement, jump = nothing)
         disp, porous, jmp = heating_masks(cs, solid, jump)
@@ -859,6 +555,7 @@ module fluid1d_relax
         return (shear = Eμ, bulk = Eκ, darcy = El, drag = Ed, solid_method = solid,
                 P_total = sum((Eμ .+ Eκ .+ El .+ Ed) .* dvol))
     end
+
 
     """
         column_heating_map(cs, y, n, ω, SphericalGrid; solid=:displacement, jump=nothing)
@@ -874,54 +571,20 @@ module fluid1d_relax
     end
 
     # strain recovery of the column: displacement-based nodes, porous (8-state) nodes, and the faces across which no
-    # displacement difference is taken (default: every change of node type and every porosity change inside a mush)
+    # displacement difference is taken (default: every change of node type and, in a layered profile, every porosity
+    # step inside a mush; in a nodal profile the porosity changes at every node and varies smoothly)
     function heating_masks(cs, solid::Symbol, jump)
-        solid in (:displacement, :stress) || error("column_heating: solid must be :displacement or :stress")
+        check_option("column_heating", "solid", solid, (:displacement, :stress))
         Nc = length(cs.r_c)
-        jmp = jump === nothing ? [cs.types[j] !== cs.types[j+1] || (cs.types[j] === :mush && cs.ϕ[j] != cs.ϕ[j+1])
-                                  for j in 1:Nc-1] : jump
+        stepped = get(cs, :profile, :layers) === :layers
+        jmp = jump === nothing ? [cs.types[j] !== cs.types[j+1] ||
+                                  (stepped && cs.types[j] === :mush && cs.ϕ[j] != cs.ϕ[j+1]) for j in 1:Nc-1] : jump
         return cs.fluid .| (solid == :displacement), cs.types .=== :mush, jmp
     end
 
-    """
-        boundary_layer_resolution(cs)
-
-    Poroelastic boundary-layer thickness of every mush node over its cell size (appendix eq:delta):
-
-        delta = sqrt(2 k |M_B| / (eta_l omega)),   1/M_B = S + alpha^2 / beta_d,   beta_d = K_d + 4 mu / 3,
-        S = phi / K_l + (alpha - phi) / K_s.
-
-    Darcy displacement R vanishes at an impermeable face and recovers over delta, and at a porosity jump R jumps and
-    relaxes over delta on each side. A collapsed mush (K_d = 0, mu ~ G_inf) has |M_B| ~ beta_d and a very thin
-    boundary layer (metres for G_inf ~ 1 kPa), which a grid with delta / dr < 1 does not resolve: the energy closure
-    then drifts with dr. Returns (`ratio`: per node, NaN for non-mush nodes; `min_ratio`; `n_under`: nodes with
-    ratio < 2).
-    """
-    function boundary_layer_resolution(cs)
-        Nc = length(cs.r_c)
-        ratio = fill(NaN, Nc)
-        for q in 1:Nc
-            cs.types[q] === :mush || continue
-            βd = cs.κd[q] + 4cs.μ[q] / 3
-            S = cs.ϕ[q] / cs.κl[q] + (cs.α[q] - cs.ϕ[q]) / cs.κs[q]
-            MB = 1 / (S + cs.α[q]^2 / βd)
-            δ = sqrt(2 * cs.k[q] * abs(MB) / (cs.ηl[q] * abs(cs.σ)))
-            ratio[q] = δ / (cs.r_grid[q+1] - cs.r_grid[q])
-        end
-        ok = .!isnan.(ratio)
-        return (ratio = ratio, min_ratio = any(ok) ? minimum(ratio[ok]) : Inf, n_under = count(x -> !isnan(x) && x < 2, ratio))
-    end
 
     """
-        tidal_work(k, n, r, ω)
-
-    Tidal work per |U_T|^2 [W] for a Love number k of degree n referenced at radius r [m]:
-    (2n+1) r w / (8 pi G) (-Im k). Equals the integrated dissipation for an energy-consistent solution.
-    """
-    tidal_work(k, n, r, ω) = (2n + 1) * r * ω / (8π * G) * (-imag(k))
-
-    """
-        solve_column(cs; n=2, solid=:auto, core_route=:auto)
+        solve_column(cs; n=2, solid=:auto)
 
     One frequency of the column model: column_solve, heating and energy closure. solid = :auto evaluates both strain
     recoveries for the solid/mush nodes (fluid nodes are always displacement-based) and keeps the one whose closure
@@ -932,8 +595,8 @@ module fluid1d_relax
     NamedTuple: `k`, `h`, `sol` (column_solve), `heating` (column_heating of the chosen recovery), `P_tide`,
     `closure`, `closure_disp`, `closure_stress`, `passive` (-sign(ω) Im k >= 0).
     """
-    function solve_column(cs; n::Int = 2, solid::Symbol = :auto, core_route::Symbol = :auto)
-        sol = column_solve(cs, n; core_route = core_route)
+    function solve_column(cs; n::Int = 2, solid::Symbol = :auto)
+        sol = column_solve(cs, n)
         ω = cs.σ
         P_tide = tidal_work(sol.k, n, sol.r_top, ω)
         hD = column_heating(cs, sol.y, n, ω; solid = :displacement)

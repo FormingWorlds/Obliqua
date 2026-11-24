@@ -346,6 +346,8 @@ module Obliqua
             s_max    = cfg["orbit"]["obliqua"]["s_max"]
             s_min    = nothing_if_none(s_min)
             s_max    = nothing_if_none(s_max)
+            # spectral weight (1 + |s|) X_s^2 left outside the mode range on each side (Hansen.hansen_modes)
+            hansen_tail_tol = Float64(get(cfg["orbit"]["obliqua"], "hansen_tail_tol", 1e-6))
         elseif spectrum == "full"
             N_σ      = cfg["orbit"]["obliqua"]["N_sigma"]
             p_min    = cfg["orbit"]["obliqua"]["p_min"]
@@ -380,9 +382,9 @@ module Obliqua
         # fluid1d_relax options (optional keys). The column drag is the uniform rate sigma_R in every fluid layer;
         # sigma_R_inf, sigma_R_prf, H_R and efficiency are fluid1d options only.
         fluid_cfg    = cfg["orbit"]["obliqua"]["fluid"]
-        omega_sw     = Float64(get(fluid_cfg, "omega_sw", 1e-5))    # liquid -> inertial-liquid core switch [rad s^-1]
         visc_fluid   = Float64(get(fluid_cfg, "visc_fluid", 1e8))   # viscosity below which surface layers are fluid [Pa s]
-        n_sub        = Int(get(fluid_cfg, "n_sub", 1))              # interpolated sub-layers per input layer
+        n_sub        = Int(get(fluid_cfg, "n_sub", 1))              # sub-layers per input layer (profile = "layers")
+        col_profile  = Symbol(get(fluid_cfg, "profile", "nodes"))   # nodes (material interpolated at every node) or layers
         fluid_criterion = Symbol(get(fluid_cfg, "fluid_criterion", "viscosity"))  # viscosity or skeleton
         fluid_slip   = Symbol(get(fluid_cfg, "slip", "freeslip"))   # freeslip or noslip at solid/mush <-> fluid faces
         fluid_pores  = Symbol(get(fluid_cfg, "pores", "open"))      # open or closed pores at mush <-> fluid faces
@@ -506,32 +508,23 @@ module Obliqua
         if spectrum == "adaptive"            
 
             for (n_i, m_i) in nm
-                # avoid overwriting inputs by using local scope variables
-                s_min_i = s_min === nothing ? nothing : s_min
-                s_max_i = s_max === nothing ? nothing : s_max
+                # mode range holding all but hansen_tail_tol of the spectral weight, valid for any e < 1
+                s_auto, X_auto = Hansen.hansen_modes(ecc, n_i, m_i; tail_tol=hansen_tail_tol)
 
-                # get s range for proper convergence for given eccentricity
-                s_min_ecc, s_max_ecc = Hansen.get_k_range(ecc, n_i, m_i)
-
-                if s_min_i === nothing 
-                    s_min_i = s_min_ecc
-                elseif s_min_i > s_min_ecc
-                    @warn "Provided s_min=$s_min_i is larger than estimated s_min=$s_min_ecc for eccentricity $(round(ecc, digits=2))."
-                end
-                if s_max_i === nothing
-                    s_max_i = s_max_ecc
-                elseif s_max_i < s_max_ecc
-                    @warn "Provided s_max=$s_max_i is smaller than estimated s_max=$s_max_ecc for eccentricity $(round(ecc, digits=2))."
-                end
+                # a configured s_min / s_max replaces the automatic end; warn if it cuts into the range
+                s_min_i = s_min === nothing ? s_auto[1] : Int(s_min)
+                s_max_i = s_max === nothing ? s_auto[end] : Int(s_max)
+                s_min_i > s_auto[1] &&
+                    @warn "Provided s_min=$s_min_i is larger than estimated s_min=$(s_auto[1]) for eccentricity $(round(ecc, digits=2))."
+                s_max_i < s_auto[end] &&
+                    @warn "Provided s_max=$s_max_i is smaller than estimated s_max=$(s_auto[end]) for eccentricity $(round(ecc, digits=2))."
 
                 @info "Using adaptive spectrum with s range [$s_min_i, $s_max_i] for eccentricity $(round(ecc, digits = 2)) and tide (n, m) = ($n_i, $m_i)."
 
-                # build s range for this mode
-                s_range = collect(s_min_i:s_max_i)
+                # Hansen coefficients of the mode range (reuse the automatic ones when the range is unchanged)
+                s_range, X_hansen_i = (s_min_i, s_max_i) == (s_auto[1], s_auto[end]) ? (s_auto, X_auto) :
+                                      Hansen.get_hansen(ecc, n_i, m_i, s_min_i, s_max_i)
 
-                # get hansen coefficients for this specific mode
-                _, X_hansen_i = Hansen.get_hansen(ecc, n_i, m_i, s_min_i, s_max_i)
-                
                 # calculate forcing frequencies only for region of interest
                 σ_range_i = m_i .* axial .- s_range .* omega
                 σ_range_i = Float64.(σ_range_i)
@@ -847,36 +840,39 @@ module Obliqua
                             throw("module_fluid = fluid1d_relax solves the whole column: set visc_lus and visc_sus above the largest viscosity so that get_layers returns one fluid segment (got $(segments)).")
                         end
 
-                        # moduli of the zero-frequency mode at the relaxed limit (complex_modulus returns 0 at σ = 0)
-                        μc_i, κc_i, κdc_i, α_i, μ_core_i, κ_core_i = μc_seg[:, iss], κc_seg[:, iss], κdc_seg[:, iss], α_seg[:, iss], μ_core[iss], κ_core[iss]
+                        # zero-frequency mode: the equilibrium (fully relaxed) tide of the whole interior, no heating
+                        # (prf_total and the maps stay zero); the column model returns no load Love number
                         if abs(σ) < 1e-18
-                            μc_i = complex_modulus([1e-14], μ, η; material=material_μ, α=alpha)[:, 1]
-                            κc_i = complex_modulus([1e-14], κ, ζ; material="elastic", α=alpha)[:, 1]
-                            κdc_i = complex_modulus([1e-14], κd, ζ; material=material_κ, α=alpha)[:, 1]
-                            α_i = precc(1.0) .- κdc_i ./ κc_i
-                            core_props == "mantle" && ((μ_core_i, κ_core_i) = (μc_i[1], κc_i[1]))
+                            knms_T[iss, iseg], _ = run_solid1d_equil_relax(
+                                σ, ρ_seg, r_seg, g_seg, η_seg, μc_seg[:, iss], κc_seg[:, iss], R,
+                                m_core, ρ_core, μ_core[iss], κ_core[iss];
+                                dr_min=dr_min, dr_max=dr_max, n=n_i, m=m_i, core=core,
+                                optimize_scales=optimize_scales, patch=patch
+                            )
+                            knms_L[iss, iseg] = 0.0
+                        else
+                            prf_total[iss, i_start:i_end], 
+                            map_total_μ[iss, :, :, i_start:i_end], 
+                            map_total_κ[iss, :, :, i_start:i_end], 
+                            map_total_l[iss, :, :, i_start:i_end], 
+                            map_total_d[iss, :, :, i_start:i_end], 
+                            knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d_relax(
+                                σ, ρ_seg, r_seg, η_seg,
+                                μc_seg[:, iss], κc_seg[:, iss], κdc_seg[:, iss], α_seg[:, iss],
+                                ϕ_seg, K_seg, κl_prf[i_start:i_end], κu_prf[i_start:i_end], R,
+                                m_core, ρ_core,
+                                μ_core[iss], κ_core[iss];
+                                dr_min=dr_min, dr_max=dr_max,
+                                n=n_i, m=m_i, core=core,
+                                inertial_terms=true_if_true(inertial_terms),
+                                visc_l=Float64(visc_l),
+                                porosity_thresh=Float64(porosity_thresh),
+                                sigma_R=Float64(sigma_R),
+                                visc_fluid=visc_fluid, n_sub=n_sub,
+                                fluid_criterion=fluid_criterion, slip=fluid_slip, pores=fluid_pores,
+                                profile=col_profile
+                            )
                         end
-
-                        prf_total[iss, i_start:i_end], 
-                        map_total_μ[iss, :, :, i_start:i_end], 
-                        map_total_κ[iss, :, :, i_start:i_end], 
-                        map_total_l[iss, :, :, i_start:i_end], 
-                        map_total_d[iss, :, :, i_start:i_end], 
-                        knms_T[iss, iseg], knms_L[iss, iseg] = run_fluid1d_relax(
-                            σ, ρ_seg, r_seg, η_seg,
-                            μc_i, κc_i, κdc_i, α_i,
-                            ϕ_seg, K_seg, κl_prf[i_start:i_end], κu_prf[i_start:i_end], R,
-                            m_core, ρ_core,
-                            μ_core_i, κ_core_i;
-                            dr_min=dr_min, dr_max=dr_max,
-                            n=n_i, m=m_i, core=core,
-                            inertial_terms=true_if_true(inertial_terms),
-                            visc_l=Float64(visc_l),
-                            porosity_thresh=Float64(porosity_thresh),
-                            sigma_R=Float64(sigma_R), omega_sw=omega_sw,
-                            visc_fluid=visc_fluid, n_sub=n_sub,
-                            fluid_criterion=fluid_criterion, slip=fluid_slip, pores=fluid_pores
-                        )
                     else
                         throw("No compatible fluid tides module: $module_fluid.")
                     end
@@ -2751,17 +2747,17 @@ module Obliqua
 
 
     """
-        run_fluid1d_relax(omega, rho, radius, visc, shear, bulk, bulkd, alpha, phi, perm, bulk_liq, bulk_und, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, porosity_thresh=1e-5, sigma_R=1e-4, omega_sw=1e-5, visc_fluid=1e8, n_sub=1, fluid_criterion=:viscosity, slip=:freeslip, pores=:open, closure_tol=1e-2)
+        run_fluid1d_relax(omega, rho, radius, visc, shear, bulk, bulkd, alpha, phi, perm, bulk_liq, bulk_und, R, m_core, ρ_core, μ_core, κ_core; dr_min=300, dr_max=3000, n=2, m=2, core="liquid", inertial_terms=true, visc_l=1e2, porosity_thresh=1e-5, sigma_R=1e-4, visc_fluid=1e8, n_sub=1, profile=:nodes, fluid_criterion=:viscosity, slip=:freeslip, pores=:open, closure_tol=1e-2)
 
     Use the 1D column model (`fluid1d_relax.jl`) to calculate kn Lovenumbers and the heating profile of the whole interior:
     one Henyey recursion from the CMB to the surface through solid, mush and fluid layers, the tidal Love number read at
     R, and the heating of the same solution (shear, bulk, Darcy and Rayleigh drag). The layers from the surface down with
-    a viscosity below `visc_fluid` are fluid at every frequency (`fluid1d_relax.fluid_mask`); they keep their own shear
+    a viscosity below `visc_fluid` are fluid at every frequency (`common.fluid_mask`); they keep their own shear
     modulus and get the undrained bulk modulus and the drag sigma_R.
 
     The moduli are those at `omega`, of either sign (at -omega they are the conjugates, and so are k and the solution;
-    the heating is the same). A zero-frequency mode (|omega| < 1e-18) has no heating; its k is the real part of the
-    response at 1e-14 rad/s, the relaxed limit, with the moduli evaluated there by the caller.
+    the heating is the same). `omega` must be nonzero: `run_tides` sends a zero-frequency mode to the equilibrium tide
+    (`run_solid1d_equil_relax`).
 
     # Arguments
     - `omega::Float64`                  : Forcing frequency [rad s^-1].
@@ -2788,14 +2784,14 @@ module Obliqua
     - `dr_max::Int=3000`                : Maximum layer thickness in m.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
     - `m::Int=2`                        : Harmonic of the true anomaly. m=2 corresponds to the semidiurnal tide, m=1 diurnal tide.
-    - `core::String="liquid"`           : Core state; "liquid" switches to "inertial-liquid" for |omega| >= omega_sw.
+    - `core::String="liquid"`           : Core state; a "liquid" core is solved as "inertial-liquid" where that is finite.
     - `inertial_terms::Bool=true`       : Inertia in the motion matrices.
     - `visc_l::Float64=1e2`             : Melt viscosity in the Darcy terms of the mush [Pa s].
     - `porosity_thresh::Float64=1e-5`   : Porosity below which a layer is non-porous.
     - `sigma_R::Float64=1e-4`           : Rayleigh drag rate in the fluid layers [s^-1].
-    - `omega_sw::Float64=1e-5`          : Core switch frequency [rad s^-1].
     - `visc_fluid::Float64=1e8`         : Viscosity below which the layers connected to the surface are fluid [Pa s].
-    - `n_sub::Int=1`                    : Interpolated sub-layers per input layer (`fluid1d_relax.refine_layers`).
+    - `n_sub::Int=1`                    : Sub-layers per input layer with profile = :layers (`common.refine_layers`).
+    - `profile::Symbol=:nodes`          : `:nodes` (material interpolated at every node) or `:layers` (`column_spec`).
     - `fluid_criterion::Symbol=:viscosity` : `:viscosity` or `:skeleton`.
     - `slip::Symbol=:freeslip`          : `:freeslip` or `:noslip` at solid/mush <-> fluid faces.
     - `pores::Symbol=:open`             : `:open` or `:closed` pores at mush <-> fluid faces.
@@ -2836,48 +2832,36 @@ module Obliqua
                                visc_l::Float64=1e2,
                                porosity_thresh::Float64=1e-5,
                                sigma_R::Float64=1e-4,
-                               omega_sw::Float64=1e-5,
                                visc_fluid::Float64=1e8,
-                               n_sub::Int=1,
+                               n_sub::Int=1, profile::Symbol=:nodes,
                                fluid_criterion::Symbol=:viscosity,
                                slip::Symbol=:freeslip,
                                pores::Symbol=:open,
                                closure_tol::Float64=1e-2)
 
-        # a zero-frequency mode is solved at the relaxed limit 1e-14 rad/s
-        static = abs(omega) < 1e-18
-        ω = static ? 1e-14 : omega
-
         # column on Obliqua's grid (fluid1d_relax.column_spec)
-        cs = fluid1d_relax.column_spec(ω, radius, rho, visc, shear, bulk, bulkd, alpha, bulk_liq, visc_l, phi, perm,
+        cs = fluid1d_relax.column_spec(omega, radius, rho, visc, shear, bulk, bulkd, alpha, bulk_liq, visc_l, phi, perm,
                                        m_core, ρ_core, μ_core, κ_core;
-                                       σ_R=sigma_R, dr_min=dr_min, dr_max=dr_max, core=core, ω_sw=omega_sw,
+                                       σ_R=sigma_R, dr_min=dr_min, dr_max=dr_max, core=core,
                                        inertial_terms=inertial_terms, porosity_thresh=porosity_thresh,
                                        slip=slip, pores=pores, visc_fluid=visc_fluid,
                                        n_sub=n_sub, κu=bulk_und,
-                                       fluid_criterion=fluid_criterion)
+                                       fluid_criterion=fluid_criterion, profile=profile)
 
         # one recursion, Love number at R, heating with the strain recovery chosen by the energy closure
         sol = fluid1d_relax.solve_column(cs; n=n)
         k = ComplexF64(sol.k)
-        sol.sol.finite || @warn "fluid1d_relax: non-finite solution at ω = $ω rad/s (core $(cs.core))"
-
-        N_layers = length(rho)
-        if static
-            # zero frequency: real relaxed response, no dissipation
-            zero_map = zeros(Float64, nlats, nlons, N_layers)
-            return zeros(Float64, N_layers), zero_map, copy(zero_map), copy(zero_map), copy(zero_map), ComplexF64(real(k), 0.0), ComplexF64(0.0)
-        end
+        sol.sol.finite || @warn "fluid1d_relax: non-finite solution at ω = $omega rad/s (core $(cs.core))"
 
         # acceptance checks of the solution: passivity and the energy theorem
-        sol.passive || @warn "fluid1d_relax: -sign(ω) Im k = $(-sign(ω) * imag(k)) < 0 at ω = $ω rad/s (not passive)"
+        sol.passive || @warn "fluid1d_relax: -sign(omega) Im k = $(-sign(omega) * imag(k)) < 0 at ω = $omega rad/s (not passive)"
         if !(abs(sol.closure - 1) <= closure_tol)
-            @warn "fluid1d_relax: energy closure $(sol.closure) at ω = $ω rad/s (heating / tidal work, expected 1)"
+            @warn "fluid1d_relax: energy closure $(sol.closure) at ω = $omega rad/s (heating / tidal work, expected 1)"
         end
         # poroelastic boundary layers thinner than the cells are not resolved (energy closure drifts with dr)
         bl = fluid1d_relax.boundary_layer_resolution(cs)
         if bl.n_under > 0
-            @warn @sprintf("fluid1d_relax ω=%.3e: poroelastic boundary layer under-resolved in %d mush cells (min delta/dr = %.2g); refine dr_min/dr_max", ω, bl.n_under, bl.min_ratio) maxlog=5
+            @warn @sprintf("fluid1d_relax ω=%.3e: poroelastic boundary layer under-resolved in %d mush cells (min delta/dr = %.2g); refine dr_min/dr_max", omega, bl.n_under, bl.min_ratio) maxlog=5
         end
 
         # heating profile on the solver cells, volume-averaged back onto the original layers (conserves the integrated heating)
@@ -2888,7 +2872,7 @@ module Obliqua
         # global maps of the same strain recovery; each cell is rescaled to the analytic angular integral of its channel,
         # which the angular grid (res) under-integrates by a few per cent
         SphericalGrid = fluid1d_relax.define_spherical_grid(res, n, m)
-        maps = fluid1d_relax.column_heating_map(cs, sol.sol.y, n, ω, SphericalGrid; solid=h.solid_method)
+        maps = fluid1d_relax.column_heating_map(cs, sol.sol.y, n, omega, SphericalGrid; solid=h.solid_method)
         weight = sin.(SphericalGrid.clats) .* deg2rad(res)^2
         for (E_map, E_prf) in zip(maps, (h.shear, h.bulk, h.darcy, h.drag))
             E_int = dropdims(sum(E_map .* weight, dims=(1, 2)), dims=(1, 2))
@@ -2896,7 +2880,7 @@ module Obliqua
         end
         Eμ_glb, Eκ_glb, El_glb, Ed_glb = (cell_average_map(cs.r_grid, E_map, radius) for E_map in maps)
 
-        @debug @sprintf("fluid1d_relax ω=%.3e: k=%.6f%+.3ei, closure %.5f, %d nodes, core %s", ω, real(k), imag(k),
+        @debug @sprintf("fluid1d_relax ω=%.3e: k=%.6f%+.3ei, closure %.5f, %d nodes, core %s", omega, real(k), imag(k),
                         sol.closure, length(cs.r_c), cs.core)
 
         return power_prf, Eμ_glb, Eκ_glb, El_glb, Ed_glb, k, ComplexF64(0.0)
