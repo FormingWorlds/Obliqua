@@ -184,11 +184,11 @@ module solid1d_mush_relax
     Perform the forward-backward relaxation step at the interface between the mushy layer and the solid layer. This
     function implements the recursion described in N. Kobayashi (2007) for the transition from the 8x8 system to the 6x6 system.
 
-    The boundary condition at the top of the porous layer is zero radial Darcy displacement at the interface, with the
+    The boundary condition at the top of the porous layer is zero radial melt flux W at the interface, with the
     pore pressure left free. The pore pressure jumps to zero across the interface; integrated over the interface cell,
     this self-referencing jump cancels the pore-pressure row of the difference equation exactly, so that row carries no
-    condition. Its slot takes the Darcy-displacement row of the same difference equation, C_n[R,:] y_n = 0, i.e. R = 0
-    at the cell face (the R row cannot be carried into the 6x6 solid block row). The X, Y, Psi rows of the interface
+    condition. Its slot takes the melt-flux row of the same difference equation, C_n[W,:] y_n = 0, i.e. W = 0
+    at the cell face (the W row cannot be carried into the 6x6 solid block row). The X, Y, Psi rows of the interface
     cell keep their coupling to the porous components of y_n through `Pn_extra`, added by the next block row.
 
     # Arguments
@@ -218,7 +218,7 @@ module solid1d_mush_relax
     # Returns
     - `Cn_l::Matrix{precc}`             : Updated 3x6 matrix representing the "stored" lower half of the Cn matrix for the next iteration.
     - `Dnp_l::Matrix{precc}`            : Updated 3x6 matrix representing the "stored" lower half of the Dnp matrix for the next iteration.
-    - `Pn_extra::Matrix{precc}`         : 3x6 matrix, the part of C^l_n y_n carried by the porous components (P, R) of y_n,
+    - `Pn_extra::Matrix{precc}`         : 3x6 matrix, the part of C^l_n y_n carried by the porous components (P, W) of y_n,
                                            expressed in y_{n+1}. It must be added to the upper half of X_{n+1} by the next block row.
     """
     function interface_mush_solid(R::Vector, Cn_l::Matrix{precc}, Dnp_l::Matrix{precc}, ids::Tuple{Int, Int}, r::Vector{prec}, ρ::Vector{prec}, g::Vector{prec}, μ::Vector{precc}, K::Vector{precc}, ω::prec, ρₗ::Vector{prec}, Kl::Vector{prec}, Kd::Vector{precc}, α::Vector{precc}, ηₗ::Vector{prec}, ϕ::Vector{prec}, k::Vector{prec}, n::Int; G0=1, inertial_terms=true, Y=[1,2,3,4,5,6,7,8])
@@ -275,7 +275,7 @@ module solid1d_mush_relax
         F = lu(Xn; check=false)
         R_ifc = issuccess(F) ? -(F \ Qn) : -pinv(Xn) * Qn
 
-        # y_{n+1} is solid: its P and R components do not exist, so y_n must not depend on them
+        # y_{n+1} is solid: its P and W components do not exist, so y_n must not depend on them
         # (the corresponding columns of Qn vanish identically; zero them explicitly)
         active_cols = [idx for idx in 1:8 if idx != Y[7] && idx != Y[8]]
         R[i][:, active_cols] .= R_ifc[:, active_cols]
@@ -391,13 +391,15 @@ module solid1d_mush_relax
             Xn[1:3, target_cols] .+= Pn_extra
         end
 
-        R_ifc = -pinv(Xn) * Qn
+        # direct solve (independent of the scaling of W = ϕ R); minimum-norm fallback if singular
+        F = lu(Xn; check=false)
+        R_ifc = issuccess(F) ? -(F \ Qn) : -pinv(Xn) * Qn
 
         # create a mask or list of all row indices EXCEPT Y[8]
         active_rows = [idx for idx in 1:8 if idx != Y[8]]
 
-        # update R only for the rows that are not the Darcy flux constraint
-        # this ensures y8 remains zero at the interface
+        # update R only for the rows that are not the melt flux constraint
+        # this ensures y8 = W remains zero at the interface
         R[i][active_rows, :] .= R_ifc[active_rows, :]
         R[i][Y[8], :]        .= 0.0  # explicitly enforce the impermeable boundary
 
@@ -536,15 +538,15 @@ module solid1d_mush_relax
         # split matrices
         C1u, C1l = C1[1:4, :], C1[5:8, :]
         D2u, D2l = D2[1:4, :], D2[5:8, :]
-        # melt flux continuity if the porosity changes between the first two nodes
-        flux_continuity!(C1l, D2l, ϕ[start_id], ϕ[end_id]; Y=Y)
 
         # build S1 and Q1
         S1 = [B1; C1u]              # 8×8
         Q1 = [zeros(4,8); D2u]      # 8×8
 
-        # initial recursion
-        R[start_id] .= -pinv(S1) * Q1
+        # initial recursion: direct solve, which does not depend on the scaling of the state components (the melt
+        # flux W = ϕ R can be many orders below the other states where ϕ is small); minimum-norm fallback if singular
+        F = lu(S1; check=false)
+        R[start_id] .= issuccess(F) ? -(F \ Q1) : -pinv(S1) * Q1
 
         return C1l, D2l
     end
@@ -719,43 +721,20 @@ module solid1d_mush_relax
 
             if i == start_id
                 # For the first step into the mush, we may need to use pinv if the system is not yet fully constrained by the solid boundary conditions.
-                R[i] .= -pinv(Xn) * Qn
+                # A direct solve first: it does not depend on the scaling of W = ϕ R, which pinv's cutoff does.
+                F = lu(Xn; check=false)
+                R[i] .= issuccess(F) ? -(F \ Qn) : -pinv(Xn) * Qn
             else
                 R[i] .= -Xn \ Qn
             end
 
-            # 5. Update the "stored" lower halves for the next iteration; melt flux continuity at a porosity jump
+            # 5. Update the "stored" lower halves for the next iteration (a porosity change needs no condition:
+            # the 8th state is the melt flux W = ϕ R, continuous wherever the pores connect)
             Cn_l  = Cn[5:8, :]
             Dnp_l = Dnp[5:8, :]
-            flux_continuity!(Cn_l, Dnp_l, ϕ[i], ϕ[i+1]; Y=Y)
         end
 
         return Cn_l, Dnp_l
-    end
-
-
-    """
-        flux_continuity!(C_l, D_l, ϕn, ϕnp; Y=[1,2,3,4,5,6,7,8])
-
-    Melt flux continuity in a cell between two mush nodes of different porosity (in place).
-
-    `C_l` and `D_l` are the lower halves of the cell matrices C_n = I + (dr/2) A_n and D_{n+1} = -I + (dr/2) A_{n+1};
-    their R row reads (C_n y_n)_R + (D_{n+1} y_{n+1})_R = R- - R+ = 0, i.e. continuity of the relative melt
-    displacement R at the cell face. The fluid-content equation conserves the volume flux phi R, so at a porosity jump
-    the condition is phi_n R- = phi_{n+1} R+: the R row of `C_l` is multiplied by `ϕn` and that of `D_l` by `ϕnp`. All
-    other rows (U, V, Phi, P continuity in the upper half; X, Y, Psi in the lower half) are unchanged: the matrix is
-    welded, the pores are connected, and Psi contains the full mass flux. Without it, every porosity jump creates or
-    absorbs melt and the energy closure fails in proportion to the Darcy flux, independently of dr.
-    Nothing changes when `ϕn == ϕnp`.
-    """
-    function flux_continuity!(C_l::AbstractMatrix, D_l::AbstractMatrix, ϕn::Real, ϕnp::Real; Y=[1,2,3,4,5,6,7,8])
-        if ϕn != ϕnp
-            row = Y[8] - 4                        # R row within the lower half
-            @assert row >= 1 "the Darcy displacement R must be in the lower half of the state vector ordering"
-            C_l[row, :] .*= ϕn
-            D_l[row, :] .*= ϕnp
-        end
-        return C_l, D_l
     end
 
 
@@ -978,7 +957,7 @@ module solid1d_mush_relax
         y_l = zeros(T, 8, 1)
 
         # embed the surface solution; a solid surface returns the 6-vector (U, V, Phi, X, Y, Psi),
-        # which occupies slots 1, 2, 3, 5, 6, 7 of the 8-vector (P and R in slots 4 and 8 are zero)
+        # which occupies slots 1, 2, 3, 5, 6, 7 of the 8-vector (P and W in slots 4 and 8 are zero)
         slots = M == 8 ? (1:8) : [1, 2, 3, 5, 6, 7]
         y_t[slots, Nr] = yN_t
         y_l[slots, 1]  = yN_l
@@ -988,7 +967,7 @@ module solid1d_mush_relax
             y_t[:, i] = R[i] * y_t[:, i+1]        
         end
 
-        # reorder y-functions to standard ordering (U, V, X, Y, phi, psi, P, R)
+        # reorder y-functions to standard ordering (U, V, X, Y, phi, psi, P, W)
         y_t = y_t[Y8, :]
         y_l = y_l[Y8, :]
         
