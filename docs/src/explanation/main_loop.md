@@ -36,19 +36,54 @@ The tidal potential can be expanded in an infinite sum of spherical
 harmonic terms with some degree $n$, order $m$, and harmonic $k$
 (integer values). The user has the option the provide these quantities
 in the configuration. However, specifically the $k$-range may also be
-determined by the code. The desired range increases with eccentricity,
-for our purposes the desired range $K$ contains
+determined by the code. The desired range increases with eccentricity.
+The Hansen coefficients $X_k = X^{-(n+1), m}_k(e)$ are computed by FFT
+over the mean anomaly, for any eccentricity below 1 (see
+[Forcing Frequency](@ref)). In the adaptive spectrum, unless `s_min` and
+`s_max` are set, the range $K = [k_\mathrm{lo}, k_\mathrm{hi}]$ is chosen
+by trimming modes from both ends of that spectrum.
+
+Each mode $k$ gets the weight
 
 ```math
-K = \{k \in \mathbb{Z} \, \big| \, |X^{-(n+1), m}_k| \geq 0.001 \}
+w_k = (1 + |k|)\, X_k^2 .
 ```
 
-where $X^{-(n+1), m}_k$ is the Hansen coefficient. Basically, we only
-include $k$ in the range $K$ if the corresponding Hansen coefficient
-signifies a contribution greater than 0.1% to the complete tidal response.
-One may specify a different criterion and generate their $K$ using the
-included Notebook on the Obliqua Github repository
-`"/examples/hansen_k_table.ipynb"`.
+The two terms measure what a mode adds to the tide:
+
+- $X_k^2$ is proportional to $|U_{n,m,k}|^2$, the square of the tidal
+  potential of mode $k$ (see [Tidal potentials](@ref)).
+- $|k| X_k^2$ tracks the heating of mode $k$. The heating is
+  $H_k \propto \sigma_k\,(-\mathrm{Im}[k_n(\sigma_k)])\,X_k^2$ with
+  $\sigma_k = m\Omega - k\,n_\mathrm{orb}$. The Love number is not known
+  before the solve, so the weight assumes a frequency-independent phase
+  lag (constant $\mathrm{Im}[k_n]$). Then $H_k \propto |\sigma_k| X_k^2$,
+  and in the tails of the spectrum ($|k|\,n_\mathrm{orb} \gg m\Omega$)
+  $|\sigma_k| \propto |k|$. The spin rate is left out, so the range
+  depends only on $e$, $n$ and $m$.
+
+With $W = \sum_k w_k$ the total weight and $\varepsilon$ the config value
+`hansen_tail_tol` (default $10^{-6}$), $K$ is the smallest range for which
+the weight left out on each side is below $\varepsilon W$:
+
+```math
+\sum_{k < k_\mathrm{lo}} w_k < \varepsilon\, W ,
+\qquad
+\sum_{k > k_\mathrm{hi}} w_k < \varepsilon\, W .
+```
+
+In practice modes are removed one at a time from the low end, then from
+the high end, for as long as the removed weight on that side stays below
+$\varepsilon W$. At most $2\varepsilon$ of the weight is dropped in
+total. For $m = 0$ the spectrum is symmetric in $k$; only $k \geq 0$ is
+kept, up to the larger of $|k_\mathrm{lo}|$ and $k_\mathrm{hi}$, and the
+mirrored modes are counted twice. A circular orbit gives the single mode
+$k = m$.
+
+The cut-off bounds the weight, not the heating itself: if
+$\mathrm{Im}[k_n]$ peaks at a frequency in the tail (a resonance), the
+heating left out can exceed $\varepsilon$ of the total. A smaller
+`hansen_tail_tol` widens $K$.
 
 For testing convenience Obliqua includes two modes: "full" and
 "adaptive". In principle, one should use "full" to test the tidal

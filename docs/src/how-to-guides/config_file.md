@@ -83,8 +83,8 @@ Controls the tidal response model.
 | `N_sigma` | int | Number of sampled forcing frequencies. |
 | `p_min` | float | Minimum period ($\log_{10}$ kyr). |
 | `p_max` | float | Maximum period ($\log_{10}$ kyr). |
-| `s_min` | int or `"none"` | Minimum Fourier mode. `"none"` derives it from the eccentricity relation. |
-| `s_max` | int or `"none"` | Maximum Fourier mode. `"none"` derives it from the eccentricity relation. |
+| `s_min` | int or `"none"` | Minimum Fourier mode. `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `s_max` | int or `"none"` | Maximum Fourier mode. `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
 | `material_mu` | str | Rheological model for shear modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
 | `material_k` | str | Rheological model for bulk modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
 | `alpha` | float | Andrade power-law exponent. |

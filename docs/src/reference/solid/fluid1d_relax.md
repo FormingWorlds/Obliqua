@@ -26,7 +26,9 @@ Rayleigh drag acts on the horizontal motion only. In the tangential momentum row
 
 $$\rho\,\omega^2 \;\rightarrow\; \rho\,\omega\,(\omega - i\sigma_R).$$
 
-With `n_sub > 1` every input layer is split into `n_sub` sub-layers, with values interpolated between the layer centres, so the fluid interface moves continuously instead of by whole layers.
+By default (`profile = "nodes"`) the interior layer values are interpolated between the layer centres to every node of the solver grid, so the material and the fluid interface vary continuously. With `profile = "layers"` the values are constant per input layer, or per sub-layer with `n_sub > 1`.
+
+In a mush the porous state is the melt flux $W = \phi R$, the volume flux of melt relative to the matrix ($R$ the relative melt displacement). The fluid-content equation conserves it, so $W$ and the pore pressure $P$ are continuous wherever the pores connect, and a change of porosity needs no interface condition (with $R$ as state, every porosity change would need the condition $\phi^- R^- = \phi^+ R^+$).
 
 ---
 
@@ -36,9 +38,9 @@ The solver orders the states so that the upper half holds displacement-like quan
 
 | Slot | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
-| Component | $U$ | $V$ | $\Phi$ | $P$ | $X=\sigma_{rr}$ | $Y=\sigma_{r\theta}$ | $\Psi$ | $R$ |
+| Component | $U$ | $V$ | $\Phi$ | $P$ | $X=\sigma_{rr}$ | $Y=\sigma_{r\theta}$ | $\Psi$ | $W$ |
 
-Solid and fluid nodes carry the six slots $\{1,2,3,5,6,7\}$; mush nodes carry all eight. $P$ is the pore pressure and $R$ the radial displacement of the melt relative to the matrix.
+Solid and fluid nodes carry the six slots $\{1,2,3,5,6,7\}$; mush nodes carry all eight. $P$ is the pore pressure and $W$ the radial melt flux relative to the matrix.
 
 ---
 
@@ -51,12 +53,11 @@ $$(\pmb L \pmb C_n)\,\pmb y_n + (\pmb G \pmb D_{n+1})\,\pmb y_{n+1} = \pmb 0 .$$
 | Face | Condition |
 |---|---|
 | solid/mush $\leftrightarrow$ fluid, liquid core | free slip: $Y = 0$ on the side(s) that carry shear, $V$ free |
-| solid $\leftrightarrow$ mush | closed pores: $R = 0$ on the porous side, $P$ free |
-| mush $\leftrightarrow$ fluid | open pores: $U_f = U_s + \phi R$, $P + X_f = 0$ |
-| mush $\leftrightarrow$ mush (porosity change) | melt flux continuity $\phi^- R^- = \phi^+ R^+$ |
+| solid $\leftrightarrow$ mush | closed pores: $W = 0$ on the porous side, $P$ free |
+| mush $\leftrightarrow$ fluid | open pores: $U_f = U_s + W$, $P + X_f = 0$ |
 | all other faces | all states continuous |
 
-`slip = :noslip` and `pores = :closed` switch the fluid faces to the alternatives. A static liquid core enters as the $4\times2$ core solution, with the CMB treated like any other interface. Above `omega_sw` the inertial-liquid core is used instead.
+`slip = :noslip` and `pores = :closed` switch the fluid faces to the alternatives. The core enters through the left null space of its solutions $\pmb I_C$ (`get_Ic`); a liquid core's $\pmb I_C$ carries the tangential slip as its own column (free slip). A liquid core is solved as inertial-liquid, and as the static liquid core where the inertial solution is not finite (forcing frequencies below about $10^{-11}$ rad s$^{-1}$, where the two agree). A zero-frequency mode is the equilibrium tide (`solid1d-equil-relax`).
 
 ---
 

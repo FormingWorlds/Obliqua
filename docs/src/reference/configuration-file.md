@@ -96,8 +96,9 @@ See [Forcing Frequency](@ref) for the underlying model.
 | `N_sigma` | int | Number of probe frequencies to evaluate k2 at (used when `spectrum = "full"`). |
 | `p_min` | float | Minimum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
 | `p_max` | float | Maximum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
-| `s_min` | int or `"none"` | Minimum tidal mode (Fourier index in mean anomaly). `"none"` derives it from the eccentricity relation. |
-| `s_max` | int or `"none"` | Maximum tidal mode (Fourier index in mean anomaly). `"none"` derives it from the eccentricity relation. |
+| `s_min` | int or `"none"` | Minimum tidal mode (Fourier index in mean anomaly). `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `s_max` | int or `"none"` | Maximum tidal mode (Fourier index in mean anomaly). `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `hansen_tail_tol` | float | Optional, default `1e-6`. Adaptive spectrum: the automatic mode range is the smallest one that leaves less than this fraction of the total weight $\sum_s (1 + \lvert s \rvert) X_s^2$ outside on each side ($X_s$ the Hansen coefficient of mode $s$). Smaller values give a wider range. Valid for any eccentricity below 1. |
 
 #### Phase specific Tidal Models
 
@@ -199,9 +200,9 @@ See [Liquid-Phase](@ref) for the underlying model.
 | `sigma_R_prf` | str | Vertical drag profile: `"uniform"`, `"exp"`, `"linear"`, `"quadratic"`, `"dynamic"`, or `"dynamic_interp"` (default). See [Liquid-Phase](@ref) for the physical meaning of each. |
 | `H_R` | float | Rayleigh drag scale height [m]. |
 | `efficiency` | float | Rayleigh drag efficiency at the core interface [dimensionless]. |
-| `omega_sw` | float | Optional, default `1e-5`. `fluid1d_relax`: a `"liquid"` core is replaced by `"inertial-liquid"` above this forcing frequency [rad s^-1]. |
 | `visc_fluid` | float | Optional, default `1e8`. `fluid1d_relax`: the contiguous layers from the surface down with a viscosity below this value [Pa s] are fluid, at every forcing frequency. |
-| `n_sub` | int | Optional, default `1`. `fluid1d_relax`: split every interior layer into this many sub-layers, with the layer values interpolated between the layer centres, so that the fluid interface moves continuously instead of by whole layers. (Note: `dr_min` and `dr_max` are used to sample a finer grid without interpolation.) |
+| `profile` | str | Optional, default `"nodes"`. `fluid1d_relax`: `"nodes"` interpolates the interior layer values (linearly between the layer centres) to every node of the solver grid, so the material, the porosity and the fluid interface vary continuously; `"layers"` keeps the values constant per interior layer, or per sub-layer with `n_sub`, so every porosity change inside a mush is a step. |
+| `n_sub` | int | Optional, default `1`. `fluid1d_relax` with `profile = "layers"`: split every interior layer into this many sub-layers, with the layer values interpolated between the layer centres, so that the fluid interface moves in smaller steps. Not used with `profile = "nodes"`. (Note: `dr_min` and `dr_max` set the solver grid.) |
 
 ```@raw html
 </div>

@@ -74,7 +74,9 @@ $\pmb{A}_n$ the $6 \times 6$ motion matrix, exactly as in
 [Solid-Phase - solid1d-relax](@ref). At some point we may encounter a
 porous layer, where we must couple the $6\times6$ elastic system to the
 $8\times8$ poro-elastic one that carries the two extra porous
-$y$-functions (pore pressure $P_{n,m}$ and Darcy flux $R_{n,m}$).
+$y$-functions (pore pressure $P_{n,m}$ and radial melt flux $W_{n,m} = \phi R_{n,m}$ relative to the matrix).
+The melt flux is continuous wherever the pores connect, so a porosity change between two porous nodes needs no
+interface condition.
 
 ### Solid-to-mush and mush-to-solid interfaces
 
@@ -95,18 +97,18 @@ side of the interface has no porous degrees of freedom to match against:
   pore-pressure and Darcy-flux rows of $\pmb D_{n+1}$ are zeroed, since
   the solid side above has neither degree of freedom.
 
-At a **solid $\to$ mush** transition a small regularizing term $\pmb K_n$ (a single $1$ on the Darcy-flux
-diagonal entry) is added to $\pmb X_n = \pmb P_n \pmb R_{n-1} + \pmb S_n$, the pseudo-inverse
-$\pmb R_n = -\pmb X_n^{+} \pmb Q_n$ is taken, and the Darcy-flux row of $\pmb R_n$ is set to zero, so that
-$R = 0$ at the last solid node. The pivot only turns the (identically cancelled) pore-pressure row of the interface
-cell into a slack; through the Darcy-displacement row of that cell, $R$ then vanishes at the cell face, which is
-the base of the porous layer (the pore pressure is free).
+At a **solid $\to$ mush** transition a small regularizing term $\pmb K_n$ (a single $1$ on the melt-flux
+diagonal entry) is added to $\pmb X_n = \pmb P_n \pmb R_{n-1} + \pmb S_n$, $\pmb R_n = -\pmb X_n^{-1} \pmb Q_n$ is
+obtained with a direct solve (the pseudo-inverse only if $\pmb X_n$ is singular), and the melt-flux row of $\pmb R_n$
+is set to zero, so that $W = 0$ at the last solid node. The pivot only turns the (identically cancelled)
+pore-pressure row of the interface cell into a slack; through the melt-flux row of that cell, $W$ then vanishes at
+the cell face, which is the base of the porous layer (the pore pressure is free).
 
 At a **mush $\to$ solid** transition the pore pressure jumps from its value on the porous side,
 $(\pmb C_n \pmb y_n)_P$, to zero. With this self-referencing jump the pore-pressure row of the
 difference equation across the interface vanishes identically, so the pore pressure is free. The
-vacated row takes the Darcy-displacement row of the same difference equation, $(\pmb C_n \pmb y_n)_R = 0$,
-i.e. zero radial Darcy displacement at the cell face (this row has no slot in the $6\times6$ solid block
+vacated row takes the melt-flux row of the same difference equation, $(\pmb C_n \pmb y_n)_W = 0$,
+i.e. zero radial melt flux at the cell face (this row has no slot in the $6\times6$ solid block
 row above), and $\pmb R_n = -\pmb X_n^{-1}\pmb Q_n$ is obtained with a direct solve. The $X$, $Y$, $\Psi$
 rows of the interface cell keep their coupling to $P_n$ and $R_n$: that part of $\pmb C^l_n \pmb y_n$ is
 returned as `Pn_extra` and added to $\pmb X_{n+1}$ by the next block row. With both choices the
@@ -154,7 +156,7 @@ of `constants.res`. It is then volume-averaged onto the interior-model layers, w
 There are three channels (Hay et al. 2025, Eqs. 38-39):
 
 - **Shear:** $\omega\,\mathrm{Im}(\tilde\mu)\left[\sum_i |\epsilon_{ii}|^2 + 2\sum_{i<j}|\epsilon_{ij}|^2 - \tfrac13|\mathrm{tr}\,\epsilon|^2\right]$.
-- **Darcy:** $\tfrac12\,\phi^2\omega^2(\eta_l/k)\,|\boldsymbol u_{rel}|^2$.
+- **Darcy:** $\tfrac12\,\omega^2(\eta_l/k)\,|\boldsymbol w|^2$, with $\boldsymbol w = \phi\,\boldsymbol u_{rel}$ the melt flux relative to the matrix.
 - **Compaction (volumetric):** with the solver's constitutive law (total mean stress $\tilde\kappa_d\,e - \tilde\alpha p$, fluid content $\tilde\alpha e + \tilde S p$, $e = \mathrm{tr}\,\epsilon$),
 
 $$
