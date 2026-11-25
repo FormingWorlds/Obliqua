@@ -61,9 +61,11 @@ version = "1.0"                 # Version of this configuration file
         s_max       = "none"    # Maximum tidal mode (s is the Fourier index in mean anomaly), "none" to select it from the Hansen spectrum
         hansen_tail_tol = 1e-6  # Share of the spectral weight (1 + |s|) X_s^2 left outside the selected mode range on each side
         
-        material_mu = "andrade" # Material type for complex shear modulus ("andrade", "maxwell", "elastic")
-        material_k  = "andrade" # Material type for complex bulk modulus ("andrade", "maxwell", "elastic")
-        alpha       = 0.3       # Power-law exponent, only for Andrade rheology (free parameter)
+        material_mu = "andrade" # Rheology of the complex shear modulus ("elastic", "maxwell", "andrade", "burgers", "sundberg-cooper", "voigt", "newton")
+        material_k  = "andrade" # Rheology of the complex bulk modulus (same options)
+        alpha       = 0.3       # Andrade creep exponent, 0 < alpha < 1 ("andrade", "sundberg-cooper")
+        kelvin_delta     = 0.2  # Optional: Kelvin-Voigt compliance / unrelaxed compliance ("burgers", "sundberg-cooper")
+        kelvin_eta_ratio = 0.02 # Optional: Kelvin-Voigt viscosity / viscosity ("burgers", "sundberg-cooper")
 
         # Solid interior model
         # Controls how the solid portion of the interior responds to tidal forcing.
