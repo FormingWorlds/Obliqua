@@ -36,19 +36,54 @@ The tidal potential can be expanded in an infinite sum of spherical
 harmonic terms with some degree $n$, order $m$, and harmonic $k$
 (integer values). The user has the option the provide these quantities
 in the configuration. However, specifically the $k$-range may also be
-determined by the code. The desired range increases with eccentricity,
-for our purposes the desired range $K$ contains
+determined by the code. The desired range increases with eccentricity.
+The Hansen coefficients $X_k = X^{-(n+1), m}_k(e)$ are computed by FFT
+over the mean anomaly, for any eccentricity below 1 (see
+[Forcing Frequency](@ref)). In the adaptive spectrum, unless `s_min` and
+`s_max` are set, the range $K = [k_\mathrm{lo}, k_\mathrm{hi}]$ is chosen
+by trimming modes from both ends of that spectrum.
+
+Each mode $k$ gets the weight
 
 ```math
-K = \{k \in \mathbb{Z} \, \big| \, |X^{-(n+1), m}_k| \geq 0.001 \}
+w_k = (1 + |k|)\, X_k^2 .
 ```
 
-where $X^{-(n+1), m}_k$ is the Hansen coefficient. Basically, we only
-include $k$ in the range $K$ if the corresponding Hansen coefficient
-signifies a contribution greater than 0.1% to the complete tidal response.
-One may specify a different criterion and generate their $K$ using the
-included Notebook on the Obliqua Github repository
-`"/examples/hansen_k_table.ipynb"`.
+The two terms measure what a mode adds to the tide:
+
+- $X_k^2$ is proportional to $|U_{n,m,k}|^2$, the square of the tidal
+  potential of mode $k$ (see [Tidal potentials](@ref)).
+- $|k| X_k^2$ tracks the heating of mode $k$. The heating is
+  $H_k \propto \sigma_k\,(-\mathrm{Im}[k_n(\sigma_k)])\,X_k^2$ with
+  $\sigma_k = m\Omega - k\,n_\mathrm{orb}$. The Love number is not known
+  before the solve, so the weight assumes a frequency-independent phase
+  lag (constant $\mathrm{Im}[k_n]$). Then $H_k \propto |\sigma_k| X_k^2$,
+  and in the tails of the spectrum ($|k|\,n_\mathrm{orb} \gg m\Omega$)
+  $|\sigma_k| \propto |k|$. The spin rate is left out, so the range
+  depends only on $e$, $n$ and $m$.
+
+With $W = \sum_k w_k$ the total weight and $\varepsilon$ the config value
+`hansen_tail_tol` (default $10^{-6}$), $K$ is the smallest range for which
+the weight left out on each side is below $\varepsilon W$:
+
+```math
+\sum_{k < k_\mathrm{lo}} w_k < \varepsilon\, W ,
+\qquad
+\sum_{k > k_\mathrm{hi}} w_k < \varepsilon\, W .
+```
+
+In practice modes are removed one at a time from the low end, then from
+the high end, for as long as the removed weight on that side stays below
+$\varepsilon W$. At most $2\varepsilon$ of the weight is dropped in
+total. For $m = 0$ the spectrum is symmetric in $k$; only $k \geq 0$ is
+kept, up to the larger of $|k_\mathrm{lo}|$ and $k_\mathrm{hi}$, and the
+mirrored modes are counted twice. A circular orbit gives the single mode
+$k = m$.
+
+The cut-off bounds the weight, not the heating itself: if
+$\mathrm{Im}[k_n]$ peaks at a frequency in the tail (a resonance), the
+heating left out can exceed $\varepsilon$ of the total. A smaller
+`hansen_tail_tol` widens $K$.
 
 For testing convenience Obliqua includes two modes: "full" and
 "adaptive". In principle, one should use "full" to test the tidal
@@ -70,34 +105,25 @@ and harmonic $k$ as
 
 ### Complex shear modulus
 
-The frequency response of the mantle is computed assuming a homogeneous
-viscoelastic mantle. Obliqua implements two rheological models: Maxwell
-and Andrade. Unlike the Maxwell model, which captures only
-elastic--viscous behavior through a single Maxwell timescale, the
-Andrade rheology includes a transient anelastic component. This yields
-an elastic response at high forcing frequencies, a viscous response at
-low frequencies governed by the Maxwell timescale $\tau_M = \eta / \mu$,
-and a smooth anelastic transition in between characterized by the
-Andrade timescale $\tau_A$ and creep exponent $\alpha$. As a result, the
-Andrade rheology reproduces the observed attenuation behavior of
-planetary mantles more accurately, particularly at high tidal forcing
-frequencies. The rheologies are incorporated via their definitions of
-the complex shear modulus. For the Andrade rheology, the complex shear
-modulus is
+The rheology of every layer enters through its complex moduli
+$\tilde\mu(\sigma)$ and $\tilde\kappa(\sigma)$, computed per forcing
+frequency from the unrelaxed modulus and the viscosity. Obliqua offers
+Maxwell, Andrade, Burgers and Sundberg-Cooper (elements in series, whose
+compliances add), Voigt and Newton (parallel and purely viscous limits),
+and a purely elastic option, chosen separately for shear (`material_mu`)
+and bulk (`material_k`). Andrade adds transient creep with exponent
+$\alpha$ to the Maxwell body; Burgers adds a Kelvin-Voigt element with
+compliance $\Delta/\mu$ and viscosity $\eta_K$, which gives a relaxed
+plateau $\mu/(1+\Delta)$ and an attenuation peak at
+$\sigma = \mu/(\Delta\eta_K)$; Sundberg-Cooper has both. For example,
+the Andrade modulus is
 
 ```math
 \tilde{\mu}(\sigma) =
 \frac{\mu}{
 1 + (\mathrm{i}\sigma\eta/\mu)^{-\alpha}\Gamma(1+\alpha)
-  + (\mathrm{i}\sigma\eta/\mu)^{-1}}, \qquad \alpha = 0.3,
+  + (\mathrm{i}\sigma\eta/\mu)^{-1}},
 ```
 
-where $\mu$ is the elastic shear modulus and $\Gamma$ the Gamma
-function.
-
-For the Maxwell limit $\alpha = 0$ and
-
-```math 
-\tilde{\mu}(\sigma) =
-\frac{\mu}{1 + (\mathrm{i}\sigma\eta/\mu)^{-1}}.
-```
+with $\Gamma$ the Gamma function; without the $\alpha$ term this is the
+Maxwell modulus. All formulas are on the [Rheology](@ref) page.

@@ -501,7 +501,7 @@ module solid1d_mush
             # reset the pore pressure and darcy flux
             if porous_layer[i] && (i > 1 && !porous_layer[i-1])
                 y_start[7,4] = 1.0          # Non-zero pore pressure
-                y_start[8,4] = 0.0          # Zero radial Darcy flux
+                y_start[8,4] = 0.0          # Zero radial melt flux W
             elseif !porous_layer[i]
                 y_start[7:8, :] .= 0.0      # Pore pressure and flux undefined
             end
@@ -523,7 +523,7 @@ module solid1d_mush
         has_porous = false
         for i in 1:nlayers
             if porous_layer[i]
-                M[4, :] .= y1_4[8, :, end, i] # Row 4 - Darcy flux
+                M[4, :] .= y1_4[8, :, end, i] # Row 4 - radial melt flux W
                 has_porous = true
             end
         end
@@ -646,15 +646,16 @@ module solid1d_mush
 
 
     """
-        compute_darcy_displacement!(dis_rel, y, n, r, ω, ϕ, ηl, k, g, ρl)
+        compute_darcy_flux!(w, y, n, r, ω, ϕ, ηl, k, g, ρl)
 
-    Calculate the Darcy displacement vector at a particular radial level. 
+    Calculate the melt flux relative to the matrix, w = ϕ u_rel (a displacement amplitude [m]), at a particular radial
+    level: radial component y8 = W, tangential components from Darcy's law (`common.darcy_w9`).
 
     # Arguments
-    - `dis_rel::SubArray`               : 4D array to store the Darcy displacement vector at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components of the Darcy displacement vector.
-    - `y::SubArray`                     : 1D array of the solution vector y at a particular radial level, with 8 components.
+    - `w::SubArray`                     : 4D array to store the melt flux at a particular radial level, with dimensions corresponding to latitude, longitude, and the 3 components (r, θ, φ).
+    - `y::SubArray`                     : 1D array of the solution vector y at a particular radial level, with 8 components (y8 = W).
     - `n::Int`                          : Tidal degree. 
-    - `r::Float64`                      : Radius at which to compute the Darcy displacement vector.
+    - `r::Float64`                      : Radius at which to compute the melt flux.
     - `ω::Float64`                      : Forcing frequency.
     - `ϕ::Float64`                      : Porosity at radius r.
     - `ηl::Float64`                     : Liquid viscosity at radius r.
@@ -662,7 +663,7 @@ module solid1d_mush
     - `g::Float64`                      : Gravity at radius r.
     - `ρl::Float64`                     : Liquid density at radius r.
     """
-    function compute_darcy_displacement!(dis_rel::SubArray, y::SubArray, n::Int, r::Float64, ω::Float64, ϕ::Float64, ηl::Float64, k::Float64, g::Float64, ρl::Float64)
+    function compute_darcy_flux!(w::SubArray, y::SubArray, n::Int, r::Float64, ω::Float64, ϕ::Float64, ηl::Float64, k::Float64, g::Float64, ρl::Float64)
         i = 1
 
         @views Y    = solid1d_mush.Y[i,:,:]
@@ -673,11 +674,11 @@ module solid1d_mush
         y5 = y[5]
         y7 = y[7]
         y8 = y[8]
-        y9 = 1im * k / (ω*ϕ*ηl*r) * (ρl*g*y1 - ρl * y5 + ρl*g*y8 + y7)
+        w9 = darcy_w9(k, ω, ϕ, ηl, r, ρl, g, y1, y5, y7, y8)
         
-        dis_rel[:,:,1] = Y * y8 
-        dis_rel[:,:,2] = dYdθ * y9
-        dis_rel[:,:,3] = dYdϕ * y9 ./ sin.(clats)
+        w[:,:,1] = Y * y8 
+        w[:,:,2] = dYdθ * w9
+        w[:,:,3] = dYdϕ * w9 ./ sin.(clats)
     end
 
 
@@ -804,7 +805,7 @@ module solid1d_mush
                 compute_strain_ten!(@view(ϵ[:,:,:,j,i]), yrr, n, rr, ρr, gr, μr, Ksr, ω, ρlr, Klr, Kdr, αr, ηlr, ϕr, kr)
                 
                 if ϕ[i] > 0 
-                    compute_darcy_displacement!(@view(d_disp[:,:,:,j,i]), yrr, n, rr, ω, ϕr, ηlr, kr, gr, ρlr)
+                    compute_darcy_flux!(@view(d_disp[:,:,:,j,i]), yrr, n, rr, ω, ϕr, ηlr, kr, gr, ρlr)
                     compute_pore_pressure!(@view(p[:,:,j,i]), yrr, n)
                 end
 
@@ -862,7 +863,8 @@ module solid1d_mush
                 @views Eκ_vol[i,j] = sum(sin.(clats) .* (Eκ[:,:,i,j])  * dres^2) * r[i,j]^2.0 * dr / dvol
         
                 if ϕ[j] > 0            
-                    @views El[:,:,i, j] = 0.5 *  ϕ[j]^2 * ω^2 * ηl[j]/k[j] * (abs.(d_disps[:,:,1,i,j]).^2 + abs.(d_disps[:,:,2,i,j]).^2 + abs.(d_disps[:,:,3,i,j]).^2)
+                    # Darcy dissipation ω² (ηl / k) |w|² / 2 of the melt flux w (d_disps)
+                    @views El[:,:,i, j] = 0.5 * ω^2 * ηl[j]/k[j] * (abs.(d_disps[:,:,1,i,j]).^2 + abs.(d_disps[:,:,2,i,j]).^2 + abs.(d_disps[:,:,3,i,j]).^2)
                     @views El_vol[i,j] = sum(sin.(clats) .* (El[:,:,i,j])  * dres^2) * r[i,j]^2.0 * dr / dvol
 
                 end

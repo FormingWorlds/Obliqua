@@ -83,11 +83,13 @@ Controls the tidal response model.
 | `N_sigma` | int | Number of sampled forcing frequencies. |
 | `p_min` | float | Minimum period ($\log_{10}$ kyr). |
 | `p_max` | float | Maximum period ($\log_{10}$ kyr). |
-| `s_min` | int or `"none"` | Minimum Fourier mode. `"none"` derives it from the eccentricity relation. |
-| `s_max` | int or `"none"` | Maximum Fourier mode. `"none"` derives it from the eccentricity relation. |
-| `material_mu` | str | Rheological model for shear modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `material_k` | str | Rheological model for bulk modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `alpha` | float | Andrade power-law exponent. |
+| `s_min` | int or `"none"` | Minimum Fourier mode. `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `s_max` | int or `"none"` | Maximum Fourier mode. `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `material_mu` | str | Rheology of the complex shear modulus: `"elastic"` (or `"none"`), `"maxwell"`, `"andrade"`, `"burgers"`, `"sundberg-cooper"`, `"voigt"` or `"newton"`. See [Rheology](@ref). |
+| `material_k` | str | Rheology of the complex (drained) bulk modulus, same options as `material_mu`. |
+| `alpha` | float | Andrade creep exponent, 0 < `alpha` < 1. Used by `"andrade"` and `"sundberg-cooper"`. |
+| `kelvin_delta` | float | Optional, default `0.2`. Compliance of the Kelvin-Voigt element relative to the unrelaxed compliance ($\Delta$). Used by `"burgers"` and `"sundberg-cooper"`. |
+| `kelvin_eta_ratio` | float | Optional, default `0.02`. Viscosity of the Kelvin-Voigt element relative to the viscosity ($\eta_K/\eta$). Used by `"burgers"` and `"sundberg-cooper"`. |
 | `module_solid` | str | Solid interior model (`"none"`, `"solid0d"`, `"solid1d"`, `"solid1d-relax"`, `"solid1d-mush"`, `"solid1d-mush-relax"`, or `"solid1d-equil-relax"`). |
 | `module_mushy` | str | Mushy layer model (`"none"` or `"interp"`). |
 | `module_fluid` | str | Fluid layer model (`"none"`, `"fluid0d"`, or `"fluid1d"`). |

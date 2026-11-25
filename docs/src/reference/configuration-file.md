@@ -67,6 +67,7 @@ Controls the tidal response model.
 | `optimize_scales` | bool | Optimize non-dimensionalization scales for the relaxation method, for numerical stability at low forcing frequencies. Do not combine with BigFloat precision. |
 | `solid_shell` | bool | Insert an infinitesimal solid shell around the core to patch a $y_2$/$y_4$ decoupling instability in fluid layers. Only relevant for `solid1d-relax` or `solid1d-mush-relax`. |
 | `cap_LN` | bool | Clamp each mode's Re(k2)/Im(k2) to 3x/2x the fluid Love-number limit for its degree n, rescaling heating to match via `enforce_ec`. |
+| `smooth_moduli` | bool | Optional, default `false`. Blend the complex moduli log-linearly across every > 3-decade outward viscosity drop. |
 
 #### Rheology and Viscosity
 
@@ -74,14 +75,16 @@ See [Rheology](@ref) for the underlying model.
 
 | NAME | TYPE | DESCRIPTION |
 | :--- | :--- | :--- |
-| `min_frac` | float | Minimal segment radius fraction before smoothing [dimensionless]. |
+| `min_frac` | float | Minimal segment radius fraction before smoothing [dimensionless]. Thinner segments at the CMB or sandwiched between two segments of the same phase are merged into their neighbours; a liquid layer at the surface is never merged and always stays a fluid segment. |
 | `visc_l` | float | Pure liquid viscosity [Pa s]. |
 | `visc_lus` | float | Liquidus viscosity to use [Pa s]. |
 | `visc_s` | float | Pure solid viscosity [Pa s]. |
 | `visc_sus` | float | Solidus viscosity to use [Pa s]. |
-| `material_mu` | str | Rheological model for the complex shear modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `material_k` | str | Rheological model for the complex bulk modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `alpha` | float | Andrade power-law exponent (free parameter), only used for Andrade rheology. |
+| `material_mu` | str | Rheology of the complex shear modulus: `"elastic"` (or `"none"`), `"maxwell"`, `"andrade"`, `"burgers"`, `"sundberg-cooper"`, `"voigt"` or `"newton"`. See [Rheology](@ref). |
+| `material_k` | str | Rheology of the complex (drained) bulk modulus, same options as `material_mu`. |
+| `alpha` | float | Andrade creep exponent, 0 < `alpha` < 1. Used by `"andrade"` and `"sundberg-cooper"`. |
+| `kelvin_delta` | float | Optional, default `0.2`. Compliance of the Kelvin-Voigt element relative to the unrelaxed compliance ($\Delta$). Used by `"burgers"` and `"sundberg-cooper"`. |
+| `kelvin_eta_ratio` | float | Optional, default `0.02`. Viscosity of the Kelvin-Voigt element relative to the viscosity ($\eta_K/\eta$). Used by `"burgers"` and `"sundberg-cooper"`. |
 
 #### Spectral and Forcing Parameters
 
@@ -95,8 +98,9 @@ See [Forcing Frequency](@ref) for the underlying model.
 | `N_sigma` | int | Number of probe frequencies to evaluate k2 at (used when `spectrum = "full"`). |
 | `p_min` | float | Minimum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
 | `p_max` | float | Maximum period for orbital and axial frequencies [$\log_{10}$ kyr]. |
-| `s_min` | int or `"none"` | Minimum tidal mode (Fourier index in mean anomaly). `"none"` derives it from the eccentricity relation. |
-| `s_max` | int or `"none"` | Maximum tidal mode (Fourier index in mean anomaly). `"none"` derives it from the eccentricity relation. |
+| `s_min` | int or `"none"` | Minimum tidal mode (Fourier index in mean anomaly). `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `s_max` | int or `"none"` | Maximum tidal mode (Fourier index in mean anomaly). `"none"` selects it from the Hansen spectrum (`hansen_tail_tol`). |
+| `hansen_tail_tol` | float | Optional, default `1e-6`. Adaptive spectrum: the automatic mode range is the smallest one that leaves less than this fraction of the total weight $\sum_s (1 + \lvert s \rvert) X_s^2$ outside on each side ($X_s$ the Hansen coefficient of mode $s$). Smaller values give a wider range. Valid for any eccentricity below 1. |
 
 #### Phase specific Tidal Models
 
@@ -148,6 +152,7 @@ See [Liquid-Phase](@ref) for the underlying model.
 * **`"none"`**: No fluid-phase tidal model.
 * **`"fluid0d"`**: Bulk fluid approximation. The fluid region is treated as a single effective layer with averaged mechanical properties; fast, but cannot resolve radial structure.
 * **`"fluid1d"`**: Same as `fluid0d`, but allows a user-specified radial heating distribution (see `[orbit.obliqua.fluid].sigma_R_prf`).
+* **`"fluid1d_relax"`**: Non-rotating, radially resolved column. The whole interior (solid, mush and fluid layers, in any order) is solved in one relaxation recursion from the core to the surface.
 
 ---
 
@@ -171,6 +176,7 @@ See [Liquid-Phase](@ref) for the underlying model.
 | `inertial_terms` | bool | Include inertial terms in the solid tidal response equations. |
 | `bulk_l` | float | Liquid bulk modulus [Pa]. |
 | `dbulk_power` | float | Drained bulk modulus power-law scaling exponent. |
+| `dbulk_phi_crit` | float | Optional, default `0.7715`. Melt fraction above which the drained bulk modulus is zero (no coherent skeleton; Biot coefficient 1; Hay et al. 2025, Eq. 48). Must lie in (0.0769, 1]. |
 | `porosity_thresh` | float | Percolation threshold, at which there is a first-order transition from fully connected to fully isolated pore space [dimensionless]. |
 
 ```@raw html
@@ -191,11 +197,14 @@ See [Liquid-Phase](@ref) for the underlying model.
 
 | NAME | TYPE | DESCRIPTION |
 | :--- | :--- | :--- |
-| `sigma_R` | float | Rayleigh drag coefficient at the interface [dimensionless]. |
-| `sigma_R_inf` | float | Rayleigh drag coefficient in the bulk (pure) fluid [dimensionless]. |
+| `sigma_R` | float | Rayleigh drag rate at the interface [s^-1]. |
+| `sigma_R_inf` | float | Rayleigh drag rate in the bulk (pure) fluid [s^-1]. |
 | `sigma_R_prf` | str | Vertical drag profile: `"uniform"`, `"exp"`, `"linear"`, `"quadratic"`, `"dynamic"`, or `"dynamic_interp"` (default). See [Liquid-Phase](@ref) for the physical meaning of each. |
 | `H_R` | float | Rayleigh drag scale height [m]. |
 | `efficiency` | float | Rayleigh drag efficiency at the core interface [dimensionless]. |
+| `visc_fluid` | float | Optional, default `1e8`. `fluid1d_relax`: the contiguous layers from the surface down with a viscosity below this value [Pa s] are fluid, at every forcing frequency. |
+| `profile` | str | Optional, default `"nodes"`. `fluid1d_relax`: `"nodes"` interpolates the interior layer values (linearly between the layer centres) to every node of the solver grid, so the material, the porosity and the fluid interface vary continuously; `"layers"` keeps the values constant per interior layer, or per sub-layer with `n_sub`, so every porosity change inside a mush is a step. |
+| `n_sub` | int | Optional, default `1`. `fluid1d_relax` with `profile = "layers"`: split every interior layer into this many sub-layers, with the layer values interpolated between the layer centres, so that the fluid interface moves in smaller steps. Not used with `profile = "nodes"`. (Note: `dr_min` and `dr_max` set the solver grid.) |
 
 ```@raw html
 </div>

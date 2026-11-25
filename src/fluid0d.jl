@@ -5,13 +5,20 @@ module fluid0d
     include("constants.jl")
     using .constants
 
-    export compute_fluid_lovenumbers, mean_rho
+    export compute_fluid_lovenumbers, mean_rho, enclosed_mean_rho
 
     
     """
-        compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, σ_R)    
-    
-    Calculate kn lovenumbers in fluid.
+        compute_fluid_lovenumbers(omega, R, H_magma, g, ρ_ratio, n, σ_R; self_attraction=true)
+
+    Calculate kn lovenumbers in fluid: non-rotating shallow ocean on a rigid interior (Laplace tidal equations), with
+    Rayleigh drag and the self-attraction of the displaced fluid,
+
+        k_n = -ξ_n σ_n^2 / (ω (ω - i σ_R) - (1 - ξ_n) σ_n^2),   ξ_n = 3 ρ_ratio / (2n + 1),   σ_n^2 = n(n+1) g H / R^2.
+
+    The potential of the displaced fluid, ξ_n g η, lowers the restoring gravity to (1 - ξ_n) g, so the static limit is
+    ξ_n / (1 - ξ_n), which is the fluid Love number 3/(2(n-1)) of a homogeneous body (ρ_ratio = 1). Without
+    self-attraction (`self_attraction=false`) the restoring term is σ_n^2 and the static limit is ξ_n.
 
     # Arguments
     - `omega::prec`                     : Forcing frequency range.
@@ -20,7 +27,8 @@ module fluid0d
     - `g::prec`                         : Surface gravity at top of fluid segment in mantle.
     - `ρ_ratio::prec`                   : Density contrast between current (fluid) and lower (non-fluid) layer.
     - `n::Int=2`                        : Power of the radial factor (goes with (r/a)^{n}, since r<<a only n=2 contributes significantly).
-    - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient.
+    - `sigma_R::Float64=1e-3`           : Rayleigh drag coefficient [s^-1].
+    - `self_attraction::Bool=true`      : Include the potential of the displaced fluid.
 
     # Returns
     - `kn_T::precc`                     : Complex Tidal kn Lovenumber.
@@ -33,7 +41,8 @@ module fluid0d
             g::prec,
             ρ_ratio::prec,
             n::Int,
-            σ_R::Float64
+            σ_R::Float64;
+            self_attraction::Bool=true
         )::Tuple{precc,precc}
                 
         # calculate parameters
@@ -43,8 +52,14 @@ module fluid0d
 
         σ_T = omega - im*σ_R
 
+        # self-attraction lowers the restoring gravity to (1 - ξ_n) g; ξ_n >= 1 has no restoring force
+        if self_attraction && !(ξ_n < 1)
+            throw(DomainError(ρ_ratio, "fluid0d: ξ_n = 3 ρ_ratio / (2n + 1) = $ξ_n must be below 1 with self-attraction"))
+        end
+        σ_r2 = self_attraction ? (1 - ξ_n) * σ_n^2 : σ_n^2
+
         # Tidal love number
-        kn_T = -ξ_n * σ_n^2 / (omega*σ_T - σ_n^2)
+        kn_T = -ξ_n * σ_n^2 / (omega*σ_T - σ_r2)
 
         # Load love numbers
         kn_L = 0. 
@@ -76,6 +91,31 @@ module fluid0d
         mean_density = M / sum(V)                    # Mean density (kg/m^3)
 
         return mean_density
+
+    end
+
+
+    """
+        enclosed_mean_rho(M_enclosed, r_outer)
+
+    Mean density of everything enclosed within radius `r_outer`.
+
+    # Arguments
+    - `M_enclosed::prec`                : Mass enclosed within `r_outer`, core included (kg).
+    - `r_outer::prec`                   : Outer radius of the enclosed region (m).
+
+    # Returns
+    - `mean_density::prec`              : Mean enclosed density (kg/m^3).
+    """
+    function enclosed_mean_rho(
+            M_enclosed::prec,
+            r_outer::prec
+        )::prec
+
+        if !(r_outer > 0)
+            throw(DomainError(r_outer, "outer radius must be positive"))
+        end
+        return M_enclosed / (4/3 * π * r_outer^3)
 
     end
 
