@@ -37,6 +37,7 @@ module Obliqua
     # Import submodules
     using  .constants
     import .common: cell_average, cell_average_map
+    import .common.helper: check_arg, check_option
     import .solid0d
     import .solid1d
     import .solid1d_mush
@@ -362,6 +363,9 @@ module Obliqua
         material_μ   = cfg["orbit"]["obliqua"]["material_mu"]
         material_κ   = cfg["orbit"]["obliqua"]["material_k"]
         alpha        = cfg["orbit"]["obliqua"]["alpha"]
+        # Kelvin-Voigt element of "burgers" and "sundberg-cooper": compliance and viscosity relative to the unrelaxed ones
+        kelvin_delta     = Float64(get(cfg["orbit"]["obliqua"], "kelvin_delta", 0.2))
+        kelvin_eta_ratio = Float64(get(cfg["orbit"]["obliqua"], "kelvin_eta_ratio", 0.02))
 
         module_solid = cfg["orbit"]["obliqua"]["module_solid"]
         ncalc        = cfg["orbit"]["obliqua"]["solid"]["ncalc"]
@@ -576,19 +580,19 @@ module Obliqua
         end
 
         # get frequency dependent complex shear modulus per mode
-        μc = complex_modulus(σ_range, μ, η; material=material_μ, α=alpha)
+        μc = complex_modulus(σ_range, μ, η; material=material_μ, α=alpha, Δ=kelvin_delta, ηK_ratio=kelvin_eta_ratio)
 
         # get frequency dependent complex bulk modulus per mode; the viscous part of the bulk moduli is the
         # bulk viscosity profile ζ (bulk_visc)
         if module_solid === "solid1d-mush" || module_solid === "solid1d-mush-relax" || module_fluid == "fluid1d_relax"
             # two-phase moduli: elastic grain bulk modulus, (visco)elastic drained frame, Biot coefficient
             κc = complex_modulus(σ_range, κ, ζ; material="elastic", α=alpha)
-            κdc = complex_modulus(σ_range, κd, ζ; material=material_κ, α=alpha)
+            κdc = complex_modulus(σ_range, κd, ζ; material=material_κ, α=alpha, Δ=kelvin_delta, ηK_ratio=kelvin_eta_ratio)
 
             # calculate Biot's modulus
             α  = precc(1.0) .- (κdc ./ κc)
         else
-            κc = complex_modulus(σ_range, κ, ζ; material=material_κ, α=alpha)
+            κc = complex_modulus(σ_range, κ, ζ; material=material_κ, α=alpha, Δ=kelvin_delta, ηK_ratio=kelvin_eta_ratio)
             κdc = complex_modulus(σ_range, κd, ζ; material="elastic", α=alpha)
 
             α = fill!(similar(κc, precc), 1)
@@ -1520,29 +1524,62 @@ module Obliqua
     end
 
 
-    """
-        complex_modulus(σ_range, x_profile, η_profile; material="andrade", α=0.3)
+    # rheologies accepted by complex_modulus ("none" is an alias of "elastic")
+    const RHEOLOGIES = ("elastic", "none", "maxwell", "andrade", "burgers", "sundberg-cooper", "voigt", "newton")
 
-    Return the complex shear modulus μ̃(σ) and complex bulk modulus κ̃(σ) for Elastic, Maxwell, or Andrade rheology.
+
+    """
+        complex_modulus(σ_range, x_profile, η_profile; material="andrade", α=0.3, Δ=0.2, ηK_ratio=0.02)
+
+    Return the complex modulus x̃(σ) (shear or bulk) of every layer at every forcing frequency, for the time
+    dependence exp(iσt). With the unrelaxed modulus x, the viscosity η and s = iσ τ_M (Maxwell time τ_M = η / x):
+
+    - `"elastic"` (alias `"none"`): x̃ = x, no dissipation.
+    - `"maxwell"`: x̃ = x s / (1 + s), spring and dashpot in series.
+    - `"andrade"`: x̃ = x s / (1 + s + Γ(1+α) s^(1-α)), Maxwell plus Andrade transient creep (Andrade time = τ_M).
+    - `"burgers"`: Maxwell plus a Kelvin-Voigt element in series, with compliance Δ / x and viscosity ηK = ηK_ratio η,
+      so x̃ = x / (1 + 1/s + Δ / (1 + s_K)) with s_K = iσ ηK Δ / x. Between the two relaxation times
+      (τ_K = ηK Δ / x ≪ 1/σ ≪ τ_M) the modulus is the relaxed x / (1 + Δ).
+    - `"sundberg-cooper"`: Andrade plus the same Kelvin-Voigt element (Sundberg & Cooper 2010).
+    - `"voigt"`: x̃ = x + iσ η, spring and dashpot in parallel (Kelvin-Voigt solid).
+    - `"newton"`: x̃ = iσ η, Newtonian fluid (x is not used).
+
+    The models in series (Maxwell, Andrade, Burgers, Sundberg-Cooper) are fully relaxed at σ = 0 and for x = 0 (x̃ = 0);
+    Maxwell, Burgers and Sundberg-Cooper are elastic for η = Inf. All models satisfy x̃(-σ) = conj(x̃(σ)), and
+    Im x̃ ≥ 0 for σ > 0 (no negative dissipation).
 
     # Arguments
-    - `σ_range::AbstractVector`         : Forcing frequency range.
-    - `x_profile::Array{precc,1}`       : Shear or Bulk profile of the planet (aka unrelaxed rigidity, unrelaxed bulk).
-    - `η_profile::Array{prec,1}`        : Viscosity profile of the planet.
-    
+    - `σ_range::AbstractVector`         : Forcing frequencies [rad/s].
+    - `x_profile::Array{precc,1}`       : Unrelaxed shear or bulk modulus of every layer [Pa].
+    - `η_profile::Array{prec,1}`        : Shear or bulk viscosity of every layer [Pa s].
+
     # Keyword Arguments
-    - `material::String="andrade"`      : Material for which to find complex shear modulus.
-    - `α::Float64=0.3"`                 : Power-law exponent (free parameter).
+    - `material::String="andrade"`      : Rheology, one of `RHEOLOGIES`.
+    - `α::Float64=0.3`                  : Andrade creep exponent, 0 < α < 1 ("andrade", "sundberg-cooper").
+    - `Δ::Float64=0.2`                  : Kelvin-Voigt compliance relative to the unrelaxed one, Δ ≥ 0 ("burgers",
+                                          "sundberg-cooper").
+    - `ηK_ratio::Float64=0.02`          : Kelvin-Voigt viscosity relative to η, > 0 ("burgers", "sundberg-cooper").
 
     # Returns
-    - `xc::Matrix{precc}`               : Complex shear modulus profile at all forcing frequencies.
+    - `xc::Matrix{precc}`               : Complex modulus of every layer (rows) at every frequency (columns).
     """
     function complex_modulus(σ_range::AbstractVector,
                         x_profile::Array{precc,1},
                         η_profile::Array{prec,1};
-                        material::String="andrade", 
-                        α::Float64=0.3
+                        material::String="andrade",
+                        α::Float64=0.3,
+                        Δ::Float64=0.2,
+                        ηK_ratio::Float64=0.02
                         )::Matrix{precc}
+
+        check_option("complex_modulus", "material", material, RHEOLOGIES)
+        if material in ("andrade", "sundberg-cooper")
+            check_arg(0 < α < 1, "complex_modulus: the Andrade exponent α must lie in (0, 1), got $α")
+        end
+        if material in ("burgers", "sundberg-cooper")
+            check_arg(Δ >= 0, "complex_modulus: the Kelvin-Voigt compliance ratio Δ must be ≥ 0, got $Δ")
+            check_arg(ηK_ratio > 0, "complex_modulus: the Kelvin-Voigt viscosity ratio must be > 0, got $ηK_ratio")
+        end
 
         nlayer = length(x_profile)
         nfreq  = length(σ_range)
@@ -1597,17 +1634,54 @@ module Obliqua
                     end
                 end
             end
-        
-        elseif material == "elastic" || material == "none"
+
+        elseif material == "burgers" || material == "sundberg-cooper"
+            # Andrade term only for Sundberg-Cooper
+            gamma_factor = material == "sundberg-cooper" ? gamma(1 + α) : 0.0
+
+            @inbounds for i in 1:nlayer
+                x = x_profile[i]
+                # no unrelaxed modulus: nothing to relax (x̃ = 0, as for Maxwell)
+                iszero(x) && continue
+
+                η = η_profile[i]
+                # no creep at all: elastic (the limit of every term below)
+                if isinf(η)
+                    xc[i, :] .= x
+                    continue
+                end
+                τM = η / x                       # Maxwell time
+                τK = ηK_ratio * η * Δ / x        # Kelvin-Voigt time (spring x / Δ, dashpot ηK)
+
+                for j in 1:nfreq
+                    σ = σ_range[j]
+                    # fully relaxed at zero frequency
+                    iszero(σ) && continue
+                    sM, sK = 1im * σ * τM, 1im * σ * τK
+                    # compliance relative to 1/x: elastic + Maxwell dashpot + Kelvin-Voigt (+ Andrade creep)
+                    J = 1 + 1 / sM + Δ / (1 + sK)
+                    iszero(gamma_factor) || (J += gamma_factor * sM^(-α))
+                    xc[i,j] = x / J
+                end
+            end
+
+        elseif material == "voigt"
+            @inbounds for i in 1:nlayer, j in 1:nfreq
+                xc[i,j] = x_profile[i] + 1im * σ_range[j] * η_profile[i]
+            end
+
+        elseif material == "newton"
+            @inbounds for i in 1:nlayer, j in 1:nfreq
+                xc[i,j] = 1im * σ_range[j] * η_profile[i]
+            end
+
+        else  # "elastic" or "none"
             @inbounds for i in 1:nlayer
                 x = x_profile[i]
                 for j in 1:nfreq
                     xc[i,j] = x
                 end
             end
-
-        else
-            throw(ArgumentError("Material type for complex shear modulus not defined; options: 'maxwell' or 'andrade'"))
         end
 
         return xc
