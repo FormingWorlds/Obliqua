@@ -80,9 +80,11 @@ See [Rheology](@ref) for the underlying model.
 | `visc_lus` | float | Liquidus viscosity to use [Pa s]. |
 | `visc_s` | float | Pure solid viscosity [Pa s]. |
 | `visc_sus` | float | Solidus viscosity to use [Pa s]. |
-| `material_mu` | str | Rheological model for the complex shear modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `material_k` | str | Rheological model for the complex bulk modulus (`"andrade"`, `"maxwell"`, or `"elastic"`). |
-| `alpha` | float | Andrade power-law exponent (free parameter), only used for Andrade rheology. |
+| `material_mu` | str | Rheology of the complex shear modulus: `"elastic"` (or `"none"`), `"maxwell"`, `"andrade"`, `"burgers"`, `"sundberg-cooper"`, `"voigt"` or `"newton"`. See [Rheology](@ref). |
+| `material_k` | str | Rheology of the complex (drained) bulk modulus, same options as `material_mu`. |
+| `alpha` | float | Andrade creep exponent, 0 < `alpha` < 1. Used by `"andrade"` and `"sundberg-cooper"`. |
+| `kelvin_delta` | float | Optional, default `0.2`. Compliance of the Kelvin-Voigt element relative to the unrelaxed compliance ($\Delta$). Used by `"burgers"` and `"sundberg-cooper"`. |
+| `kelvin_eta_ratio` | float | Optional, default `0.02`. Viscosity of the Kelvin-Voigt element relative to the viscosity ($\eta_K/\eta$). Used by `"burgers"` and `"sundberg-cooper"`. |
 
 #### Spectral and Forcing Parameters
 

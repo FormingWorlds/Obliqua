@@ -105,34 +105,25 @@ and harmonic $k$ as
 
 ### Complex shear modulus
 
-The frequency response of the mantle is computed assuming a homogeneous
-viscoelastic mantle. Obliqua implements two rheological models: Maxwell
-and Andrade. Unlike the Maxwell model, which captures only
-elastic--viscous behavior through a single Maxwell timescale, the
-Andrade rheology includes a transient anelastic component. This yields
-an elastic response at high forcing frequencies, a viscous response at
-low frequencies governed by the Maxwell timescale $\tau_M = \eta / \mu$,
-and a smooth anelastic transition in between characterized by the
-Andrade timescale $\tau_A$ and creep exponent $\alpha$. As a result, the
-Andrade rheology reproduces the observed attenuation behavior of
-planetary mantles more accurately, particularly at high tidal forcing
-frequencies. The rheologies are incorporated via their definitions of
-the complex shear modulus. For the Andrade rheology, the complex shear
-modulus is
+The rheology of every layer enters through its complex moduli
+$\tilde\mu(\sigma)$ and $\tilde\kappa(\sigma)$, computed per forcing
+frequency from the unrelaxed modulus and the viscosity. Obliqua offers
+Maxwell, Andrade, Burgers and Sundberg-Cooper (elements in series, whose
+compliances add), Voigt and Newton (parallel and purely viscous limits),
+and a purely elastic option, chosen separately for shear (`material_mu`)
+and bulk (`material_k`). Andrade adds transient creep with exponent
+$\alpha$ to the Maxwell body; Burgers adds a Kelvin-Voigt element with
+compliance $\Delta/\mu$ and viscosity $\eta_K$, which gives a relaxed
+plateau $\mu/(1+\Delta)$ and an attenuation peak at
+$\sigma = \mu/(\Delta\eta_K)$; Sundberg-Cooper has both. For example,
+the Andrade modulus is
 
 ```math
 \tilde{\mu}(\sigma) =
 \frac{\mu}{
 1 + (\mathrm{i}\sigma\eta/\mu)^{-\alpha}\Gamma(1+\alpha)
-  + (\mathrm{i}\sigma\eta/\mu)^{-1}}, \qquad \alpha = 0.3,
+  + (\mathrm{i}\sigma\eta/\mu)^{-1}},
 ```
 
-where $\mu$ is the elastic shear modulus and $\Gamma$ the Gamma
-function.
-
-For the Maxwell limit $\alpha = 0$ and
-
-```math 
-\tilde{\mu}(\sigma) =
-\frac{\mu}{1 + (\mathrm{i}\sigma\eta/\mu)^{-1}}.
-```
+with $\Gamma$ the Gamma function; without the $\alpha$ term this is the
+Maxwell modulus. All formulas are on the [Rheology](@ref) page.
